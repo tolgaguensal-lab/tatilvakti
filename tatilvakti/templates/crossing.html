@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, status, ext with context %}
+{% block title %}{{ c.short }}: {{ t("b_wait") }} live – {{ c.name }} – {{ t("app_name") }}{% endblock %}
+{% block description %}{{ c.name }} ({{ cname(c.countries[0]) }} → {{ cname(c.countries[1]) }}): {{ t("b_lead") }}{% endblock %}
+{% block main %}
+<p class="crumb"><a href="{{ href('borders') }}">{{ icon("chevron", "icon--xs icon--flip") }}{{ t("b_back") }}</a></p>
+<header class="pagehead">
+  <h1>{{ icon("border") }}{{ c.name }}</h1>
+  <p class="lead">{{ cname(c.countries[0]) }} → {{ cname(c.countries[1]) }}. {{ c.note[lang] }}</p>
+</header>
+
+<section class="card" aria-labelledby="now-title">
+  <h2 id="now-title" class="card__title">{{ icon("gauge") }}{{ t("b_now") }}</h2>
+  <div class="dir-stack">
+    {%- for d in ["to_tr", "to_de"] %}
+    <div class="dir-stack__item">
+      <h3 class="dir-card__title">{{ icon("arrow", "icon--s" ~ (" icon--flip" if d == "to_de" else "")) }}{{ t("b_dir_" ~ d) }}</h3>
+      {{ status(statuses[d], c.id, d) }}
+    </div>
+    {%- endfor %}
+  </div>
+  <a class="btn btn--wa btn--small" href="{{ share_url }}" target="_blank" rel="noopener noreferrer" data-share data-share-text="{{ share_text }}" data-share-url="{{ abs_url(href('crossing', cid=c.id)) }}">{{ icon("chat", "icon--s") }}{{ t("share_whatsapp") }}</a>
+</section>
+
+<section class="card report" id="melden" aria-labelledby="report-title">
+  <h2 id="report-title" class="card__title">{{ icon("clock") }}{{ t("b_report_title") }}</h2>
+  <p class="hint">{{ t("b_report_hint") }}</p>
+  <div class="flash{% if flash %} flash--{{ flash[0] }}{% endif %}" role="status" aria-live="polite" data-report-msg>{% if flash %}{{ flash[1] }}{% endif %}</div>
+  <form method="post" action="{{ href('report', cid=c.id) }}" data-report data-cid="{{ c.id }}">
+    <fieldset class="seg seg--wide">
+      <legend class="field__label">{{ t("b_direction") }}</legend>
+      {%- for d in ["to_tr", "to_de"] %}
+      <label class="seg__opt"><input type="radio" name="direction" value="{{ d }}" required>{{ icon("arrow", "icon--s" ~ (" icon--flip" if d == "to_de" else "")) }}<span>{{ t("b_dir_" ~ d) }}</span></label>
+      {%- endfor %}
+    </fieldset>
+    <fieldset class="buckets">
+      <legend class="field__label">{{ t("b_wait") }}</legend>
+      {%- for i in range(bucket_count) %}
+      <label class="bucket bucket--{{ 'ok' if i <= 1 else ('mid' if i <= 3 else 'bad') }}"><input type="radio" name="bucket" value="{{ i }}" required><span>{{ bucket_label(i) }}</span></label>
+      {%- endfor %}
+    </fieldset>
+    <label class="hp" aria-hidden="true">Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+    <button class="btn btn--primary btn--block" type="submit">{{ t("b_report_send") }}</button>
+  </form>
+</section>
+
+<section class="card" aria-labelledby="pattern-title">
+  <h2 id="pattern-title" class="card__title">{{ icon("gauge") }}{{ t("b_pattern") }}</h2>
+  {%- for d in ["to_tr", "to_de"] %}
+  {%- set p = patterns[d] %}
+  <h3 class="subhead">{{ t("b_dir_" ~ d) }}</h3>
+  {%- if p.enough %}
+  <svg class="pattern" width="100%" height="110" role="img" aria-label="{{ t('b_pattern') }} – {{ t('b_dir_' ~ d) }}">
+    {%- for s in p.slots %}
+    {%- set x = (s.hour / 24 * 100) | round(3) %}
+    {%- if s.minutes %}
+    {%- set h = 12 + s.bucket * 14 %}
+    <rect class="pattern__bar pattern__bar--{{ s.level }}" x="{{ x + 0.4 }}%" y="{{ 90 - h }}" width="3.4%" height="{{ h }}" rx="2"><title>{{ "%02d" | format(s.hour) }}:00 – {{ bucket_label(s.bucket) }} ({{ s.count }})</title></rect>
+    {%- else %}
+    <rect class="pattern__bar pattern__bar--none" x="{{ x + 0.4 }}%" y="86" width="3.4%" height="4" rx="1"></rect>
+    {%- endif %}
+    {%- endfor %}
+    {%- for hour in [0, 6, 12, 18] %}
+    <text class="pattern__tick" x="{{ (hour / 24 * 100) + 0.4 }}%" y="106">{{ "%02d" | format(hour) }}:00</text>
+    {%- endfor %}
+  </svg>
+  <p class="hint">{{ t("b_pattern_expl", tz=c.tz.split("/")[1], w=p.weeks) }}</p>
+  {%- else %}
+  <p class="muted">{{ t("b_pattern_empty") }}</p>
+  {%- endif %}
+  {%- endfor %}
+</section>
+
+<section class="card" aria-labelledby="official-title">
+  <h2 id="official-title" class="card__title">{{ icon("external") }}{{ t("b_official") }}</h2>
+  <ul class="links">
+    {%- for ref in c.official %}
+    <li>{{ ext(sources[ref].url, sources[ref].name) }}</li>
+    {%- endfor %}
+  </ul>
+</section>
+
+{%- if routes %}
+<section class="card" aria-labelledby="routes-title">
+  <h2 id="routes-title" class="card__title">{{ icon("route") }}{{ t("b_route_hint") }}</h2>
+  <ul class="links">
+    {%- for r in routes %}
+    <li><a href="{{ href('route') }}#{{ r.id }}">{{ r.name[lang] }}</a></li>
+    {%- endfor %}
+  </ul>
+</section>
+{%- endif %}
+
+<p class="note">{{ icon("info", "icon--s") }}<span>{{ t("b_crowd_note") }}</span></p>
+{% endblock %}

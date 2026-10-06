@@ -1,0 +1,224 @@
+{
+  "meta": {
+    "dataset": "crossings",
+    "as_of": "2026-10-06",
+    "review_after": "2027-05-31",
+    "note": {
+      "de": "Wartezeiten stammen ausschließlich aus Meldungen von Reisenden in dieser App. Offizielle Live-Quellen sind pro Übergang verlinkt.",
+      "tr": "Bekleme süreleri yalnızca bu uygulamadaki yolcu bildirimlerinden gelir. Resmi canlı kaynaklar her kapı için bağlantı olarak verilmiştir."
+    }
+  },
+  "sources": {
+    "hu_police": {
+      "name": "Ungarische Polizei – Határinfo (Wartezeiten)",
+      "url": "https://www.police.hu/hu/hirek-es-informaciok/hatarinfo"
+    },
+    "amss": {
+      "name": "AMSS – Auto-moto savez Srbije",
+      "url": "https://www.amss.org.rs"
+    },
+    "bg_police": {
+      "name": "Bulgarische Grenzpolizei (ГДГП)",
+      "url": "https://www.mvr.bg/gdgp"
+    },
+    "tr_trakya": {
+      "name": "T.C. Ticaret Bakanlığı – Trakya Gümrük",
+      "url": "https://trakya.ticaret.gov.tr"
+    },
+    "hak": {
+      "name": "HAK – Hrvatski autoklub",
+      "url": "https://www.hak.hr"
+    }
+  },
+  "crossings": [
+    {
+      "id": "kapikule",
+      "name": "Kapıkule – Kapitan Andreevo",
+      "short": "Kapıkule",
+      "countries": [
+        "BG",
+        "TR"
+      ],
+      "main": true,
+      "map": {
+        "x": 250,
+        "y": 470
+      },
+      "official": [
+        "tr_trakya",
+        "bg_police"
+      ],
+      "note": {
+        "de": "Wichtigster Übergang für Autos zwischen Bulgarien und der Türkei, bei Edirne. Kamerabilder der türkischen Seite gibt es nur saisonal im Sommer.",
+        "tr": "Bulgaristan ile Türkiye arasında otomobiller için en önemli kapı, Edirne yakınında. Türk tarafının kamera görüntüleri yalnızca yaz döneminde yayınlanır."
+      },
+      "tz": "Europe/Istanbul"
+    },
+    {
+      "id": "derekoy",
+      "name": "Dereköy – Malko Tarnovo",
+      "short": "Dereköy",
+      "countries": [
+        "BG",
+        "TR"
+      ],
+      "main": false,
+      "map": null,
+      "official": [
+        "tr_trakya",
+        "bg_police"
+      ],
+      "note": {
+        "de": "Kleinerer Übergang durch das Strandscha-Gebirge Richtung Kırklareli. Kurvige Bergstraße.",
+        "tr": "Istranca Dağları üzerinden Kırklareli'ye giden küçük kapı. Virajlı dağ yolu."
+      },
+      "tz": "Europe/Istanbul"
+    },
+    {
+      "id": "ipsala",
+      "name": "İpsala – Kipoi",
+      "short": "İpsala",
+      "countries": [
+        "GR",
+        "TR"
+      ],
+      "main": false,
+      "map": null,
+      "official": [
+        "tr_trakya"
+      ],
+      "note": {
+        "de": "Übergang von Griechenland, z. B. nach der Fähre Italien–Igoumenitsa.",
+        "tr": "Yunanistan'dan geçiş, örneğin İtalya–Igoumenitsa feribotundan sonra."
+      },
+      "tz": "Europe/Istanbul"
+    },
+    {
+      "id": "pazarkule",
+      "name": "Pazarkule – Kastanies",
+      "short": "Pazarkule",
+      "countries": [
+        "GR",
+        "TR"
+      ],
+      "main": false,
+      "map": null,
+      "official": [
+        "tr_trakya"
+      ],
+      "note": {
+        "de": "Übergang von Griechenland direkt bei Edirne.",
+        "tr": "Yunanistan'dan, doğrudan Edirne yakınında geçiş."
+      },
+      "tz": "Europe/Istanbul"
+    },
+    {
+      "id": "gradina",
+      "name": "Gradina – Kalotina",
+      "short": "Gradina",
+      "countries": [
+        "RS",
+        "BG"
+      ],
+      "main": true,
+      "map": {
+        "x": 210,
+        "y": 369
+      },
+      "official": [
+        "amss",
+        "bg_police"
+      ],
+      "note": {
+        "de": "Serbien → Bulgarien bei Dimitrovgrad, auf dem Weg nach Sofia.",
+        "tr": "Dimitrovgrad yakınında Sırbistan → Bulgaristan, Sofya yolu üzerinde."
+      },
+      "tz": "Europe/Belgrade"
+    },
+    {
+      "id": "horgos",
+      "name": "Röszke – Horgoš",
+      "short": "Röszke",
+      "countries": [
+        "HU",
+        "RS"
+      ],
+      "main": true,
+      "map": {
+        "x": 186,
+        "y": 236
+      },
+      "official": [
+        "hu_police",
+        "amss"
+      ],
+      "note": {
+        "de": "Autobahnübergang Ungarn → Serbien, im Sommer oft der Engpass. Ausweichmöglichkeiten: Ásotthalom und Tompa.",
+        "tr": "Macaristan → Sırbistan otoyol kapısı, yazın sık sık darboğaz. Alternatifler: Ásotthalom ve Tompa."
+      },
+      "tz": "Europe/Belgrade"
+    },
+    {
+      "id": "asotthalom",
+      "name": "Ásotthalom – Bački Vinogradi",
+      "short": "Ásotthalom",
+      "countries": [
+        "HU",
+        "RS"
+      ],
+      "main": false,
+      "map": null,
+      "official": [
+        "hu_police"
+      ],
+      "note": {
+        "de": "Straßenübergang westlich von Röszke. Laut ungarischer Polizei seit 01.05.2026 rund um die Uhr geöffnet.",
+        "tr": "Röszke'nin batısında kara yolu kapısı. Macar polisine göre 01.05.2026'dan beri 24 saat açık."
+      },
+      "tz": "Europe/Belgrade"
+    },
+    {
+      "id": "kelebija",
+      "name": "Tompa – Kelebija",
+      "short": "Tompa",
+      "countries": [
+        "HU",
+        "RS"
+      ],
+      "main": false,
+      "map": null,
+      "official": [
+        "hu_police",
+        "amss"
+      ],
+      "note": {
+        "de": "Ausweichübergang Richtung Subotica.",
+        "tr": "Subotica yönünde alternatif kapı."
+      },
+      "tz": "Europe/Belgrade"
+    },
+    {
+      "id": "batrovci",
+      "name": "Bajakovo – Batrovci",
+      "short": "Batrovci",
+      "countries": [
+        "HR",
+        "RS"
+      ],
+      "main": true,
+      "map": {
+        "x": 129,
+        "y": 270
+      },
+      "official": [
+        "amss",
+        "hak"
+      ],
+      "note": {
+        "de": "Autobahnübergang Kroatien → Serbien auf der Route über Zagreb.",
+        "tr": "Zagreb güzergâhında Hırvatistan → Sırbistan otoyol kapısı."
+      },
+      "tz": "Europe/Belgrade"
+    }
+  ]
+}

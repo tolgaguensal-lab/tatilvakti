@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, ext, status, asof with context %}
+{% block title %}{{ t("r_title") }} 2026/27 – {{ t("app_name") }}{% endblock %}
+{% block main %}
+<header class="pagehead">
+  <h1>{{ icon("route") }}{{ t("r_title") }}</h1>
+  <p class="lead">{{ t("r_lead") }}</p>
+</header>
+
+<p class="note note--warn">{{ icon("alert", "icon--s") }}<span>{{ t("r_scam") }}</span></p>
+
+<section class="routes">
+  {%- for r in transit.routes %}
+  <article class="card route-card" id="{{ r.id }}">
+    <h2 class="card__title">{{ r.name[lang] }}</h2>
+    <ol class="chain" aria-label="{{ t('r_countries') }}">
+      <li class="chain__stop">D</li>
+      {%- for code in r.countries %}
+      <li class="chain__stop{% if code == 'TR' %} chain__stop--end{% endif %}" title="{{ cname(code) }}">{{ code }}</li>
+      {%- endfor %}
+    </ol>
+    <p class="route-card__controls"><strong>{{ plural("r_controls", r.controls|length) }}</strong></p>
+    <ul class="route-card__borders">
+      {%- for cid in r.controls %}
+      {%- set c = crossings[cid] %}
+      <li>
+        <a href="{{ href('crossing', cid=cid) }}">{{ c.short }}</a>
+        <span class="muted">{{ cname(c.countries[0]) }} → {{ cname(c.countries[1]) }}</span>
+        {{ status(statuses[cid].to_tr, cid, "to_tr", compact=True) }}
+      </li>
+      {%- endfor %}
+    </ul>
+    <div class="proscons">
+      <div><h3>{{ t("r_pros") }}</h3><ul class="ticks">{% for p in r.pros %}<li>{{ icon("check", "icon--xs") }}<span>{{ p[lang] }}</span></li>{% endfor %}</ul></div>
+      <div><h3>{{ t("r_cons") }}</h3><ul class="ticks ticks--cons">{% for p in r.cons %}<li>{{ icon("alert", "icon--xs") }}<span>{{ p[lang] }}</span></li>{% endfor %}</ul></div>
+    </div>
+  </article>
+  {%- endfor %}
+  <article class="card route-card route-card--plane">
+    <h2 class="card__title">{{ icon("plane") }}{{ t("r_plane_title") }}</h2>
+    <p>{{ t("r_plane_text") }}</p>
+    <p class="cta-row"><a class="cta" href="{{ href('holidays') }}" data-state-link>{{ t("hol_title") }}{{ icon("chevron", "icon--s") }}</a> <a class="cta" href="{{ href('customs') }}">{{ t("c_title") }}{{ icon("chevron", "icon--s") }}</a></p>
+  </article>
+</section>
+
+<section aria-labelledby="countries-title">
+  <h2 id="countries-title" class="section-title">{{ t("r_by_country") }}</h2>
+  {%- for code, ct in transit.countries.items() %}
+  {%- set outdated = ct.prices_valid_until and is_due(ct.prices_valid_until, today) %}
+  <details class="card country" id="land-{{ code }}">
+    <summary class="country__sum">
+      <span class="country__code">{{ code }}</span>
+      <span class="country__name">{{ ct.name[lang] }}</span>
+      <span class="chip chip--sys">{{ t("r_system_" ~ ct.system) }}</span>
+    </summary>
+    <div class="country__body">
+      <p>{{ t("r_official_shop") }}: {{ ext(ct.shop.url, ct.shop.name) }}</p>
+      {%- if ct.prices %}
+      <h3 class="subhead">{{ t("r_prices") }} <span class="muted">({{ t("r_prices_until", date=fmt_date(ct.prices_valid_until | todate)) }})</span></h3>
+      {%- if outdated %}<p class="due">{{ icon("alert", "icon--xs") }} {{ t("r_prices_outdated") }}</p>{% endif %}
+      <table class="table table--prices{% if outdated %} is-outdated{% endif %}">
+        <tbody>
+          {%- for pr in ct.prices %}
+          <tr><th scope="row">{{ pr.label[lang] }}</th><td>{{ pr.value }}</td></tr>
+          {%- endfor %}
+        </tbody>
+      </table>
+      {%- else %}
+      <p class="muted">{{ t("r_no_prices") }}</p>
+      {%- endif %}
+      <ul class="ticks">
+        {%- for n in ct.notes %}<li>{{ icon("info", "icon--xs") }}<span>{{ n[lang] }}</span></li>{% endfor %}
+      </ul>
+      <p class="rule__src">{{ t("source") }}: {{ ext(ct.source.url, ct.source.name) }}</p>
+    </div>
+  </details>
+  {%- endfor %}
+</section>
+
+<section class="card" aria-labelledby="docs-title">
+  <h2 id="docs-title" class="card__title">{{ icon("doc") }}{{ t("r_docs") }}</h2>
+  <ul class="checklist">
+    {%- for doc in transit.documents %}
+    <li>
+      <label><input type="checkbox" data-check="{{ doc.id }}"><span>{{ doc.text[lang] }}</span></label>
+      {%- if doc.link %}{% set page, anchor = doc.link.split("#") %} <a href="{{ href(page) }}#{{ anchor }}">{{ t("r_doc_more") }}</a>{% endif %}
+    </li>
+    {%- endfor %}
+  </ul>
+  <p class="hint">{{ t("pref_local") }}</p>
+</section>
+
+<p class="note">{{ icon("info", "icon--s") }}<span>{{ transit.schengen_note[lang] }}</span></p>
+{{ asof(transit.meta.as_of, due=is_due(transit.meta.review_after, today)) }}
+<p class="hint">{{ transit.meta.note[lang] }}</p>
+{% endblock %}

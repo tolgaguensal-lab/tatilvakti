@@ -1,0 +1,464 @@
+{
+  "meta": {
+    "dataset": "transit",
+    "as_of": "2026-10-06",
+    "review_after": "2027-01-31",
+    "note": {
+      "de": "Preise nur, wo mehrere Quellen übereinstimmen. Kaufe Vignetten im offiziellen Shop – Drittanbieter verlangen oft Aufschläge.",
+      "tr": "Fiyatlar yalnızca birden fazla kaynağın örtüştüğü yerlerde verilmiştir. Vinyetleri resmi satış sitesinden al – aracı siteler çoğu zaman ek ücret alır."
+    }
+  },
+  "countries": {
+    "AT": {
+      "name": {
+        "de": "Österreich",
+        "tr": "Avusturya"
+      },
+      "system": "vignette",
+      "shop": {
+        "name": "ASFINAG Mautshop",
+        "url": "https://shop.asfinag.at"
+      },
+      "prices": [
+        {
+          "label": {
+            "de": "1 Tag (nur digital)",
+            "tr": "1 gün (yalnızca dijital)"
+          },
+          "value": "9,60 €"
+        },
+        {
+          "label": {
+            "de": "10 Tage",
+            "tr": "10 gün"
+          },
+          "value": "12,80 €"
+        },
+        {
+          "label": {
+            "de": "2 Monate",
+            "tr": "2 ay"
+          },
+          "value": "32,00 €"
+        },
+        {
+          "label": {
+            "de": "Jahr 2026",
+            "tr": "2026 yıllık"
+          },
+          "value": "106,80 €"
+        }
+      ],
+      "prices_valid_until": "2027-01-31",
+      "source": {
+        "name": "ASFINAG – Vignette 2026",
+        "url": "https://www.asfinag.at/ueber-uns/presse/pressemeldungen/klebevignette-2026-wird-feuerrot/"
+      },
+      "notes": [
+        {
+          "de": "Online gekaufte digitale 2-Monats- und Jahresvignetten gelten erst 18 Tage nach dem Kauf (Rücktrittsfrist). 1-Tages- und 10-Tages-Vignette gelten sofort.",
+          "tr": "İnternetten alınan dijital 2 aylık ve yıllık vinyet, cayma süresi nedeniyle ancak 18 gün sonra geçerli olur. 1 günlük ve 10 günlük vinyet hemen geçerlidir."
+        },
+        {
+          "de": "Ab 2027 gibt es nur noch die digitale Vignette, keine Klebevignette mehr.",
+          "tr": "2027'den itibaren yapıştırmalı vinyet yok, yalnızca dijital vinyet var."
+        },
+        {
+          "de": "Tauern- und Karawankentunnel und einige andere Strecken kosten extra (Streckenmaut).",
+          "tr": "Tauern ve Karawanken tünelleri ile bazı yollar ayrıca ücretlidir (güzergâh ücreti)."
+        }
+      ]
+    },
+    "SI": {
+      "name": {
+        "de": "Slowenien",
+        "tr": "Slovenya"
+      },
+      "system": "evignette",
+      "shop": {
+        "name": "DARS e-vinjeta",
+        "url": "https://evinjeta.dars.si"
+      },
+      "prices": [
+        {
+          "label": {
+            "de": "7 Tage",
+            "tr": "7 gün"
+          },
+          "value": "16,00 €"
+        },
+        {
+          "label": {
+            "de": "1 Monat",
+            "tr": "1 ay"
+          },
+          "value": "32,00 €"
+        }
+      ],
+      "prices_valid_until": "2026-12-31",
+      "source": {
+        "name": "DARS e-vinjeta (Preise 2026, mehrfach abgeglichen)",
+        "url": "https://evinjeta.dars.si"
+      },
+      "notes": [
+        {
+          "de": "Nur digital, ans Kennzeichen gebunden, Kontrolle per Kamera. Kürzeste Variante: 7 Tage.",
+          "tr": "Yalnızca dijital, plakaya bağlı, kamerayla denetlenir. En kısa seçenek: 7 gün."
+        }
+      ]
+    },
+    "HR": {
+      "name": {
+        "de": "Kroatien",
+        "tr": "Hırvatistan"
+      },
+      "system": "toll",
+      "shop": {
+        "name": "HAC – Hrvatske autoceste",
+        "url": "https://www.hac.hr"
+      },
+      "prices": [],
+      "source": {
+        "name": "Kroatische Regierung – neues Mautsystem",
+        "url": "https://vlada.gov.hr/vijesti/naplatne-kucice-odlaze-u-povijest-novi-sustav-naplate-cestarine-krajem-ljeta-2026/43047"
+      },
+      "notes": [
+        {
+          "de": "Streckenmaut nach gefahrenen Kilometern, bisher an Mautstellen (bar oder Karte) oder per ENC-Gerät.",
+          "tr": "Kilometreye göre otoyol ücreti; şimdiye kadar gişelerde (nakit veya kart) ya da ENC cihazıyla."
+        },
+        {
+          "de": "Kroatien stellt auf schrankenlose E-Maut per Kamera um, die Mautstellen sollen 2027 wegfallen. Vor der Fahrt den aktuellen Stand prüfen.",
+          "tr": "Hırvatistan kameralı, bariyersiz e-geçiş sistemine geçiyor; gişelerin 2027'de kaldırılması planlanıyor. Yola çıkmadan güncel durumu kontrol et."
+        }
+      ]
+    },
+    "HU": {
+      "name": {
+        "de": "Ungarn",
+        "tr": "Macaristan"
+      },
+      "system": "evignette",
+      "shop": {
+        "name": "Nemzeti Útdíjfizetési Szolgáltató (e-matrica)",
+        "url": "https://nemzetiutdij.hu"
+      },
+      "prices": [
+        {
+          "label": {
+            "de": "10 Tage (Pkw, D1)",
+            "tr": "10 gün (otomobil, D1)"
+          },
+          "value": "ca. 6.900 Ft"
+        }
+      ],
+      "prices_valid_until": "2026-12-31",
+      "source": {
+        "name": "e-matrica 2026 (mehrere Quellen, gerundet)",
+        "url": "https://nemzetiutdij.hu"
+      },
+      "notes": [
+        {
+          "de": "Digitale Vignette („e-matrica“), ans Kennzeichen gebunden. Am besten vor der Auffahrt auf die Autobahn kaufen.",
+          "tr": "Dijital vinyet („e-matrica“), plakaya bağlı. En iyisi otoyola çıkmadan önce satın almak."
+        }
+      ]
+    },
+    "RS": {
+      "name": {
+        "de": "Serbien",
+        "tr": "Sırbistan"
+      },
+      "system": "toll",
+      "shop": {
+        "name": "AMSS – Maut in Serbien",
+        "url": "https://www.amss.org.rs/na-putu/na-putu-evropa/putne-informacije-o-drzavi/drzava/putarine"
+      },
+      "prices": [],
+      "source": {
+        "name": "AMSS – Auto-moto savez Srbije",
+        "url": "https://www.amss.org.rs/na-putu/na-putu-evropa/putne-informacije-o-drzavi/drzava/putarine"
+      },
+      "notes": [
+        {
+          "de": "Maut an Mautstationen: bar in Dinar oder Euro (Wechselgeld in Dinar) oder per Karte (Visa, Mastercard). Kleine Euro-Scheine bereithalten.",
+          "tr": "Gişelerde ödeme: dinar veya euro nakit (para üstü dinar) ya da kart (Visa, Mastercard). Küçük euro banknotları hazır tut."
+        },
+        {
+          "de": "Kein EU-Land: Grenzkontrollen bei Ein- und Ausreise.",
+          "tr": "AB ülkesi değil: girişte ve çıkışta sınır kontrolü var."
+        }
+      ]
+    },
+    "RO": {
+      "name": {
+        "de": "Rumänien",
+        "tr": "Romanya"
+      },
+      "system": "vignette",
+      "shop": {
+        "name": "CNAIR (staatlicher Straßenbetreiber)",
+        "url": "https://www.cnadnr.ro"
+      },
+      "prices": [
+        {
+          "label": {
+            "de": "10 Tage (je nach Abgasnorm)",
+            "tr": "10 gün (emisyon normuna göre)"
+          },
+          "value": "30–39 Lei"
+        }
+      ],
+      "prices_valid_until": "2027-09-30",
+      "source": {
+        "name": "Rovinieta-Tarife ab 01.10.2026 (Digi24)",
+        "url": "https://www.digi24.ro/digieconomic/consumer/cat-va-costa-rovinieta-pentru-autoturisme-de-la-1-octombrie-tarifele-difera-in-functie-de-norma-de-poluare-120763"
+      },
+      "notes": [
+        {
+          "de": "Die Vignette („Rovinieta“) gilt für alle Nationalstraßen, nicht nur für Autobahnen. Seit 01.10.2026 hängt der Preis von der Abgasnorm ab.",
+          "tr": "Vinyet („Rovinieta“) yalnızca otoyollar için değil, tüm devlet yolları için gerekir. 01.10.2026'dan beri fiyat emisyon normuna göre değişiyor."
+        },
+        {
+          "de": "Die Donaubrücken nach Bulgarien (Calafat–Vidin, Giurgiu–Ruse) kosten eine eigene Gebühr.",
+          "tr": "Bulgaristan'a geçen Tuna köprüleri (Calafat–Vidin, Giurgiu–Ruse) ayrıca ücretlidir."
+        }
+      ]
+    },
+    "BG": {
+      "name": {
+        "de": "Bulgarien",
+        "tr": "Bulgaristan"
+      },
+      "system": "evignette",
+      "shop": {
+        "name": "BG TOLL (Straßenagentur)",
+        "url": "https://bgtoll.bg"
+      },
+      "prices": [
+        {
+          "label": {
+            "de": "Wochenende",
+            "tr": "Hafta sonu"
+          },
+          "value": "5,11 €"
+        },
+        {
+          "label": {
+            "de": "7 Tage",
+            "tr": "7 gün"
+          },
+          "value": "7,67 €"
+        },
+        {
+          "label": {
+            "de": "30 Tage",
+            "tr": "30 gün"
+          },
+          "value": "15,34 €"
+        }
+      ],
+      "prices_valid_until": "2026-12-31",
+      "source": {
+        "name": "BG TOLL – e-Vignette",
+        "url": "https://bgtoll.bg/en/e-vignette"
+      },
+      "notes": [
+        {
+          "de": "Bulgarien zahlt seit 01.01.2026 in Euro. Die e-Vignette ist ans Kennzeichen gebunden.",
+          "tr": "Bulgaristan 01.01.2026'dan beri euro kullanıyor. E-vinyet plakaya bağlıdır."
+        }
+      ]
+    },
+    "TR": {
+      "name": {
+        "de": "Türkei",
+        "tr": "Türkiye"
+      },
+      "system": "hgs",
+      "shop": {
+        "name": "KGM – Yabancı plakalı araçlar",
+        "url": "https://www.kgm.gov.tr/Sayfalar/KGM/SiteTr/Otoyollar/YabanciPlakaliAraclar.aspx"
+      },
+      "prices": [],
+      "source": {
+        "name": "KGM – Karayolları Genel Müdürlüğü",
+        "url": "https://www.kgm.gov.tr/Sayfalar/KGM/SiteTr/Otoyollar/YabanciPlakaliAraclar.aspx"
+      },
+      "notes": [
+        {
+          "de": "Mautpflichtige Autobahnen und Brücken nur mit HGS-Konto mit genug Guthaben – auch mit ausländischem Kennzeichen.",
+          "tr": "Ücretli otoyol ve köprüler yalnızca yeterli bakiyeli HGS ile – yabancı plakalı araçlar dahil."
+        },
+        {
+          "de": "HGS gibt es bei der PTT direkt am Grenzübergang, in PTT-Filialen und Banken.",
+          "tr": "HGS gümrük kapılarındaki PTT'den, PTT şubelerinden ve bankalardan alınabilir."
+        },
+        {
+          "de": "Ohne HGS durchgefahren? Innerhalb von 15 Tagen nachzahlen (HGS aufladen oder ivd.gib.gov.tr), sonst wird es teurer. Mit offener Maut kann die Ausreise verweigert werden.",
+          "tr": "HGS'siz mi geçtin? 15 gün içinde öde (HGS yükle veya ivd.gib.gov.tr), yoksa cezalı olur. Ödenmemiş geçişle ülkeden çıkışa izin verilmeyebilir."
+        }
+      ]
+    }
+  },
+  "routes": [
+    {
+      "id": "ungarn-serbien",
+      "name": {
+        "de": "Über Ungarn und Serbien",
+        "tr": "Macaristan ve Sırbistan üzerinden"
+      },
+      "countries": [
+        "AT",
+        "HU",
+        "RS",
+        "BG",
+        "TR"
+      ],
+      "controls": [
+        "horgos",
+        "gradina",
+        "kapikule"
+      ],
+      "pros": [
+        {
+          "de": "Klassische Sıla-Yolu-Strecke mit viel Infrastruktur",
+          "tr": "Bol tesisli, klasik sıla yolu güzergâhı"
+        }
+      ],
+      "cons": [
+        {
+          "de": "3 Grenzkontrollen: Ungarn → Serbien, Serbien → Bulgarien, Bulgarien → Türkei",
+          "tr": "3 sınır kontrolü: Macaristan → Sırbistan, Sırbistan → Bulgaristan, Bulgaristan → Türkiye"
+        },
+        {
+          "de": "Röszke ist im Sommer oft der Engpass",
+          "tr": "Yaz aylarında Röszke sık sık darboğaz olur"
+        }
+      ]
+    },
+    {
+      "id": "kroatien-serbien",
+      "name": {
+        "de": "Über Slowenien, Kroatien und Serbien",
+        "tr": "Slovenya, Hırvatistan ve Sırbistan üzerinden"
+      },
+      "countries": [
+        "AT",
+        "SI",
+        "HR",
+        "RS",
+        "BG",
+        "TR"
+      ],
+      "controls": [
+        "batrovci",
+        "gradina",
+        "kapikule"
+      ],
+      "pros": [
+        {
+          "de": "Ausweichroute, wenn es in Ungarn staut",
+          "tr": "Macaristan'da yoğunluk varsa alternatif"
+        }
+      ],
+      "cons": [
+        {
+          "de": "3 Grenzkontrollen: Kroatien → Serbien, Serbien → Bulgarien, Bulgarien → Türkei",
+          "tr": "3 sınır kontrolü: Hırvatistan → Sırbistan, Sırbistan → Bulgaristan, Bulgaristan → Türkiye"
+        },
+        {
+          "de": "Zwei Mautsysteme mehr (Slowenien, Kroatien)",
+          "tr": "İki ayrı ücret sistemi daha (Slovenya, Hırvatistan)"
+        }
+      ]
+    },
+    {
+      "id": "rumaenien",
+      "name": {
+        "de": "Schengen-Route über Rumänien",
+        "tr": "Romanya üzerinden Schengen güzergâhı"
+      },
+      "countries": [
+        "AT",
+        "HU",
+        "RO",
+        "BG",
+        "TR"
+      ],
+      "controls": [
+        "kapikule"
+      ],
+      "pros": [
+        {
+          "de": "Nur 1 Grenzkontrolle bis zur Türkei: Rumänien und Bulgarien sind seit 01.01.2025 voll im Schengen-Raum",
+          "tr": "Türkiye'ye kadar tek sınır kontrolü: Romanya ve Bulgaristan 01.01.2025'ten beri tam Schengen üyesi"
+        },
+        {
+          "de": "Kein Nicht-EU-Transit (kein Serbien)",
+          "tr": "AB dışı transit yok (Sırbistan yok)"
+        }
+      ],
+      "cons": [
+        {
+          "de": "In Rumänien je nach Strecke auch Abschnitte ohne Autobahn – Fahrzeit in der Navi-App vergleichen",
+          "tr": "Romanya'da güzergâha göre otoyol olmayan bölümler var – süreyi navigasyonda karşılaştır"
+        },
+        {
+          "de": "Donaubrücke kostet extra",
+          "tr": "Tuna köprüsü ayrıca ücretli"
+        }
+      ]
+    }
+  ],
+  "documents": [
+    {
+      "id": "gruene-karte",
+      "text": {
+        "de": "Grüne Versicherungskarte – „TR“ darf nicht durchgestrichen sein",
+        "tr": "Yeşil kart sigortası – „TR“ çizili olmamalı"
+      },
+      "link": "customs#tr-gruene-karte"
+    },
+    {
+      "id": "fahrzeugschein",
+      "text": {
+        "de": "Fahrzeugschein (Zulassungsbescheinigung Teil I)",
+        "tr": "Araç ruhsatı (Zulassungsbescheinigung Teil I)"
+      }
+    },
+    {
+      "id": "vollmacht",
+      "text": {
+        "de": "Beglaubigte Vollmacht mit türkischer Übersetzung, wenn das Auto nicht dir gehört",
+        "tr": "Araç sana ait değilse noter onaylı, Türkçe tercümeli vekâletname"
+      },
+      "link": "customs#tr-vollmacht"
+    },
+    {
+      "id": "vignetten",
+      "text": {
+        "de": "Vignetten für deine Route – nur im offiziellen Shop kaufen",
+        "tr": "Güzergâhın için vinyetler – yalnızca resmi siteden al"
+      }
+    },
+    {
+      "id": "hgs",
+      "text": {
+        "de": "HGS für die Türkei – an der Grenze bei der PTT",
+        "tr": "Türkiye için HGS – sınırdaki PTT'den"
+      }
+    },
+    {
+      "id": "ausweis",
+      "text": {
+        "de": "Gültige Ausweise für alle Mitreisenden, auch die Kinder",
+        "tr": "Çocuklar dahil tüm yolcular için geçerli kimlik belgeleri"
+      }
+    }
+  ],
+  "schengen_note": {
+    "de": "Auch im Schengen-Raum kann es vorübergehende Kontrollen geben, etwa bei der Einreise nach Deutschland oder Österreich.",
+    "tr": "Schengen içinde de geçici kontroller olabilir, örneğin Almanya'ya veya Avusturya'ya girişte."
+  }
+}

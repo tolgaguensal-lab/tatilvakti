@@ -1,0 +1,316 @@
+/* tatilvakti – progressive enhancement. Every page also works without this file. */
+(function () {
+  "use strict";
+
+  var S = {};
+  try { S = JSON.parse(document.getElementById("tv-strings").textContent); } catch (e) { S = {}; }
+  var $ = function (sel, root) { return (root || document).querySelector(sel); };
+  var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+  var fmt = function (str, vars) { return String(str || "").replace(/\{(\w+)\}/g, function (_, k) { return vars[k] != null ? vars[k] : ""; }); };
+
+  // ---------------------------------------------------------- local storage
+  // Only per-device conveniences. Never required for the page to work.
+  var store = {
+    get: function (key, fallback) {
+      try { var v = window.localStorage.getItem("tv." + key); return v == null ? fallback : JSON.parse(v); } catch (e) { return fallback; }
+    },
+    set: function (key, value) {
+      try { window.localStorage.setItem("tv." + key, JSON.stringify(value)); } catch (e) { /* private mode */ }
+    }
+  };
+
+  $$(".js-hide").forEach(function (el) { el.hidden = true; });
+  $$(".chips__item.is-active").forEach(function (chip) {
+    var bar = chip.parentNode;
+    bar.scrollLeft = chip.offsetLeft - (bar.clientWidth - chip.offsetWidth) / 2;
+  });
+
+  // ---------------------------------------------------------- relative times
+  function ago(ts) {
+    var diff = Math.max(0, Math.floor(Date.now() / 1000) - ts);
+    if (diff < 60) return S.ago_now;
+    if (diff < 3600) return fmt(S.ago_min, { n: Math.floor(diff / 60) });
+    if (diff < 48 * 3600) return fmt(S.ago_h, { n: Math.floor(diff / 3600) });
+    return fmt(S.ago_d, { n: Math.floor(diff / 86400) });
+  }
+  function refreshTimes() {
+    $$("time[data-ts]").forEach(function (el) { el.textContent = ago(parseInt(el.getAttribute("data-ts"), 10)); });
+  }
+  refreshTimes();
+  setInterval(refreshTimes, 30000);
+
+  // ---------------------------------------------------------- offline banner
+  var banner = $("[data-offline-banner]");
+  function onlineState() { if (banner) banner.hidden = navigator.onLine !== false; }
+  window.addEventListener("online", onlineState);
+  window.addEventListener("offline", onlineState);
+  onlineState();
+
+  // ---------------------------------------------------------- preferences
+  var params = new URLSearchParams(window.location.search);
+  var urlState = (params.get("land") || "").toUpperCase();
+  var state = urlState || store.get("state", "");
+  var mode = store.get("mode", "car");
+
+  function applyState(code) {
+    $$("[data-per-state]").forEach(function (el) {
+      var key = el.getAttribute("data-per-state");
+      el.hidden = code ? key !== code : key !== "none";
+    });
+    if (code && !$('[data-per-state="' + code + '"]')) {
+      var none = $('[data-per-state="none"]');
+      if (none) none.hidden = false;
+    }
+    $$("[data-tl-state]").forEach(function (el) {
+      el.classList.toggle("is-you", el.getAttribute("data-tl-state") === code);
+    });
+    $$("[data-state-link]").forEach(function (a) {
+      var url = new URL(a.getAttribute("href"), window.location.href);
+      if (code) url.searchParams.set("land", code); else url.searchParams.delete("land");
+      a.setAttribute("href", url.pathname + url.search);
+    });
+    $$('select[data-pref="state"]').forEach(function (sel) { sel.value = code || ""; });
+  }
+  function applyMode(m) {
+    document.body.classList.toggle("mode-plane", m === "plane");
+    $$('[data-pref="mode"] input').forEach(function (inp) { inp.checked = inp.value === m; });
+  }
+  applyState(state);
+  applyMode(mode);
+
+  $$('select[data-pref="state"]').forEach(function (sel) {
+    sel.addEventListener("change", function () {
+      state = sel.value;
+      store.set("state", state);
+      applyState(state);
+      if (window.history && window.history.replaceState && $(".tl")) {
+        var url = new URL(window.location.href);
+        if (state) url.searchParams.set("land", state); else url.searchParams.delete("land");
+        window.history.replaceState(null, "", url.pathname + url.search);
+      }
+    });
+  });
+  $$('[data-pref="mode"] input').forEach(function (inp) {
+    inp.addEventListener("change", function () { mode = inp.value; store.set("mode", mode); applyMode(mode); });
+  });
+  $$("form[data-prefs]").forEach(function (form) {
+    form.addEventListener("submit", function (ev) { ev.preventDefault(); });
+  });
+
+  // ---------------------------------------------------------- share
+  $$("[data-share]").forEach(function (a) {
+    a.addEventListener("click", function (ev) {
+      if (!navigator.share) return; // fall back to the WhatsApp link
+      ev.preventDefault();
+      navigator.share({ text: a.getAttribute("data-share-text"), url: a.getAttribute("data-share-url") }).catch(function () {});
+    });
+  });
+
+  // ---------------------------------------------------------- checklist
+  var checks = store.get("checks", {});
+  $$("input[data-check]").forEach(function (box) {
+    var id = box.getAttribute("data-check");
+    box.checked = !!checks[id];
+    box.addEventListener("change", function () { checks[id] = box.checked; store.set("checks", checks); });
+  });
+
+  // ---------------------------------------------------------- border status
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+  function renderStatus(box, st) {
+    var compact = box.classList.contains("status--compact");
+    box.className = "status status--" + st.level + (compact ? " status--compact" : "");
+    var body = $(".status__body", box);
+    body.textContent = "";
+    var main = st.state === "live" ? S["b_bucket_" + st.bucket]
+      : (compact ? S.b_level_none : (st.last_at ? S.b_no_reports : S.b_no_reports_ever));
+    body.appendChild(el("span", "status__main", main));
+    var meta = el("span", "status__meta");
+    if (compact) {
+      if (st.state === "live") {
+        meta.appendChild(el("span", "status__level", S["b_level_" + st.level]));
+        meta.appendChild(document.createTextNode(" · " + st.count + "× · "));
+        var t = el("time", null, ago(st.last_at));
+        t.setAttribute("data-ts", st.last_at);
+        meta.appendChild(t);
+      }
+      body.appendChild(meta);
+      return;
+    }
+    if (st.state === "live") {
+      meta.appendChild(el("span", "status__level", S["b_level_" + st.level]));
+      var key = st.count === 1 ? "b_reports_1" : "b_reports_n";
+      meta.appendChild(document.createTextNode(" · " + fmt(S[key], { n: st.count, h: Math.round(st.window_min / 60) })));
+    }
+    if (st.last_at) {
+      if (st.state === "live") meta.appendChild(document.createTextNode(" · "));
+      var last = el("span", "status__last");
+      var parts = String(S.b_last_report).split("{ago}");
+      last.appendChild(document.createTextNode(parts[0] || ""));
+      var time = el("time", null, ago(st.last_at));
+      time.setAttribute("data-ts", st.last_at);
+      time.setAttribute("datetime", new Date(st.last_at * 1000).toISOString());
+      last.appendChild(time);
+      last.appendChild(document.createTextNode(parts[1] || ""));
+      meta.appendChild(last);
+    }
+    body.appendChild(meta);
+  }
+  function applyCrossing(c) {
+    Object.keys(c.directions).forEach(function (dir) {
+      var st = c.directions[dir];
+      $$('[data-status][data-cid="' + c.id + '"][data-dir="' + dir + '"]').forEach(function (box) { renderStatus(box, st); });
+      $$('[data-node][data-cid="' + c.id + '"]').forEach(function (node) { node.setAttribute("data-l-" + dir, st.level); });
+    });
+  }
+  function refreshBorders() {
+    if (!$("[data-status]") || document.hidden || navigator.onLine === false) return;
+    fetch("/api/v1/borders", { headers: { Accept: "application/json" } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { if (data && data.crossings) data.crossings.forEach(applyCrossing); })
+      .catch(function () {});
+  }
+  if ($("[data-status]")) {
+    setInterval(refreshBorders, 90000);
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) refreshBorders(); });
+  }
+
+  var dirSwitch = $("[data-dir-switch]");
+  var map = $("[data-map]");
+  if (dirSwitch && map) {
+    dirSwitch.hidden = false;
+    $$("button", dirSwitch).forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        map.setAttribute("data-dir", btn.getAttribute("data-dir"));
+        $$("button", dirSwitch).forEach(function (b) {
+          var on = b === btn;
+          b.classList.toggle("is-active", on);
+          b.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+      });
+    });
+  }
+
+  // ---------------------------------------------------------- reports (+ offline queue)
+  var MAX_AGE = 90 * 60;
+  function postReport(item) {
+    return fetch("/api/v1/borders/" + encodeURIComponent(item.cid) + "/reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ direction: item.direction, bucket: item.bucket, observed_at: item.observed_at })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (data) { return { status: r.status, data: data }; });
+    });
+  }
+  function flushQueue() {
+    var queue = store.get("queue", []);
+    if (!queue.length || navigator.onLine === false) return;
+    var now = Math.floor(Date.now() / 1000);
+    queue = queue.filter(function (q) { return now - q.observed_at < MAX_AGE; });
+    store.set("queue", []);
+    queue.forEach(function (item) {
+      postReport(item).then(function (res) {
+        if (res.data && res.data.crossing) applyCrossing(res.data.crossing);
+      }).catch(function () {
+        var rest = store.get("queue", []); rest.push(item); store.set("queue", rest);
+      });
+    });
+  }
+  window.addEventListener("online", flushQueue);
+  flushQueue();
+
+  $$("form[data-report]").forEach(function (form) {
+    var msg = $("[data-report-msg]");
+    function say(kind, text) {
+      if (!msg) return;
+      msg.className = "flash flash--" + kind;
+      msg.textContent = text;
+    }
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var dir = form.querySelector('input[name="direction"]:checked');
+      var bucket = form.querySelector('input[name="bucket"]:checked');
+      var hp = form.querySelector('input[name="website"]');
+      if (!dir || !bucket) { form.reportValidity && form.reportValidity(); return; }
+      if (hp && hp.value) { say("ok", S.b_report_thanks); return; }
+      var item = { cid: form.getAttribute("data-cid"), direction: dir.value, bucket: parseInt(bucket.value, 10), observed_at: Math.floor(Date.now() / 1000) };
+      var button = form.querySelector('button[type="submit"]');
+      if (button) button.disabled = true;
+      function done() { if (button) button.disabled = false; }
+      var queueIt = function () {
+        var queue = store.get("queue", []); queue.push(item); store.set("queue", queue);
+        say("queued", S.b_report_queued); bucket.checked = false; done();
+      };
+      if (navigator.onLine === false) { queueIt(); return; }
+      postReport(item).then(function (res) {
+        done();
+        if (res.status === 201) {
+          say("ok", S.b_report_thanks);
+          bucket.checked = false;
+          if (res.data && res.data.crossing) applyCrossing(res.data.crossing);
+        } else if (res.status === 429) {
+          say("error", S.b_report_ratelimited);
+        } else if (res.status === 422) {
+          say("error", S.b_report_stale);
+        } else if (res.status >= 500 || res.status === 0) {
+          queueIt();
+        } else {
+          say("error", S.b_report_error);
+        }
+      }).catch(queueIt);
+    });
+  });
+
+  // ---------------------------------------------------------- customs search
+  function fold(text) {
+    return String(text || "").replace(/ı/g, "i").replace(/İ/g, "i").replace(/ß/g, "ss").toLowerCase()
+      .normalize("NFKD").replace(/[̀-ͯ]/g, "");
+  }
+  var tools = $("[data-customs-tools]");
+  if (tools) {
+    tools.hidden = false;
+    var input = $("[data-customs-search]", tools);
+    var empty = $("[data-customs-empty]");
+    var dirFilter = "all";
+    var filter = function () {
+      var terms = fold(input.value).split(/\s+/).filter(Boolean);
+      var visible = 0;
+      $$("[data-customs-section]").forEach(function (section) {
+        var dirOk = dirFilter === "all" || section.getAttribute("data-customs-section") === dirFilter;
+        var shown = 0;
+        $$("[data-rule]", section).forEach(function (rule) {
+          var hay = rule.getAttribute("data-search");
+          var ok = dirOk && terms.every(function (t) { return hay.indexOf(t) !== -1; });
+          rule.hidden = !ok;
+          if (ok) shown++;
+        });
+        section.hidden = shown === 0;
+        visible += shown;
+      });
+      if (empty) empty.hidden = visible !== 0;
+    };
+    input.addEventListener("input", filter);
+    $$("[data-customs-dir]", tools).forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        dirFilter = btn.getAttribute("data-customs-dir");
+        $$("[data-customs-dir]", tools).forEach(function (b) {
+          var on = b === btn;
+          b.classList.toggle("is-active", on);
+          b.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+        filter();
+      });
+    });
+  }
+
+  // ---------------------------------------------------------- service worker
+  if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("/sw.js").catch(function () {});
+    });
+  }
+})();

@@ -1,0 +1,345 @@
+{
+  "meta": {
+    "dataset": "customs",
+    "as_of": "2026-10-06",
+    "review_after": "2027-03-31",
+    "note": {
+      "de": "Kuratiert aus den offiziellen Seiten des deutschen Zolls und des türkischen Handelsministeriums. Regeln ändern sich – im Zweifel gilt die verlinkte Quelle.",
+      "tr": "Alman Gümrüğü ve T.C. Ticaret Bakanlığı'nın resmi sayfalarından derlendi. Kurallar değişebilir – şüphede bağlantıdaki resmi kaynak geçerlidir."
+    }
+  },
+  "sources": {
+    "zoll_freimengen": {"name": "Zoll – Reisefreimengen", "url": "https://www.zoll.de/DE/Privatpersonen/Reisen/Rueckkehr-aus-einem-Nicht-EU-Staat/Zoll-und-Steuern/Reisefreimengen/reisefreimengen_node.html"},
+    "zoll_tierisch": {"name": "Zoll – Erzeugnisse tierischen Ursprungs", "url": "https://www.zoll.de/DE/Privatpersonen/Reisen/Reisen-nach-Deutschland-aus-einem-nicht-eu-Staat/Einschraenkungen/Tiere-und-Pflanzen/Schutz-Tierseuchen/Regelungen-Erzeugnisse-tierischen-Ursprungs/regelungen-erzeugnisse-tierischen-ursprungs_node.html"},
+    "zoll_pflanzen": {"name": "Zoll – Pflanzen und Pflanzenprodukte", "url": "https://www.zoll.de/DE/Privatpersonen/Reisen/Rueckkehr-aus-einem-Nicht-EU-Staat/Einschraenkungen/Tiere-und-Pflanzen/Pflanzengesundheit/pflanzengesundheit_node.html"},
+    "zoll_lebensmittel": {"name": "Zoll – Lebens- und Futtermittel", "url": "https://www.zoll.de/DE/Privatpersonen/Reisen/Rueckkehr-aus-einem-Nicht-EU-Staat/Einschraenkungen/Lebensmittel-und-Futtermittel/lebensmittel-und-futtermittel_node.html"},
+    "zoll_barmittel": {"name": "Zoll – Barmittel bei Ein-/Ausreise", "url": "https://www.zoll.de/DE/Privatpersonen/Reisen/Reisen-in-einen-Nicht-EU-Staat/Einschraenkungen/Barmittel/barmittel.html"},
+    "zoll_gold": {"name": "Zoll – Pressemitteilung Goldschmuck aus der Türkei", "url": "https://www.zoll.de/SharedDocs/Pressemitteilungen/DE/Sonstiges/2025/y60_schmuggel_goldschmuck_ul.html"},
+    "zoll_steuerbefreiung": {"name": "Zoll – Steuerbefreiungen bei der Einfuhr (Anlagegold)", "url": "https://www.zoll.de/DE/Fachthemen/Steuern/Einfuhrumsatzsteuer/Steuerbefreiungen/steuerbefreiungen_node.html"},
+    "zoll_persoenlich": {"name": "Zoll – Persönliche Gebrauchs- und Wertgegenstände", "url": "https://www.zoll.de/DE/Privatpersonen/Reisen/Reisen-in-einen-Nicht-EU-Staat/Persoenliche-Gegenstaende/persoenliche-gegenstaende_node.html"},
+    "zoll_arznei": {"name": "Zoll – Arzneimittel und Betäubungsmittel", "url": "https://www.zoll.de/DE/Privatpersonen/Reisen/Reisen-nach-Deutschland-aus-einem-nicht-eu-Staat/Einschraenkungen/Arznei-Betaeubungsmittel/arznei-betaeubungsmittel_node.html"},
+    "zoll_plagiate": {"name": "Zoll – Marken- und Produktpiraterie", "url": "https://www.zoll.de/DE/Privatpersonen/Reisen/Rueckkehr-aus-einem-Nicht-EU-Staat/Einschraenkungen/Marken-und-Produktpiraterie/marken-und-produktpiraterie_node.html"},
+    "tr_muafiyet": {"name": "T.C. Ticaret Bakanlığı – Yolcu Muafiyetleri", "url": "https://ticaret.gov.tr/gumruk-islemleri/sikca-sorulan-sorular/bireysel/yolcu-muafiyetleri"},
+    "tr_muhafaza": {"name": "T.C. Ticaret Bakanlığı – Gümrük Muhafaza SSS", "url": "https://ticaret.gov.tr/gumruk-muhafaza/sikca-sorulan-sorular"},
+    "tr_tasit": {"name": "T.C. Ticaret Bakanlığı – Yolcu Beraberi Taşıtlar", "url": "https://ticaret.gov.tr/gumruk-islemleri/sikca-sorulan-sorular/bireysel/yolcu-beraberi-tasitlar"},
+    "btk_mcks": {"name": "BTK – Merkezi Cihaz Kayıt Sistemi", "url": "https://tuketici.btk.gov.tr/merkezi-cihaz-kayit-sistemi"},
+    "edevlet_imei": {"name": "e-Devlet – IMEI Kaydet", "url": "https://www.turkiye.gov.tr/btk-imei-kaydet"},
+    "imei_fee_2026": {"name": "Vodafone TR – IMEI-Gebühr 2026", "url": "https://www.vodafone.com.tr/teknoloji/blog/yurtdisi-telefon-imei-kayit-ucreti-ne-kadar"},
+    "gruene_karte": {"name": "Generali – FAQ Grüne Karte", "url": "https://www.generali.de/journal/faq-ivk-internationale-versicherungskarte-fuer-kraftverkehr-gruene-karte-"}
+  },
+  "directions": {
+    "to_tr": {"de": "Hinreise: rein in die Türkei", "tr": "Gidiş: Türkiye'ye giriş"},
+    "to_eu": {"de": "Rückreise: rein nach Deutschland", "tr": "Dönüş: Almanya'ya giriş"}
+  },
+  "items": [
+    {
+      "id": "tr-handy",
+      "direction": "to_tr",
+      "category": "handy",
+      "status": "declare",
+      "featured": true,
+      "title": {"de": "Handy aus Deutschland (IMEI)", "tr": "Almanya'dan getirilen telefon (IMEI)"},
+      "rule": {
+        "de": "Mit türkischer SIM-Karte nur 120 Tage ab Einreise nutzbar, danach wird das Gerät gesperrt – außer du registrierst es. Gebühr 2026: 54.258 TL.",
+        "tr": "Türk SIM kartıyla yurda girişten itibaren yalnızca 120 gün kullanılabilir; kayıt yaptırmazsan cihaz kapatılır. 2026 kayıt ücreti: 54.258 TL."
+      },
+      "detail": {
+        "de": "Registrieren kannst du innerhalb der 120 Tage über e-Devlet („IMEI Kaydet“), mit dem Pass, mit dem du eingereist bist. Danach läuft das Gerät nur mit Leitungen, die auf dich registriert sind. Wer nur mit deutscher SIM (Roaming) oder einer Reise-eSIM eines ausländischen Anbieters surft, steckt keine türkische SIM ein – die 120-Tage-Regel wird dann nach übereinstimmenden Berichten nicht ausgelöst. Roaming-Preise vorher prüfen.",
+        "tr": "Kaydı 120 gün içinde e-Devlet üzerinden („IMEI Kaydet“), giriş yaptığın pasaportla yapabilirsin. Kayıttan sonra cihaz yalnızca senin adına kayıtlı hatlarla çalışır. Sadece Alman SIM'iyle (roaming) veya yabancı bir operatörün seyahat eSIM'iyle internete giren kişi Türk SIM takmamış olur – bu durumda 120 gün kuralı yaygın bilgiye göre devreye girmez. Roaming ücretlerini önceden kontrol et."
+      },
+      "sources": ["btk_mcks", "edevlet_imei", "imei_fee_2026"],
+      "review_after": "2026-12-31",
+      "keywords": ["handy", "telefon", "smartphone", "imei", "esim", "sim", "btk", "registrierung", "kayıt", "harç", "iphone", "cep"]
+    },
+    {
+      "id": "tr-tabak",
+      "direction": "to_tr",
+      "category": "tabak",
+      "status": "limit",
+      "title": {"de": "Zigaretten & Tabak", "tr": "Sigara ve tütün"},
+      "rule": {
+        "de": "Zollfrei ab 18 Jahren: 600 Zigaretten · 100 Zigarillos · 50 Zigarren · 250 g Tabak.",
+        "tr": "18 yaş üstü için muaf: 600 adet sigara · 100 adet sigarillo · 50 adet puro · 250 g tütün."
+      },
+      "sources": ["tr_muafiyet"],
+      "keywords": ["zigaretten", "sigara", "tabak", "tütün", "puro", "zigarre", "sigarillo", "stange", "karton"]
+    },
+    {
+      "id": "tr-alkohol",
+      "direction": "to_tr",
+      "category": "alkohol",
+      "status": "limit",
+      "title": {"de": "Alkohol", "tr": "Alkollü içki"},
+      "rule": {
+        "de": "Zollfrei ab 18 Jahren: 1 Liter über 22 % Alkohol oder 2 Liter bis 22 %.",
+        "tr": "18 yaş üstü için muaf: %22'nin üzerinde 1 litre veya %22'ye kadar 2 litre."
+      },
+      "sources": ["tr_muafiyet"],
+      "keywords": ["alkohol", "alkol", "wein", "şarap", "bier", "bira", "schnaps", "rakı", "whisky", "vodka", "içki"]
+    },
+    {
+      "id": "tr-parfum",
+      "direction": "to_tr",
+      "category": "kosmetik",
+      "status": "limit",
+      "title": {"de": "Parfüm & Kolonya", "tr": "Parfüm ve kolonya"},
+      "rule": {
+        "de": "Parfüm, Kolonya, Lavanta, Essenzen und Lotionen: zusammen bis 600 ml.",
+        "tr": "Parfüm, kolonya, lavanta, esans ve losyon: toplamda 600 ml'ye kadar."
+      },
+      "sources": ["tr_muafiyet"],
+      "keywords": ["parfüm", "parfum", "kolonya", "kosmetik", "kozmetik", "lotion", "losyon", "duft"]
+    },
+    {
+      "id": "tr-bargeld",
+      "direction": "to_tr",
+      "category": "geld",
+      "status": "declare",
+      "title": {"de": "Bargeld", "tr": "Nakit para"},
+      "rule": {
+        "de": "Ab 10.000 € (oder Gegenwert) pro Person anmelden: beim deutschen Zoll, wenn du die EU verlässt, und beim türkischen Zoll, wenn du die Türkei wieder verlässt.",
+        "tr": "Kişi başı 10.000 € (veya karşılığı) ve üzeri beyan edilmeli: AB'den çıkarken Alman gümrüğüne, Türkiye'den çıkarken Türk gümrüğüne."
+      },
+      "detail": {
+        "de": "In Deutschland geht die Anmeldung auch vorab online über das Zoll-Portal. Als Barmittel zählen auch Goldmünzen (mind. 90 % Gold) und Goldbarren (mind. 99,5 %).",
+        "tr": "Almanya'da beyan Zoll-Portal üzerinden önceden çevrim içi de yapılabilir. Altın sikkeler (en az %90 altın) ve külçe altın (en az %99,5) da nakit sayılır."
+      },
+      "sources": ["zoll_barmittel", "tr_muhafaza"],
+      "keywords": ["bargeld", "nakit", "geld", "para", "euro", "döviz", "devisen", "10000", "beyan"]
+    },
+    {
+      "id": "tr-schmuck",
+      "direction": "to_tr",
+      "category": "gold",
+      "status": "declare",
+      "title": {"de": "Eigener Gold- und Schmuck", "tr": "Kendi altın ve ziynet eşyan"},
+      "rule": {
+        "de": "Schmuck bis 15.000 US-$ Wert darfst du ohne Nachweis wieder aus der Türkei ausführen. Für mehr: bei der Einreise anmelden oder türkischen Kaufbeleg vorzeigen.",
+        "tr": "Değeri 15.000 ABD dolarını aşmayan ziynet eşyası belge olmadan yurt dışına çıkarılabilir. Daha fazlası için girişte beyan veya Türkiye'den alındığını gösteren belge gerekir."
+      },
+      "detail": {
+        "de": "Für die Rückkehr nach Deutschland: Lass dir wertvollen eigenen Schmuck vor der Abreise beim deutschen Zoll bescheinigen (Nämlichkeitsnachweis). Dann ist klar, dass er nicht in der Türkei gekauft wurde.",
+        "tr": "Almanya'ya dönüş için: Değerli kendi takılarını yola çıkmadan önce Alman gümrüğünde belgelettir (Nämlichkeitsnachweis). Böylece Türkiye'de satın alınmadığı belli olur."
+      },
+      "sources": ["tr_muhafaza", "zoll_persoenlich"],
+      "keywords": ["gold", "altın", "schmuck", "takı", "ziynet", "bilezik", "armband", "kette", "kolye", "reşat"]
+    },
+    {
+      "id": "tr-gruene-karte",
+      "direction": "to_tr",
+      "category": "auto",
+      "status": "declare",
+      "title": {"de": "Grüne Versicherungskarte", "tr": "Yeşil kart sigortası"},
+      "rule": {
+        "de": "Für die Einreise mit dem Auto Pflicht. Das Feld „TR“ darf nicht durchgestrichen sein – bei manchen Versicherern kostet die Türkei extra.",
+        "tr": "Araçla girişte zorunlu. Karttaki „TR“ alanı çizili olmamalı – bazı sigortacılar Türkiye için ek prim ister."
+      },
+      "sources": ["gruene_karte"],
+      "keywords": ["grüne karte", "yeşil kart", "versicherung", "sigorta", "auto", "araba", "araç", "kfz"]
+    },
+    {
+      "id": "tr-vollmacht",
+      "direction": "to_tr",
+      "category": "auto",
+      "status": "declare",
+      "title": {"de": "Auto gehört nicht dir?", "tr": "Araç sana ait değil mi?"},
+      "rule": {
+        "de": "Dann brauchst du eine Vollmacht des Halters, beglaubigt von Notar oder Konsulat, mit türkischer Übersetzung. Halter und Fahrer müssen beide im Ausland wohnen.",
+        "tr": "Araç sahibinden noter veya konsolosluk onaylı, Türkçe tercümeli vekâletname gerekir. Hem araç sahibi hem sürücü yurt dışında yerleşik olmalı."
+      },
+      "sources": ["tr_tasit"],
+      "keywords": ["vollmacht", "vekalet", "vekâletname", "auto", "araç", "araba", "halter", "noter", "notar", "firmenwagen", "leasing"]
+    },
+    {
+      "id": "tr-auto-dauer",
+      "direction": "to_tr",
+      "category": "auto",
+      "status": "limit",
+      "title": {"de": "Wie lange darf das Auto bleiben?", "tr": "Araç ne kadar kalabilir?"},
+      "rule": {
+        "de": "Türkische Staatsbürger mit Wohnsitz im Ausland (mind. 185 Tage im Jahr im Ausland) dürfen ihr Auto mit ausländischem Kennzeichen bis zu 730 Tage in der Türkei nutzen; frühere Aufenthalte werden angerechnet.",
+        "tr": "Yurt dışında yerleşik Türk vatandaşları (yılda en az 185 gün yurt dışında) yabancı plakalı araçlarını Türkiye'de 730 güne kadar kullanabilir; önceki kalış süreleri düşülür."
+      },
+      "detail": {
+        "de": "Für Nicht-Türken und Sonderfälle (Rente, Verlängerung) gelten andere Fristen – die Details stehen beim Handelsministerium.",
+        "tr": "Yabancı uyruklular ve özel durumlar (emeklilik, uzatma) için farklı süreler geçerlidir – ayrıntılar Ticaret Bakanlığı'nda."
+      },
+      "sources": ["tr_tasit"],
+      "keywords": ["auto", "araç", "araba", "kennzeichen", "plaka", "730", "185", "aufenthalt", "süre"]
+    },
+    {
+      "id": "eu-fleisch",
+      "direction": "to_eu",
+      "category": "lebensmittel",
+      "status": "no",
+      "featured": true,
+      "title": {"de": "Fleisch, Wurst, Milch, Käse", "tr": "Et, sucuk, süt, peynir"},
+      "rule": {
+        "de": "Verboten – auch Sucuk, Pastırma, Beyaz Peynir, Kaşar, Kaymak, Butter und Eier. Auch kleine und vakuumverpackte Mengen werden beschlagnahmt.",
+        "tr": "Yasak – sucuk, pastırma, beyaz peynir, kaşar, kaymak, tereyağı ve yumurta dahil. Az miktar ve vakumlu paketler de el konur."
+      },
+      "detail": {
+        "de": "Ausnahmen: Säuglingsnahrung in ungeöffneter Verpackung bis 2 kg, Fisch bis 20 kg, Honig bis 2 kg.",
+        "tr": "İstisnalar: açılmamış bebek maması 2 kg'a kadar, balık 20 kg'a kadar, bal 2 kg'a kadar."
+      },
+      "sources": ["zoll_tierisch"],
+      "keywords": ["fleisch", "et", "wurst", "sucuk", "pastırma", "salam", "käse", "peynir", "kaşar", "beyaz peynir", "milch", "süt", "kaymak", "butter", "tereyağı", "eier", "yumurta", "honig", "bal", "fisch", "balık", "babynahrung", "mama", "lor", "tulum"]
+    },
+    {
+      "id": "eu-obst",
+      "direction": "to_eu",
+      "category": "lebensmittel",
+      "status": "no",
+      "featured": true,
+      "title": {"de": "Frisches Obst, Gemüse, Pflanzen", "tr": "Taze meyve, sebze, bitki"},
+      "rule": {
+        "de": "Nur mit Pflanzengesundheitszeugnis – für Reisende praktisch verboten. Typische Funde: Quitten, Feigen, frische Oliven, Weinblätter, Knoblauch, Setzlinge, Samen.",
+        "tr": "Yalnızca bitki sağlık sertifikasıyla – yolcular için fiilen yasak. Sık yakalananlar: ayva, incir, taze zeytin, asma yaprağı, sarımsak, fide, tohum."
+      },
+      "detail": {
+        "de": "Ausgenommen sind nur Ananas, Kokosnuss, Durian, Banane und Dattel. Ohne Zeugnis wird vernichtet, zusätzlich droht ein Bußgeld.",
+        "tr": "Yalnızca ananas, hindistan cevizi, durian, muz ve hurma muaftır. Sertifika yoksa imha edilir, ayrıca para cezası olabilir."
+      },
+      "sources": ["zoll_pflanzen"],
+      "keywords": ["obst", "meyve", "gemüse", "sebze", "pflanze", "bitki", "feigen", "incir", "quitte", "ayva", "oliven", "zeytin", "weinblätter", "asma yaprağı", "knoblauch", "sarımsak", "samen", "tohum", "setzling", "fide", "kirschen", "kiraz", "tomate", "domates", "biber"]
+    },
+    {
+      "id": "eu-trocken",
+      "direction": "to_eu",
+      "category": "lebensmittel",
+      "status": "limit",
+      "title": {"de": "Olivenöl, Tee, Gewürze, Trockenobst, Süßes", "tr": "Zeytinyağı, çay, baharat, kuru meyve, tatlı"},
+      "rule": {
+        "de": "Verarbeitete pflanzliche Lebensmittel in Mengen für den Eigenbedarf sind erlaubt. Ihr Wert zählt zur Freigrenze (300 € mit Auto, 430 € mit Flugzeug).",
+        "tr": "İşlenmiş bitkisel gıdalar kişisel ihtiyaç miktarında serbesttir. Değerleri muafiyet sınırına sayılır (araçla 300 €, uçakla 430 €)."
+      },
+      "detail": {
+        "de": "Für manche Waren wie Gewürze, Tee, Nüsse oder Trockenobst gelten EU-Schutzmaßnahmen; Kleinmengen im Gepäck für den Eigenbedarf sind davon ausgenommen. Sehr große Mengen gelten als gewerblich.",
+        "tr": "Baharat, çay, kuruyemiş veya kuru meyve gibi bazı ürünler için AB koruma önlemleri vardır; bagajdaki kişisel ihtiyaç kadar az miktarlar bundan muaftır. Çok büyük miktarlar ticari sayılır."
+      },
+      "sources": ["zoll_lebensmittel", "zoll_freimengen"],
+      "keywords": ["olivenöl", "zeytinyağı", "tee", "çay", "gewürze", "baharat", "pul biber", "trockenobst", "kuru meyve", "kayısı", "nüsse", "fındık", "fıstık", "lokum", "baklava", "süßigkeiten", "tatlı", "salça", "tarhana", "bulgur", "pekmez", "kahve", "kaffee", "oliven in lake"]
+    },
+    {
+      "id": "eu-waren",
+      "direction": "to_eu",
+      "category": "waren",
+      "status": "limit",
+      "title": {"de": "Einkäufe & Geschenke", "tr": "Alışveriş ve hediyeler"},
+      "rule": {
+        "de": "Zusammen bis 300 € Warenwert pro Person bei Anreise mit Auto oder Bus, bis 430 € mit Flugzeug oder Schiff. Tabak und Alkohol zählen extra.",
+        "tr": "Araç veya otobüsle gelişte kişi başı toplam 300 €, uçak veya gemiyle 430 € değerinde eşya. Tütün ve alkol ayrıca sayılır."
+      },
+      "detail": {
+        "de": "Darüber: beim Zoll anmelden, dann fallen Zoll und Einfuhrumsatzsteuer an. Werte von mehreren Personen dürfen nicht für einen einzelnen teuren Gegenstand zusammengelegt werden.",
+        "tr": "Fazlası gümrükte beyan edilmeli; gümrük vergisi ve ithalat KDV'si ödenir. Tek bir pahalı eşya için birden fazla kişinin hakkı birleştirilemez."
+      },
+      "sources": ["zoll_freimengen"],
+      "keywords": ["einkäufe", "alışveriş", "geschenke", "hediye", "kleidung", "kıyafet", "elektronik", "300", "430", "freigrenze", "muafiyet", "teppich", "halı", "handy", "telefon"]
+    },
+    {
+      "id": "eu-gold",
+      "direction": "to_eu",
+      "category": "gold",
+      "status": "declare",
+      "featured": true,
+      "title": {"de": "Goldschmuck aus der Türkei", "tr": "Türkiye'den alınan altın takı"},
+      "rule": {
+        "de": "Neu gekaufter Schmuck zählt zur Freigrenze (300 € / 430 €). Darüber musst du ihn anmelden und Abgaben zahlen – sonst droht ein Steuerstrafverfahren.",
+        "tr": "Yeni alınan takılar muafiyet sınırına sayılır (300 € / 430 €). Fazlası beyan edilip vergisi ödenmeli – aksi halde vergi ceza davası açılabilir."
+      },
+      "detail": {
+        "de": "Der Zoll meldet regelmäßig Fälle von nicht angemeldetem Goldschmuck bei Türkei-Rückkehrern. Kaufbeleg aufheben und am Zoll anmelden.",
+        "tr": "Alman Gümrüğü, Türkiye dönüşü beyan edilmeyen altın takı vakalarını düzenli olarak duyuruyor. Faturayı sakla ve gümrükte beyan et."
+      },
+      "sources": ["zoll_gold", "zoll_freimengen"],
+      "keywords": ["gold", "altın", "schmuck", "takı", "bilezik", "armband", "kette", "kolye", "ring", "yüzük", "çeyrek", "hochzeit", "düğün"]
+    },
+    {
+      "id": "eu-anlagegold",
+      "direction": "to_eu",
+      "category": "gold",
+      "status": "declare",
+      "title": {"de": "Goldbarren & Goldmünzen", "tr": "Külçe altın ve altın sikke"},
+      "rule": {
+        "de": "Anlagegold ist von der Einfuhrumsatzsteuer befreit, gilt aber als Barmittel: ab 10.000 € Wert anmelden.",
+        "tr": "Yatırım altını ithalat KDV'sinden muaftır ama nakit sayılır: 10.000 € ve üzeri değerde beyan edilmeli."
+      },
+      "sources": ["zoll_steuerbefreiung", "zoll_barmittel"],
+      "keywords": ["gold", "altın", "barren", "külçe", "münze", "sikke", "çeyrek", "cumhuriyet", "anlagegold", "yatırım"]
+    },
+    {
+      "id": "eu-bargeld",
+      "direction": "to_eu",
+      "category": "geld",
+      "status": "declare",
+      "title": {"de": "Bargeld", "tr": "Nakit para"},
+      "rule": {
+        "de": "Ab 10.000 € (oder Gegenwert) pro Person bei der Einreise in die EU anmelden – auch vorab online möglich.",
+        "tr": "Kişi başı 10.000 € (veya karşılığı) ve üzeri AB'ye girişte beyan edilmeli – önceden çevrim içi de mümkün."
+      },
+      "sources": ["zoll_barmittel"],
+      "keywords": ["bargeld", "nakit", "geld", "para", "lira", "euro", "10000", "beyan"]
+    },
+    {
+      "id": "eu-tabak",
+      "direction": "to_eu",
+      "category": "tabak",
+      "status": "limit",
+      "title": {"de": "Zigaretten & Tabak", "tr": "Sigara ve tütün"},
+      "rule": {
+        "de": "Zollfrei ab 17 Jahren: 200 Zigaretten oder 100 Zigarillos oder 50 Zigarren oder 250 g Tabak (oder eine anteilige Mischung).",
+        "tr": "17 yaş üstü için muaf: 200 sigara veya 100 sigarillo veya 50 puro veya 250 g tütün (ya da orantılı karışım)."
+      },
+      "detail": {
+        "de": "Eine Stange hat 200 Zigaretten – mehr als eine Stange pro Person ist also schon zu viel.",
+        "tr": "Bir karton 200 sigaradır – kişi başı bir kartondan fazlası sınırı aşar."
+      },
+      "sources": ["zoll_freimengen"],
+      "keywords": ["zigaretten", "sigara", "tabak", "tütün", "stange", "karton", "puro", "zigarre", "nargile", "shisha"]
+    },
+    {
+      "id": "eu-alkohol",
+      "direction": "to_eu",
+      "category": "alkohol",
+      "status": "limit",
+      "title": {"de": "Alkohol", "tr": "Alkollü içki"},
+      "rule": {
+        "de": "Zollfrei ab 17 Jahren: 1 Liter über 22 % (z. B. Rakı) oder 2 Liter bis 22 % – dazu 4 Liter Wein und 16 Liter Bier.",
+        "tr": "17 yaş üstü için muaf: %22'nin üzerinde 1 litre (ör. rakı) veya %22'ye kadar 2 litre – ayrıca 4 litre şarap ve 16 litre bira."
+      },
+      "sources": ["zoll_freimengen"],
+      "keywords": ["alkohol", "alkol", "rakı", "wein", "şarap", "bier", "bira", "schnaps", "içki"]
+    },
+    {
+      "id": "eu-medizin",
+      "direction": "to_eu",
+      "category": "medizin",
+      "status": "limit",
+      "title": {"de": "Medikamente", "tr": "İlaçlar"},
+      "rule": {
+        "de": "Erlaubt in der Menge des persönlichen Bedarfs – in der Regel höchstens für 3 Monate.",
+        "tr": "Kişisel ihtiyaç miktarında serbest – genellikle en fazla 3 aylık."
+      },
+      "detail": {
+        "de": "Für Betäubungsmittel (z. B. starke Schmerzmittel) bei Reisen aus Nicht-Schengen-Ländern: mehrsprachige ärztliche Bescheinigung mit Wirkstoff, Dosierung und Reisedauer mitführen.",
+        "tr": "Uyuşturucu madde içeren ilaçlar (ör. güçlü ağrı kesiciler) için Schengen dışından gelirken: etken madde, doz ve seyahat süresini içeren çok dilli doktor raporu yanında olmalı."
+      },
+      "sources": ["zoll_arznei"],
+      "keywords": ["medikamente", "ilaç", "tabletten", "hap", "arznei", "rezept", "reçete", "antibiotika", "antibiyotik", "schmerzmittel", "ağrı kesici"]
+    },
+    {
+      "id": "eu-plagiate",
+      "direction": "to_eu",
+      "category": "waren",
+      "status": "limit",
+      "title": {"de": "Gefälschte Markenware", "tr": "Taklit markalı ürünler"},
+      "rule": {
+        "de": "Für den privaten Gebrauch im Reisegepäck schreitet der Zoll in der Regel nicht ein. Nach gewerblicher Menge aussehende Ware wird beschlagnahmt und vernichtet.",
+        "tr": "Bagajdaki kişisel kullanım için gümrük genellikle müdahale etmez. Ticari miktar izlenimi veren ürünlere el konur ve imha edilir."
+      },
+      "sources": ["zoll_plagiate"],
+      "keywords": ["fälschung", "taklit", "plagiat", "replika", "marke", "marka", "çakma", "tasche", "çanta", "uhr", "saat", "schuhe", "ayakkabı"]
+    }
+  ]
+}

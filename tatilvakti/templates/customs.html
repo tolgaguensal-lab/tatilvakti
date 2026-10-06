@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, ext, cstatus, asof with context %}
+{% block title %}{{ t("c_title") }}: Sucuk, Gold, Handy, Rakı – {{ t("app_name") }}{% endblock %}
+{% block main %}
+<header class="pagehead">
+  <h1>{{ icon("bag") }}{{ t("c_title") }}</h1>
+  <p class="lead">{{ t("c_lead") }}</p>
+</header>
+
+<section aria-labelledby="featured-title">
+  <h2 id="featured-title" class="section-title">{{ t("c_featured") }}</h2>
+  <ul class="featured">
+    {%- for item in featured %}
+    <li class="card featured__item featured__item--{{ item.status }}">
+      <a href="#{{ item.id }}">
+        <span class="featured__dir">{{ data.directions[item.direction][lang] }}</span>
+        <span class="featured__title">{{ item.title[lang] }}</span>
+        {{ cstatus(item.status) }}
+      </a>
+    </li>
+    {%- endfor %}
+  </ul>
+</section>
+
+<div class="toolbar" data-customs-tools hidden>
+  <label class="search">
+    <span class="sr-only">{{ t("c_search_label") }}</span>
+    {{ icon("search", "icon--s") }}
+    <input type="search" placeholder="{{ t('c_search_ph') }}" autocomplete="off" data-customs-search>
+  </label>
+  <div class="seg" role="group" aria-label="{{ t('b_direction') }}">
+    <button type="button" class="seg__btn is-active" data-customs-dir="all" aria-pressed="true">{{ t("c_all_dirs") }}</button>
+    <button type="button" class="seg__btn" data-customs-dir="to_tr" aria-pressed="false">{{ cname("TR") }}</button>
+    <button type="button" class="seg__btn" data-customs-dir="to_eu" aria-pressed="false">{{ cname("DE") }}</button>
+  </div>
+</div>
+
+{%- for d, items in by_dir.items() %}
+<section class="rules" data-customs-section="{{ d }}" aria-labelledby="dir-{{ d }}">
+  <h2 id="dir-{{ d }}" class="section-title">{{ icon("arrow", "icon--s" ~ (" icon--flip" if d == "to_eu" else "")) }}{{ data.directions[d][lang] }}</h2>
+  {%- for item in items %}
+  {%- set due = is_due(item.review_after, today) if item.review_after else false %}
+  <article class="card rule rule--{{ item.status }}" id="{{ item.id }}" data-rule data-search="{{ item.search }}">
+    <header class="rule__head">
+      <h3 class="rule__title">{{ item.title[lang] }}</h3>
+      {{ cstatus(item.status) }}
+    </header>
+    <p class="rule__text">{{ item.rule[lang] }}</p>
+    {%- if item.detail %}
+    <details class="rule__more">
+      <summary>{{ t("c_details") }}</summary>
+      <p>{{ item.detail[lang] }}</p>
+    </details>
+    {%- endif %}
+    <p class="rule__src">{{ t("sources") if item.sources|length > 1 else t("source") }}:
+      {% for ref in item.sources %}{{ ext(data.sources[ref].url, data.sources[ref].name) }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+    {%- if due %}<p class="due">{{ icon("alert", "icon--xs") }} {{ t("review_due") }}</p>{% endif %}
+  </article>
+  {%- endfor %}
+</section>
+{%- endfor %}
+<p class="note" data-customs-empty hidden>{{ icon("info", "icon--s") }}<span>{{ t("c_no_results") }}</span></p>
+
+{{ asof(data.meta.as_of, due=is_due(data.meta.review_after, today)) }}
+<p class="hint">{{ data.meta.note[lang] }}</p>
+{% endblock %}
