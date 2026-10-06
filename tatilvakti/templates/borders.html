@@ -17,7 +17,7 @@
 <section class="card map-card" aria-labelledby="map-title">
   <h2 id="map-title" class="card__title">{{ t("b_map_title") }}</h2>
   {%- set stops = [("DE", 180, 30), ("AT", 180, 92), ("SI", 88, 160), ("HR", 88, 222), ("HU", 200, 166), ("RO", 300, 280), ("RS", 170, 318), ("BG", 250, 420), ("TR", 250, 520)] %}
-  <svg class="map" viewBox="0 0 360 548" role="img" aria-label="{{ t('b_map_label') }}" data-map data-dir="to_tr">
+  <svg class="map" viewBox="0 0 386 548" role="img" aria-label="{{ t('b_map_label') }}" data-map data-dir="to_tr">
     <path class="map__line map__line--trunk" d="M180,30 L180,92 M170,318 L250,420 L250,520"></path>
     <path class="map__line map__line--a" d="M180,92 L200,166 L170,318"></path>
     <path class="map__line map__line--b" d="M180,92 L88,160 L88,222 L170,318"></path>
@@ -28,7 +28,7 @@
       <text x="{{ x - 12 if code in ('SI', 'HR', 'RS') else x + 12 }}" y="{{ y + 4 }}"{% if code in ('SI', 'HR', 'RS') %} text-anchor="end"{% endif %}>{{ cname(code) }}</text>
     </g>
     {%- endfor %}
-    <text class="map__schengen" x="262" y="214" text-anchor="middle">Schengen</text>
+    <text class="map__schengen" x="268" y="204">Schengen</text>
     {%- for c in crossings if c.map %}
     {%- set st = statuses[c.id] %}
     <a href="{{ href('crossing', cid=c.id) }}" class="map__node" data-node data-cid="{{ c.id }}" data-l-to_tr="{{ st.to_tr.level }}" data-l-to_de="{{ st.to_de.level }}">
