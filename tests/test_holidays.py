@@ -99,3 +99,79 @@ def test_waves_list_big_state_starts(radar):
     nrw_start = [w for w in waves if w["kind"] == "start" and "NW" in w["states"]]
     assert nrw_start and nrw_start[0]["date"] == date(2026, 10, 17)
     assert all(w["share"] >= 0.04 for w in waves)
+
+
+# ------------------------------------------- Zeiträume, in denen nicht alle Länder Ferien haben
+
+def test_pfingsten_2027_covers_bw_and_by_and_leaves_others_empty(radar):
+    pfingsten = radar.by_id["pfingsten-2027"]
+    assert [(r.start, r.end) for r in pfingsten.ranges["BW"]] == [(date(2027, 5, 18), date(2027, 5, 29))]
+    assert [(r.start, r.end) for r in pfingsten.ranges["BY"]] == [(date(2027, 5, 18), date(2027, 5, 28))]
+    for state in ("HE", "RP", "SL"):  # laut Ferienordnung keine Pfingstferien
+        assert pfingsten.ranges[state] == []
+        assert pfingsten.span(state) is None and pfingsten.stretches(state) == []
+        assert pfingsten.holiday_days(state) == 0 and not pfingsten.on_holiday(state, date(2027, 5, 20))
+    # Mitte der Pfingstferien: BW, BY und Sachsen-Anhalt frei – vorher meldete das Radar hier 0 %
+    assert radar.states_on_holiday(date(2027, 5, 20)) == ["BW", "BY", "ST"]
+    expected = radar.weight["BW"] + radar.weight["BY"] + radar.weight["ST"]
+    assert radar.pressure(date(2027, 5, 20)) == pytest.approx(expected)
+
+
+def test_next_holiday_skips_periods_without_holidays_for_the_state(radar):
+    assert radar.next_for_state("BW", date(2027, 4, 15))["period"].id == "pfingsten-2027"
+    assert radar.next_for_state("HE", date(2027, 4, 15))["period"].id == "sommer-2027"
+    assert radar.next_for_state("SN", date(2027, 1, 10))["period"].id == "winter-2027"
+    assert radar.next_for_state("NW", date(2027, 1, 10))["period"].id == "ostern-2027"
+
+
+def test_quiet_days_peak_and_windows_cope_with_empty_states(radar):
+    pfingsten = radar.by_id["pfingsten-2027"]
+    assert radar.quiet_days(pfingsten, "HE") == {"departure": [], "return": []}
+    quiet = radar.quiet_days(pfingsten, "BW")
+    assert quiet["departure"] and quiet["return"]
+    assert radar.all_states_windows(pfingsten) == []
+    day, share, count = radar.peak(pfingsten)
+    assert pfingsten.start <= day <= pfingsten.end and 0 < share < 1 and count < 16
+
+
+def test_waves_ignore_states_without_holidays(radar):
+    waves = radar.waves(date(2027, 4, 15), horizon_days=40)  # bis 25.05.: nur Himmelfahrt/Pfingsten
+    assert waves and not any(s in w["states"] for w in waves for s in ("HE", "RP", "SL"))
+    bw_start = [w for w in waves if w["kind"] == "start" and "BW" in w["states"]]
+    assert bw_start and bw_start[0]["date"] == date(2027, 5, 18)
+
+
+def test_radar_works_with_minimal_data_and_empty_lists():
+    data = {
+        "states": {"AA": {"population": 3}, "BB": {"population": 1}},
+        "periods": [{"id": "p", "kind": "x", "label": {"de": "P", "tr": "P"},
+                     "ranges": {"AA": [["2027-05-18", "2027-05-21"]], "BB": []}}],
+    }
+    radar = HolidayRadar(data)
+    period = radar.by_id["p"]
+    assert (period.start, period.end) == (date(2027, 5, 18), date(2027, 5, 21))
+    assert radar.pressure(date(2027, 5, 19)) == pytest.approx(0.75)
+    assert radar.next_for_state("BB", date(2027, 5, 1)) is None
+    assert radar.quiet_days(period, "BB") == {"departure": [], "return": []}
+    assert radar.all_states_windows(period) == []
+    assert [w["states"] for w in radar.waves(date(2027, 5, 1), 60)] == [["AA"], ["AA"]]
+
+
+@pytest.mark.parametrize("path, text", [
+    ("/de/ferien?zeitraum=winter-2027&land=NW", "Nordrhein-Westfalen hat in diesem Zeitraum keine Ferien."),
+    ("/de/ferien?zeitraum=pfingsten-2027&land=HE", "Hessen hat in diesem Zeitraum keine Ferien."),
+    ("/tr/tatil?zeitraum=pfingsten-2027&land=HE", "Hessen bu dönemde tatilde değil."),
+    ("/de/ferien?zeitraum=pfingsten-2027&land=BW", "Deine Ferien in Baden-Württemberg"),
+    ("/de/ferien?zeitraum=pfingsten-2027&land=NW", "Deine Ferien in Nordrhein-Westfalen"),
+])
+def test_holiday_page_renders_states_with_and_without_holidays(client, path, text):
+    resp = client.get(path)
+    assert resp.status_code == 200
+    assert text in resp.get_data(as_text=True)
+
+
+def test_home_names_pfingsten_as_next_holiday_in_bw(client, clock):
+    clock.now = clock.now.replace(year=2027, month=4, day=15)
+    html = client.get("/de/").get_data(as_text=True)
+    bw = html.split('data-per-state="BW" hidden>', 1)[1].split("</div>", 1)[0]
+    assert "Himmelfahrt-/Pfingstferien 2027" in bw
