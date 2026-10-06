@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -11,7 +11,7 @@ from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .content import Content, load_content, validate
-from .db import close_db, init_db
+from .db import close_db, default_salt_path, init_db
 from .holidays import HolidayRadar
 from .i18n import Translator
 
@@ -31,6 +31,8 @@ class State:
     tr: Translator
     asset_hashes: dict[str, str]
     build_id: str
+    # Laufzeit-Zustand je Prozess (siehe views.register: before_request)
+    runtime: dict = field(default_factory=lambda: {"maintenance_checked_at": None, "forwarded_ignored": False})
 
 
 PACKAGE_DIR = Path(__file__).parent
@@ -64,6 +66,8 @@ def create_app(test_config: dict | None = None) -> Flask:
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_mapping(
         TV_DB_PATH=os.environ.get("TV_DB_PATH", os.path.join(app.instance_path, "tatilvakti.db")),
+        # Tagesschlüssel in eigener Datei, nie sichern, darf auf tmpfs liegen (leer: neben TV_DB_PATH)
+        TV_SALT_DB_PATH=os.environ.get("TV_SALT_DB_PATH", ""),
         TV_TRUST_PROXY=int(os.environ.get("TV_TRUST_PROXY", "0")),
         TV_BASE_URL=os.environ.get("TV_BASE_URL", "").rstrip("/"),
         TV_OPERATOR_NAME=os.environ.get("TV_OPERATOR_NAME", ""),
@@ -75,6 +79,10 @@ def create_app(test_config: dict | None = None) -> Flask:
     )
     if test_config:
         app.config.update(test_config)
+        if "TV_SALT_DB_PATH" not in test_config:  # Tests nie gegen eine echte Schlüssel-DB
+            app.config["TV_SALT_DB_PATH"] = ""
+    if not app.config["TV_SALT_DB_PATH"]:
+        app.config["TV_SALT_DB_PATH"] = default_salt_path(app.config["TV_DB_PATH"])
     app.json.ensure_ascii = False
 
     if app.config["TV_TRUST_PROXY"]:
@@ -90,12 +98,13 @@ def create_app(test_config: dict | None = None) -> Flask:
     build_id = hashlib.sha256(("".join(hashes.values()) + _content_fingerprint()).encode()).hexdigest()[:12]
     app.extensions["tv"] = State(content, HolidayRadar(content.holidays), Translator(), hashes, build_id)
 
-    init_db(app.config["TV_DB_PATH"])
+    init_db(app.config["TV_DB_PATH"], app.config["TV_SALT_DB_PATH"])
     app.teardown_appcontext(close_db)
 
-    from . import api, views
+    from . import api, cli, views
     views.register(app)
     api.register(app)
+    cli.register(app)
     return app
 
 

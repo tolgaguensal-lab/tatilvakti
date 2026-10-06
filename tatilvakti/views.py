@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote, urlencode, urlsplit
 
-from flask import (Flask, Response, abort, current_app, g, make_response, redirect,
+from flask import (Flask, Response, abort, current_app, g, jsonify, make_response, redirect,
                    render_template, request, url_for)
+from werkzeug.exceptions import HTTPException
 
 from . import borders as B
 from . import today_berlin, utcnow
-from .content import is_due
+from .content import DATASETS, is_due
 from .i18n import LANGS, SLUGS, fmt_date, fmt_pct, fmt_range, negotiate
 
 PAGES = ("home", "holidays", "route", "borders", "customs", "info", "offline")
@@ -408,22 +410,68 @@ def sitemap():
     return Response("\n".join(lines), mimetype="application/xml")
 
 
+def due_items(content, today: date) -> tuple[list[dict], str | None]:
+    """Fällige Prüfdaten: Datensätze, Einzelregeln (review_after) und Preise (prices_valid_until).
+
+    Liefert die überschrittenen Einträge und das nächste noch nicht fällige Datum
+    (für eine Kalender-Erinnerung).
+    """
+    checks = [(name, None, "review_after", content.meta(name).get("review_after")) for name in DATASETS]
+    checks += [("customs", i["id"], "review_after", i.get("review_after")) for i in content.customs["items"]]
+    for code, country in content.transit["countries"].items():
+        checks += [("transit", code, f, country.get(f)) for f in ("prices_valid_until", "review_after")]
+    checks += [("crossings", c["id"], "review_after", c.get("review_after")) for c in content.crossings["crossings"]]
+    due, upcoming = [], []
+    for dataset, item, fieldname, value in checks:
+        if not value:
+            continue
+        if is_due(value, today):
+            due.append({"dataset": dataset, "item": item, "field": fieldname, "date": value})
+        else:
+            upcoming.append(value)
+    return due, (min(upcoming) if upcoming else None)
+
+
 def healthz():
+    """Betriebsstatus für das Monitoring. HTTP 503 nur, wenn die DB nicht antwortet.
+
+    status 'attention' (weiter HTTP 200), wenn etwas zu tun ist; die Gründe stehen in 'attention'.
+    """
     content = tv().content
+    cfg = current_app.config
     today = today_berlin(current_app)
+    now = now_ts()
     try:
-        _db().execute("SELECT 1").fetchone()
+        maintenance_at = B.last_maintenance(_db())
         db_ok = True
-    except Exception:  # pragma: no cover
-        db_ok = False
+    except sqlite3.Error:  # pragma: no cover - DB nicht lesbar
+        maintenance_at, db_ok = None, False
+    due, next_review = due_items(content, today)
+    imprint_ok = all(str(cfg[f"TV_OPERATOR_{k}"]).strip() for k in ("NAME", "ADDRESS", "EMAIL"))
+    forwarded_ignored = tv().runtime["forwarded_ignored"]
+    # Wartung läuft im before_request alle 10 Min.; deutlich älter heißt: Schreiben schlägt fehl
+    maintenance_overdue = maintenance_at is None or now - maintenance_at > 3 * B.MAINTENANCE_EVERY_S
+    attention = [reason for reason, active in (("due_items", bool(due)), ("imprint", not imprint_ok),
+                                                ("proxy", forwarded_ignored),
+                                                ("maintenance", db_ok and maintenance_overdue)) if active]
     data = {
-        "status": "ok" if db_ok else "degraded",
+        "status": "degraded" if not db_ok else ("attention" if attention else "ok"),
         "db": db_ok,
         "build": tv().build_id,
         "datasets": {n: {"as_of": content.meta(n)["as_of"], "review_due": content.review_due(n, today)}
-                     for n in ("holidays", "customs", "transit", "crossings")},
+                     for n in DATASETS},
+        "due_items": due,
+        "next_review": next_review,
+        "imprint_ok": imprint_ok,
+        "proxy": {"trust_proxy": cfg["TV_TRUST_PROXY"], "forwarded_ignored": forwarded_ignored},
+        "maintenance_at": iso(maintenance_at) if maintenance_at else None,
+        "attention": attention,
     }
     return data, (200 if db_ok else 503)
+
+
+# Stabile Fehlercodes der JSON-API (Werkzeug-Namen wären sprachlich und versionsabhängig)
+API_ERRORS = {400: "invalid", 405: "method_not_allowed", 413: "too_large", 415: "invalid", 429: "ratelimited"}
 
 
 def _db():
@@ -472,6 +520,32 @@ def register(app: Flask) -> None:
             first = request.path.strip("/").split("/", 1)[0]
             g.lang = first if first in LANGS else negotiate(request.headers.get("Accept-Language"))
 
+    @app.before_request
+    def housekeeping():
+        """Proxy-Check und Datensparsamkeit – auch ohne neue Meldungen.
+
+        Die Wartung stößt jeder Prozess höchstens alle 10 Min. an (ohne DB-Zugriff dazwischen),
+        B.maintenance prüft dann über alle Prozesse den gemeinsamen Zeitstempel in kv.
+        """
+        if request.endpoint == "static":
+            return
+        runtime = tv().runtime
+        if (not current_app.config["TV_TRUST_PROXY"] and not runtime["forwarded_ignored"]
+                and ("X-Forwarded-For" in request.headers or "Forwarded" in request.headers)):
+            runtime["forwarded_ignored"] = True
+            current_app.logger.warning(
+                "Anfrage mit X-Forwarded-For, aber TV_TRUST_PROXY=0: Der Spam-Schutz sieht nur die "
+                "Adresse des Proxys, alle Nutzer teilen sich ein Limit. Hinter Pangolin TV_TRUST_PROXY=1 setzen.")
+        now = now_ts()
+        last = runtime["maintenance_checked_at"]
+        if last is not None and 0 <= now - last < B.MAINTENANCE_EVERY_S:
+            return
+        runtime["maintenance_checked_at"] = now
+        try:
+            B.maintenance(_db(), now)
+        except sqlite3.Error as exc:  # Seite trotzdem ausliefern; /healthz meldet 'maintenance'
+            current_app.logger.warning("Wartung fehlgeschlagen: %s", exc)
+
     @app.context_processor
     def inject():
         endpoint = request.endpoint or ""
@@ -504,6 +578,10 @@ def register(app: Flask) -> None:
         resp.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=(), interest-cohort=()"
         resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"
         resp.headers.pop("Set-Cookie", None)  # Grundsatz: niemals Cookies
+        # HSTS nur über HTTPS (request.is_secure gilt nach ProxyFix) oder bei https-Basis-URL.
+        # Ohne includeSubDomains: andere Subdomains der Domain sind nicht unsere Sache.
+        if request.is_secure or current_app.config["TV_BASE_URL"].startswith("https://"):
+            resp.headers["Strict-Transport-Security"] = "max-age=31536000"
         if request.path.startswith("/static/"):
             if request.args.get("v"):
                 resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
@@ -530,3 +608,15 @@ def register(app: Flask) -> None:
         if request.path.startswith("/api/"):
             return {"error": "server_error", "degraded": True}, 500
         return render_template("error.html", page=None, code=500), 500
+
+    @app.errorhandler(HTTPException)
+    def http_error(exc):
+        """Alle übrigen HTTP-Fehler (400, 405, 413 …): unter /api/ immer JSON, sonst Standardseite."""
+        if not request.path.startswith("/api/"):
+            return exc
+        resp = jsonify({"error": API_ERRORS.get(exc.code, "http_error")})
+        resp.status_code = exc.code or 500
+        for name, value in exc.get_headers():
+            if name.lower() != "content-type":  # z. B. Allow bei 405
+                resp.headers[name] = value
+        return resp

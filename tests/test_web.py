@@ -201,9 +201,142 @@ def test_manifest(client, lang):
 
 def test_healthz_reports_data_freshness(client):
     data = client.get("/healthz").get_json()
-    assert data["status"] == "ok" and data["db"] is True
+    assert data["db"] is True
     assert data["datasets"]["holidays"]["as_of"] == "2026-10-06"
     assert data["datasets"]["holidays"]["review_due"] is False
+    assert data["due_items"] == [] and data["next_review"] > "2026-10-06"
+    assert data["proxy"] == {"trust_proxy": 0, "forwarded_ignored": False}
+    assert data["maintenance_at"] == "2026-10-06T10:00:00Z"
+    # Test-App ohne Impressum: sichtbar als 'attention', HTTP bleibt 200
+    assert data["imprint_ok"] is False
+    assert (data["status"], data["attention"]) == ("attention", ["imprint"])
+
+
+@pytest.fixture
+def operated_app(tmp_path, clock):
+    from tatilvakti import create_app
+    return create_app({"TESTING": True, "TV_DB_PATH": str(tmp_path / "op.db"), "TV_CLOCK": clock,
+                       "TV_OPERATOR_NAME": "Erika Muster", "TV_OPERATOR_ADDRESS": "Musterweg 1;12345 Musterstadt",
+                       "TV_OPERATOR_EMAIL": "kontakt@example.org"})
+
+
+def test_healthz_is_ok_with_imprint_and_fresh_data(operated_app):
+    resp = operated_app.test_client().get("/healthz")
+    data = resp.get_json()
+    assert resp.status_code == 200
+    assert (data["status"], data["imprint_ok"], data["attention"]) == ("ok", True, [])
+
+
+def test_healthz_lists_due_rules_and_prices(operated_app):
+    """Audit ops-7: Einzelregel und Preise fällig, Datensätze noch nicht – trotzdem 'attention'.
+
+    Die Daten werden hier gezielt gesetzt, damit der Test nicht an den echten Prüfdaten hängt.
+    """
+    content = operated_app.extensions["tv"].content
+    item = content.customs["items"][0]
+    item["review_after"] = "2026-10-05"
+    code = next(iter(content.transit["countries"]))
+    content.transit["countries"][code]["prices_valid_until"] = "2026-10-05"
+    resp = operated_app.test_client().get("/healthz")
+    data = resp.get_json()
+    assert resp.status_code == 200
+    assert data["status"] == "attention" and data["attention"] == ["due_items"]
+    assert data["due_items"] == [
+        {"dataset": "customs", "item": item["id"], "field": "review_after", "date": "2026-10-05"},
+        {"dataset": "transit", "item": code, "field": "prices_valid_until", "date": "2026-10-05"},
+    ]
+    assert not any(v["review_due"] for v in data["datasets"].values())
+
+
+def test_healthz_flags_whole_datasets_after_review_date(operated_app, clock):
+    clock.now = datetime(2100, 1, 1, 9, 0, tzinfo=timezone.utc)
+    data = operated_app.test_client().get("/healthz").get_json()
+    assert data["status"] == "attention" and data["next_review"] is None
+    whole = {d["dataset"] for d in data["due_items"] if d["item"] is None}
+    assert whole == {"holidays", "customs", "transit", "crossings"}
+
+
+def test_forwarded_header_without_trusted_proxy_warns_once(client, caplog):
+    with caplog.at_level("WARNING"):
+        client.get("/de/", headers={"X-Forwarded-For": "203.0.113.9"})
+        client.get("/de/", headers={"X-Forwarded-For": "203.0.113.10"})
+    warnings = [r for r in caplog.records if "TV_TRUST_PROXY=0" in r.getMessage()]
+    assert len(warnings) == 1 and "203.0.113" not in warnings[0].getMessage()  # keine IP im Log
+    data = client.get("/healthz").get_json()
+    assert data["proxy"]["forwarded_ignored"] is True and "proxy" in data["attention"]
+
+
+def test_trusted_proxy_groups_ipv6_by_64(tmp_path, clock):
+    from tatilvakti import create_app
+    app = create_app({"TESTING": True, "TV_DB_PATH": str(tmp_path / "px.db"), "TV_CLOCK": clock, "TV_TRUST_PROXY": 1})
+    client = app.test_client()
+    url = "/api/v1/borders/kapikule/reports"
+    body = {"direction": "to_tr", "bucket": 5}
+    assert client.post(url, json=body, headers={"X-Forwarded-For": "2001:db8:1:2::1"}).status_code == 201
+    assert client.post(url, json=body, headers={"X-Forwarded-For": "2001:db8:1:2::77"}).status_code == 429
+    assert client.post(url, json=body, headers={"X-Forwarded-For": "2001:db8:1:3::1"}).status_code == 201
+    assert client.get("/healthz").get_json()["proxy"] == {"trust_proxy": 1, "forwarded_ignored": False}
+
+
+def test_maintenance_runs_without_new_reports(client, db, clock):
+    """Audit sec-3/legal-3/ops-6: nach 49 h ohne neue Meldung sind Prüfwert und alter Schlüssel weg."""
+    from tatilvakti.db import salt_db
+    assert client.post("/api/v1/borders/kapikule/reports", json={"direction": "to_tr", "bucket": 2}).status_code == 201
+    assert db.execute("SELECT COUNT(*) FROM reports WHERE client IS NOT NULL").fetchone()[0] == 1
+    clock.advance(hours=49)
+    assert client.get("/de/").status_code == 200  # nur ein Seitenaufruf
+    assert db.execute("SELECT COUNT(*) FROM reports WHERE client IS NOT NULL").fetchone()[0] == 0
+    with salt_db(db) as sconn:
+        assert [r["day"] for r in sconn.execute("SELECT day FROM salts")] == []
+    assert db.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 1  # die Meldung selbst bleibt
+
+
+def test_maintenance_in_requests_is_throttled(client, db, clock):
+    client.get("/de/")
+    first = db.execute("SELECT value FROM kv WHERE key = 'maintenance_at'").fetchone()[0]
+    clock.advance(minutes=9)
+    client.get("/de/")
+    assert db.execute("SELECT value FROM kv WHERE key = 'maintenance_at'").fetchone()[0] == first
+    clock.advance(minutes=1)
+    client.get("/static/css/app.css")  # statische Dateien lösen nichts aus
+    assert db.execute("SELECT value FROM kv WHERE key = 'maintenance_at'").fetchone()[0] == first
+    client.get("/de/")
+    assert db.execute("SELECT value FROM kv WHERE key = 'maintenance_at'").fetchone()[0] == str(clock.ts)
+
+
+def test_hsts_only_for_https(client, tmp_path, clock):
+    from tatilvakti import create_app
+    assert client.get("/de/").headers["Strict-Transport-Security"] == "max-age=31536000"
+    plain = create_app({"TESTING": True, "TV_DB_PATH": str(tmp_path / "http.db"), "TV_CLOCK": clock}).test_client()
+    assert "Strict-Transport-Security" not in plain.get("/de/").headers
+    secure = plain.get("/de/", base_url="https://localhost")
+    assert secure.headers["Strict-Transport-Security"] == "max-age=31536000"
+
+
+@pytest.mark.parametrize("body", [
+    '{"direction": "to_tr", "bucket": 1e400}',
+    '{"direction": "to_tr", "bucket": Infinity}',
+    '{"direction": "to_tr", "bucket": 2.0}',
+    '{"direction": "to_tr", "bucket": true}',
+    '{"direction": "to_tr", "bucket": 1, "observed_at": 1e400}',
+    '{"direction": "to_tr", "bucket": 1, "observed_at": Infinity}',
+    '{"direction": "to_tr", "bucket": 1, "observed_at": 1791194400.5}',
+])
+def test_report_api_rejects_non_integers_without_crashing(client, body):
+    resp = client.post("/api/v1/borders/kapikule/reports", data=body, content_type="application/json")
+    assert resp.status_code == 400 and resp.get_json()["error"] == "invalid"
+
+
+def test_api_errors_are_always_json(client):
+    resp = client.get("/api/v1/borders/kapikule/reports")
+    assert resp.status_code == 405 and resp.get_json() == {"error": "method_not_allowed"}
+    assert "POST" in resp.headers["Allow"]
+    resp = client.post("/api/v1/borders/kapikule/reports", data="x" * 20000, content_type="application/json")
+    assert resp.status_code == 413 and resp.get_json() == {"error": "too_large"}
+    resp = client.delete("/api/v1/borders")
+    assert resp.status_code == 405 and resp.mimetype == "application/json"
+    # Seiten außerhalb der API behalten die normale Fehlerseite
+    assert client.post("/de/").mimetype == "text/html"
 
 
 def test_outdated_data_is_flagged_not_hidden(client, clock):
