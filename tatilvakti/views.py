@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timedelta, timezone
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 from flask import (Flask, Response, abort, current_app, g, make_response, redirect,
                    render_template, request, url_for)
@@ -90,6 +90,19 @@ def cname(code: str) -> str:
     return names[g.lang] if names else code
 
 
+def fmt_ranges(ranges, with_weekday: bool = True) -> str:
+    """Mehrere Ferienblöcke lesbar: 'Do 25.03.2027 + Di 30.03.2027 – Sa 03.04.2027'."""
+    tr = tv().tr
+    parts = []
+    for r in ranges:
+        if r.start == r.end:
+            parts.append(fmt_date(r.start, g.lang, tr, with_weekday=with_weekday))
+        else:
+            parts.append(f"{fmt_date(r.start, g.lang, tr, with_weekday=with_weekday)} – "
+                         f"{fmt_date(r.end, g.lang, tr, with_weekday=with_weekday)}")
+    return " + ".join(parts)
+
+
 def whatsapp_url(text: str, url: str) -> str:
     return "https://wa.me/?text=" + quote(f"{text} {url}")
 
@@ -111,19 +124,18 @@ def home():
     content = tv().content
     next_by_state = {}
     for code in radar.states:
-        found = radar.next_for_state(code, today)
-        if found:
-            period, span = found
-            next_by_state[code] = {"period": period, "span": span,
-                                   "running": span.start <= today,
-                                   "when": in_days(span.start, today)}
-    next_any = radar.current_or_next_period(today)
-    running_now = len(radar.states_on_holiday(today)) if next_any and next_any.start <= today else 0
+        info = radar.next_for_state(code, today)
+        if info:
+            info["when"] = in_days(info["ranges"][0].start, today)
+            next_by_state[code] = info
+    running = radar.running_period(today)
+    running_now = len(radar.states_on_holiday(today)) if running else 0
+    upcoming = radar.next_start(today)
     main = [c for c in content.crossings["crossings"] if c["main"]]
     statuses = B.statuses(_db(), [c["id"] for c in main], now_ts())
     featured = [i for i in content.customs["items"] if i.get("featured")]
     return render_template("home.html", page="home", today=today, next_by_state=next_by_state,
-                           next_any=next_any, running_now=running_now, main_crossings=main, statuses=statuses, featured=featured)
+                           running=running, running_now=running_now, upcoming=upcoming, main_crossings=main, statuses=statuses, featured=featured)
 
 
 def holidays():
@@ -136,18 +148,22 @@ def holidays():
     chart = _holiday_chart(radar, period, today)
     personal = {}
     for code in radar.states:
-        span = period.span(code)
-        if span:
-            personal[code] = {"span": span, "quiet": radar.quiet_days(period, code)}
-    share_urls = {}
+        ranges = period.ranges.get(code)
+        if ranges:
+            stretches = period.stretches(code)
+            personal[code] = {"ranges": ranges, "days": period.holiday_days(code), "free": stretches,
+                              "free_differs": [(r.start, r.end) for r in stretches] != [(r.start, r.end) for r in ranges],
+                              "quiet": radar.quiet_days(period, code)}
+    share_urls, share_texts = {}, {}
     for code, info in personal.items():
         text = t("hol_share_text", period=f"{period.label[g.lang]} {radar.states[code]['short']}",
-                 dates=fmt_range(info["span"].start, info["span"].end, g.lang, tv().tr))
+                 dates=fmt_ranges(info["ranges"], with_weekday=False))
+        share_texts[code] = text
         share_urls[code] = whatsapp_url(text, abs_url(href("holidays", zeitraum=period.id, land=code)))
     return render_template("holidays.html", page="holidays", period=period, periods=radar.periods,
                            land=land, chart=chart, personal=personal, today=today,
                            all16=radar.all_states_windows(period), peak=radar.peak(period),
-                           share_urls=share_urls, radar_meta=tv().content.meta("holidays"),
+                           share_urls=share_urls, share_texts=share_texts, radar_meta=tv().content.meta("holidays"),
                            radar_due=tv().content.review_due("holidays", today))
 
 
@@ -238,10 +254,28 @@ def crossing(cid: str):
                            sources=content.crossings["sources"], countries=content.transit["countries"])
 
 
+def same_origin(require: bool) -> bool:
+    """Schutz vor fremden Formular-Posts (CSRF): Origin bzw. Referer muss unser Host sein.
+
+    Funktioniert, weil wir Referrer-Policy 'same-origin' senden: eigene POSTs tragen den
+    echten Origin, fremde Seiten liefern ihren eigenen Origin oder 'null'.
+    """
+    allowed = {request.host}
+    if current_app.config["TV_BASE_URL"]:
+        allowed.add(urlsplit(current_app.config["TV_BASE_URL"]).netloc)
+    for header in ("Origin", "Referer"):
+        value = request.headers.get(header)
+        if value and value != "null":
+            return urlsplit(value).netloc in allowed
+    return not require
+
+
 def report_form(cid: str):
     """Fallback ohne JavaScript: klassisches Formular, danach Redirect (PRG)."""
     if cid not in tv().content.crossing_by_id:
         abort(404)
+    if not same_origin(require=True):
+        abort(403)
     target = href("crossing", cid=cid)
     if request.form.get("website"):  # Honeypot: Bots füllen das versteckte Feld
         return redirect(f"{target}?gemeldet=1#melden", code=303)
@@ -458,14 +492,15 @@ def register(app: Flask) -> None:
             "plural": lambda key, n, **kw: tr.plural(g.lang, key, n, **kw),
             "status_text": status_text, "bucket_label": bucket_label, "bucket_count": B.BUCKET_COUNT,
             "client_strings": _client_strings, "build_id": tv().build_id,
-            "states": tv().radar.states, "is_due": is_due, "cname": cname,
+            "states": tv().radar.states, "is_due": is_due, "cname": cname, "fmt_ranges": fmt_ranges,
         }
 
     @app.after_request
     def headers(resp):
         resp.headers.setdefault("Content-Security-Policy", CSP)
         resp.headers["X-Content-Type-Options"] = "nosniff"
-        resp.headers["Referrer-Policy"] = "no-referrer"
+        # same-origin: externe Seiten erfahren nichts, eigene POSTs tragen einen prüfbaren Origin
+        resp.headers["Referrer-Policy"] = "same-origin"
         resp.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=(), interest-cohort=()"
         resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"
         resp.headers.pop("Set-Cookie", None)  # Grundsatz: niemals Cookies
@@ -477,6 +512,12 @@ def register(app: Flask) -> None:
         elif "Cache-Control" not in resp.headers or resp.mimetype == "text/html":
             resp.headers["Cache-Control"] = "no-cache"
         return resp
+
+    @app.errorhandler(403)
+    def forbidden(_exc):
+        if request.path.startswith("/api/"):
+            return {"error": "forbidden"}, 403
+        return render_template("error.html", page=None, code=403), 403
 
     @app.errorhandler(404)
     def not_found(_exc):

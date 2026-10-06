@@ -86,13 +86,47 @@ def test_honeypot_is_accepted_but_not_stored(client):
     assert st["state"] == "none"
 
 
+SAME_ORIGIN = {"Origin": "http://localhost"}
+
+
 def test_report_form_works_without_javascript(client):
-    resp = client.post("/de/grenze/horgos/report", data={"direction": "to_de", "bucket": "4"})
+    resp = client.post("/de/grenze/horgos/report", data={"direction": "to_de", "bucket": "4"}, headers=SAME_ORIGIN)
     assert resp.status_code == 303 and resp.headers["Location"].endswith("/de/grenze/horgos?gemeldet=1#melden")
     page = client.get("/de/grenze/horgos?gemeldet=1").get_data(as_text=True)
     assert "Danke!" in page and "2–4 Std." in page
-    limited = client.post("/de/grenze/horgos/report", data={"direction": "to_de", "bucket": "4"})
+    limited = client.post("/de/grenze/horgos/report", data={"direction": "to_de", "bucket": "4"}, headers=SAME_ORIGIN)
     assert "fehler=ratelimited" in limited.headers["Location"]
+
+
+@pytest.mark.parametrize("headers", [
+    {"Origin": "https://evil.example"},
+    {"Origin": "null"},
+    {"Referer": "https://evil.example/page"},
+    {},
+])
+def test_cross_site_form_posts_are_rejected(client, headers):
+    resp = client.post("/de/grenze/horgos/report", data={"direction": "to_de", "bucket": "4"}, headers=headers)
+    assert resp.status_code == 403
+    assert client.get("/api/v1/borders/horgos").get_json()["directions"]["to_de"]["state"] == "none"
+
+
+def test_form_accepts_configured_public_host_and_referer(client):
+    ok = client.post("/de/grenze/gradina/report", data={"direction": "to_tr", "bucket": "1"},
+                     headers={"Origin": "https://tatilvakti.example"})
+    assert ok.status_code == 303
+    ok = client.post("/de/grenze/gradina/report", data={"direction": "to_de", "bucket": "1"},
+                     headers={"Referer": "http://localhost/de/grenze/gradina"})
+    assert ok.status_code == 303
+
+
+def test_api_rejects_foreign_origin(client):
+    resp = client.post("/api/v1/borders/kapikule/reports", json={"direction": "to_tr", "bucket": 1},
+                       headers={"Origin": "https://evil.example"})
+    assert resp.status_code == 403 and resp.get_json() == {"error": "forbidden"}
+
+
+def test_referrer_policy_lets_own_posts_carry_origin(client):
+    assert client.get("/de/").headers["Referrer-Policy"] == "same-origin"
 
 
 def test_report_age_is_shown_and_expires(client, clock):
@@ -103,6 +137,20 @@ def test_report_age_is_shown_and_expires(client, clock):
     clock.advance(hours=3)
     html = client.get("/de/grenze/gradina").get_data(as_text=True)
     assert "Keine aktuellen Meldungen" in html and "vor 3 Std." in html
+
+
+def test_home_shows_next_real_holiday_start_during_gap(client, clock):
+    clock.now = datetime(2027, 3, 15, 9, 0, tzinfo=timezone.utc)
+    html = client.get("/de/").get_data(as_text=True)
+    assert "Als Nächstes: Oster-/Frühjahrsferien 2027, Beginn Mo 22.03.2027" in html
+    assert "Beginn Mo 01.03.2027" not in html
+
+
+def test_split_holidays_are_shown_as_separate_blocks(client):
+    html = client.get("/de/ferien?zeitraum=ostern-2027&land=BW").get_data(as_text=True)
+    assert "Do 25.03.2027 + Di 30.03.2027 – Sa 03.04.2027" in html
+    assert "6 Ferientage" in html
+    assert "Frei inkl. Wochenenden und bundesweiter Feiertage: Do 25.03.2027 – So 04.04.2027" in html
 
 
 def test_unknown_pages_are_404(client):
@@ -122,6 +170,17 @@ def test_service_worker_precaches_all_pages(client):
     assert all("?v=" in a for a in config["assets"])
     for asset in config["assets"]:
         assert client.get(asset).status_code == 200
+
+
+def test_build_id_changes_when_templates_change(tmp_path, monkeypatch):
+    import tatilvakti
+    (tmp_path / "templates").mkdir()
+    page = tmp_path / "templates" / "page.html"
+    page.write_text("<p>alt</p>")
+    monkeypatch.setattr(tatilvakti, "PACKAGE_DIR", tmp_path)
+    before = tatilvakti._content_fingerprint()
+    page.write_text("<p>neu</p>")
+    assert tatilvakti._content_fingerprint() != before
 
 
 def test_static_assets_are_immutable(client):

@@ -68,7 +68,7 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; scroll-padding-top: 72px; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--tabbar-h) + 32px + env(safe-area-inset-bottom)); }
 body {
   margin: 0;
   background: var(--bg);

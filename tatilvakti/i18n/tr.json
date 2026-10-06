@@ -29,8 +29,6 @@
   "in_days_1": "yarın",
   "in_days_n": "{n} gün sonra",
   "running": "şu an devam ediyor",
-  "days_n": "{n} gün",
-  "days_1": "1 gün",
   "share": "Paylaş",
   "share_whatsapp": "WhatsApp ile paylaş",
   "weekday_short": [
@@ -215,5 +213,10 @@
   "home_running_any": "Şu an {period} devam ediyor: bugün 16 eyaletten {n} tanesi tatilde.",
   "b_now": "Şu anki durum",
   "b_share_both": "{name}: Türkiye yönü {to_tr}, Almanya yönü {to_de} – tatilvakti'de canlı bekleme süreleri",
-  "r_doc_more": "Gümrük rehberinde ayrıntılar"
+  "r_doc_more": "Gümrük rehberinde ayrıntılar",
+  "hol_days_1": "1 tatil günü",
+  "hol_days_n": "{n} tatil günü",
+  "hol_free": "Hafta sonları ve resmî tatillerle birlikte serbest: {dates}",
+  "err_403_title": "İstek reddedildi",
+  "err_403_text": "Bildirimler yalnızca doğrudan tatilvakti üzerinden yapılabilir."
 }

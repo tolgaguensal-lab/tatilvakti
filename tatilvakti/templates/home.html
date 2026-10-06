@@ -39,10 +39,10 @@
       <p class="station__kicker">{{ t("station_n", n=1) }}</p>
       <h2 class="station__title">{{ icon("calendar") }}{{ t("station_when") }}</h2>
       <div data-per-state="none">
-        {%- if next_any and running_now %}
-        <p class="big">{{ t("home_running_any", period=next_any.label[lang], n=running_now) }}</p>
-        {%- elif next_any %}
-        <p class="big">{{ t("home_next_any", period=next_any.label[lang], date=fmt_date(next_any.start, with_weekday=True)) }}</p>
+        {%- if running %}
+        <p class="big">{{ t("home_running_any", period=running.label[lang], n=running_now) }}</p>
+        {%- elif upcoming %}
+        <p class="big">{{ t("home_next_any", period=upcoming[0].label[lang], date=fmt_date(upcoming[1], with_weekday=True)) }}</p>
         {%- endif %}
         <p class="muted">{{ t("home_pick_state") }}</p>
       </div>
@@ -50,7 +50,7 @@
       <div data-per-state="{{ code }}" hidden>
         <p class="muted">{{ t("home_next_holiday", state=states[code].name) }}</p>
         <p class="big">{{ info.period.label[lang] }}</p>
-        <p>{{ fmt_date(info.span.start, with_weekday=True) }} – {{ fmt_date(info.span.end, with_weekday=True) }}
+        <p>{{ fmt_ranges(info.ranges) }}
           <span class="pill">{{ t("running") if info.running else info.when }}</span></p>
       </div>
       {%- endfor %}

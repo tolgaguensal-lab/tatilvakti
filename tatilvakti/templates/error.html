@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% from "_macros.html" import icon with context %}
-{% block title %}{{ t("err_404_title") if code == 404 else t("err_500_title") }} – {{ t("app_name") }}{% endblock %}
+{%- set key = "err_404" if code == 404 else ("err_403" if code == 403 else "err_500") %}
+{% block title %}{{ t(key ~ "_title") }} – {{ t("app_name") }}{% endblock %}
 {% block main %}
 <header class="pagehead">
-  <h1>{{ icon("alert") }}{{ t("err_404_title") if code == 404 else t("err_500_title") }}</h1>
-  <p class="lead">{{ t("err_404_text") if code == 404 else t("err_500_text") }}</p>
+  <h1>{{ icon("alert") }}{{ t(key ~ "_title") }}</h1>
+  <p class="lead">{{ t(key ~ "_text") }}</p>
 </header>
 <p><a class="btn btn--primary" href="{{ href('home') }}">{{ t("back_home") }}</a></p>
 {% endblock %}

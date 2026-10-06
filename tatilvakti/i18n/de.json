@@ -29,8 +29,6 @@
   "in_days_1": "morgen",
   "in_days_n": "in {n} Tagen",
   "running": "läuft gerade",
-  "days_n": "{n} Tage",
-  "days_1": "1 Tag",
   "share": "Teilen",
   "share_whatsapp": "Per WhatsApp teilen",
   "weekday_short": [
@@ -215,5 +213,10 @@
   "home_running_any": "Gerade laufen die {period}: heute haben {n} von 16 Ländern frei.",
   "b_now": "Aktuelle Lage",
   "b_share_both": "{name}: Richtung Türkei {to_tr}, Richtung Deutschland {to_de} – Live-Wartezeiten auf tatilvakti",
-  "r_doc_more": "Details im Zoll-Check"
+  "r_doc_more": "Details im Zoll-Check",
+  "hol_days_1": "1 Ferientag",
+  "hol_days_n": "{n} Ferientage",
+  "hol_free": "Frei inkl. Wochenenden und bundesweiter Feiertage: {dates}",
+  "err_403_title": "Anfrage abgelehnt",
+  "err_403_text": "Meldungen gehen nur direkt über tatilvakti."
 }

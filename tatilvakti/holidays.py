@@ -24,14 +24,53 @@ class Range:
         return self.start <= day <= self.end
 
 
-def free_span(span: Range) -> Range:
-    """Ferienzeitraum inklusive direkt angrenzender Wochenenden."""
-    start, end = span.start, span.end
-    while (start - timedelta(days=1)).weekday() >= 5:
-        start -= timedelta(days=1)
-    while (end + timedelta(days=1)).weekday() >= 5:
-        end += timedelta(days=1)
-    return Range(start, end)
+def easter_sunday(year: int) -> date:
+    """Ostersonntag (gregorianisch, anonymer Algorithmus nach Meeus/Jones/Butcher)."""
+    a, b, c = year % 19, year // 100, year % 100
+    d, e = b // 4, b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = c // 4, c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month, day = divmod(h + l - 7 * m + 114, 31)
+    return date(year, month, day + 1)
+
+
+def national_holidays(year: int) -> set[date]:
+    """Bundesweite gesetzliche Feiertage (landesspezifische bewusst nicht)."""
+    easter = easter_sunday(year)
+    return {
+        date(year, 1, 1), easter - timedelta(days=2), easter + timedelta(days=1), date(year, 5, 1),
+        easter + timedelta(days=39), easter + timedelta(days=50), date(year, 10, 3),
+        date(year, 12, 25), date(year, 12, 26),
+    }
+
+
+def is_day_off(day: date) -> bool:
+    return day.weekday() >= 5 or day in national_holidays(day.year)
+
+
+def free_stretches(ranges: list[Range]) -> list[Range]:
+    """Zusammenhängende freie Zeiträume eines Landes.
+
+    Ferienblöcke plus direkt angrenzende Wochenenden und bundesweite Feiertage. Eine Lücke
+    zwischen zwei Blöcken wird nur überbrückt, wenn jeder Lückentag ohnehin frei ist
+    (z. B. BW Ostern 2027: 25.03. + Karfreitag, Wochenende, Ostermontag + 30.03.–03.04.).
+    """
+    stretches: list[Range] = []
+    for r in sorted(ranges, key=lambda x: x.start):
+        start, end = r.start, r.end
+        while is_day_off(start - timedelta(days=1)):
+            start -= timedelta(days=1)
+        while is_day_off(end + timedelta(days=1)):
+            end += timedelta(days=1)
+        if stretches and start <= stretches[-1].end + timedelta(days=1):
+            stretches[-1] = Range(stretches[-1].start, max(end, stretches[-1].end))
+        else:
+            stretches.append(Range(start, end))
+    return stretches
 
 
 class Period:
@@ -61,6 +100,13 @@ class Period:
 
     def on_holiday(self, state: str, day: date) -> bool:
         return any(r.contains(day) for r in self.ranges.get(state, []))
+
+    def holiday_days(self, state: str) -> int:
+        """Offizielle Ferientage (Summe der Blöcke, ohne Lücken)."""
+        return sum(r.days for r in self.ranges.get(state, []))
+
+    def stretches(self, state: str) -> list[Range]:
+        return free_stretches(self.ranges.get(state, []))
 
 
 class HolidayRadar:
@@ -94,14 +140,31 @@ class HolidayRadar:
                 return period
         return None
 
-    def upcoming_periods(self, today: date) -> list[Period]:
-        return [p for p in self.periods if p.end >= today]
-
-    def next_for_state(self, state: str, today: date) -> tuple[Period, Range] | None:
+    def running_period(self, today: date) -> Period | None:
+        """Zeitraum, in dem heute mindestens ein Land tatsächlich Ferien hat."""
         for period in self.periods:
-            for r in period.ranges.get(state, []):
-                if r.end >= today:
-                    return period, period.span(state)
+            if any(period.on_holiday(state, today) for state in self.states):
+                return period
+        return None
+
+    def next_start(self, today: date) -> tuple[Period, date] | None:
+        """Nächster echter Ferienbeginn nach heute (nicht das Startdatum eines laufenden Zeitraums)."""
+        best = None
+        for period in self.periods:
+            for ranges in period.ranges.values():
+                for r in ranges:
+                    if r.start > today and (best is None or r.start < best[1]):
+                        best = (period, r.start)
+        return best
+
+    def next_for_state(self, state: str, today: date) -> dict | None:
+        """Nächste bzw. laufende Ferien eines Landes: offizielle Blöcke + freier Zeitraum."""
+        for period in self.periods:
+            for stretch in period.stretches(state):
+                if stretch.end >= today:
+                    ranges = [r for r in period.ranges[state] if stretch.start <= r.start <= stretch.end]
+                    return {"period": period, "ranges": ranges, "free": stretch,
+                            "running": stretch.start <= today}
         return None
 
     def all_states_windows(self, period: Period) -> list[Range]:
@@ -125,17 +188,17 @@ class HolidayRadar:
     def quiet_days(self, period: Period, state: str, count: int = 3) -> dict[str, list[tuple[date, float]]]:
         """Ruhigste Abreise- und Rückreisetage innerhalb der Ferien eines Landes.
 
-        Angrenzende Wochenenden zählen mit (Ferien ab Montag → Abreise schon am Samstag).
-        Abreise: die ersten 7 freien Tage. Rückreise: die letzten 7 freien Tage.
+        Angrenzende Wochenenden und bundesweite Feiertage zählen mit (Ferien ab Montag →
+        Abreise schon am Samstag). Abreise: die ersten 7 freien Tage, Rückreise: die letzten 7.
         Sortiert nach Ferien-Druck, bei Gleichstand der frühere (Abreise) bzw.
         spätere Tag (Rückreise) – das lässt mehr Urlaub übrig.
         """
-        span = period.span(state)
-        if span is None:
+        stretches = period.stretches(state)
+        if not stretches:
             return {"departure": [], "return": []}
-        free = free_span(span)
-        dep_window = self.series(free.start, min(free.start + timedelta(days=6), free.end))
-        ret_window = self.series(max(free.end - timedelta(days=6), free.start), free.end)
+        first, last = stretches[0], stretches[-1]
+        dep_window = self.series(first.start, min(first.start + timedelta(days=6), first.end))
+        ret_window = self.series(max(last.end - timedelta(days=6), last.start), last.end)
         departure = sorted(dep_window, key=lambda r: (round(r[1], 4), r[0]))[:count]
         ret = sorted(ret_window, key=lambda r: (round(r[1], 4), -r[0].toordinal()))[:count]
         return {

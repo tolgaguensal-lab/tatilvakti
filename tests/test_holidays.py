@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 
 from tatilvakti.content import DATA_DIR
-from tatilvakti.holidays import HolidayRadar, Range, free_span
+from tatilvakti.holidays import HolidayRadar, Range, easter_sunday, free_stretches, national_holidays
 
 
 @pytest.fixture(scope="module")
@@ -34,18 +34,49 @@ def test_no_holiday_means_zero_pressure(radar):
 
 
 def test_next_holiday_for_state(radar):
-    period, span = radar.next_for_state("NW", date(2026, 10, 6))
-    assert period.id == "herbst-2026"
-    assert (span.start, span.end) == (date(2026, 10, 17), date(2026, 10, 31))
-    period, _ = radar.next_for_state("HE", date(2026, 10, 20))
-    assert period.id == "weihnachten-2026"
+    info = radar.next_for_state("NW", date(2026, 10, 6))
+    assert info["period"].id == "herbst-2026" and info["running"] is False
+    assert [(r.start, r.end) for r in info["ranges"]] == [(date(2026, 10, 17), date(2026, 10, 31))]
+    assert radar.next_for_state("HE", date(2026, 10, 20))["period"].id == "weihnachten-2026"
 
 
-def test_free_span_includes_adjacent_weekends():
+def test_easter_and_national_holidays():
+    assert easter_sunday(2026) == date(2026, 4, 5)
+    assert easter_sunday(2027) == date(2027, 3, 28)
+    assert easter_sunday(2028) == date(2028, 4, 16)
+    holidays_2027 = national_holidays(2027)
+    assert date(2027, 3, 26) in holidays_2027 and date(2027, 3, 29) in holidays_2027  # Karfreitag, Ostermontag
+    assert date(2027, 10, 3) in holidays_2027
+
+
+def test_free_stretches_include_weekends_and_public_holidays():
     # NRW Sommer 2027: Mo 19.07.–Di 31.08. → frei ab Sa 17.07.
-    assert free_span(Range(date(2027, 7, 19), date(2027, 8, 31))) == Range(date(2027, 7, 17), date(2027, 8, 31))
+    assert free_stretches([Range(date(2027, 7, 19), date(2027, 8, 31))]) == [Range(date(2027, 7, 17), date(2027, 8, 31))]
     # Hessen: bis Fr 06.08. → frei bis So 08.08.
-    assert free_span(Range(date(2027, 6, 28), date(2027, 8, 6))).end == date(2027, 8, 8)
+    assert free_stretches([Range(date(2027, 6, 28), date(2027, 8, 6))])[0].end == date(2027, 8, 8)
+    # Saarland Weihnachten bis Do 31.12.2026 → Neujahr + Wochenende → frei bis So 03.01.2027
+    assert free_stretches([Range(date(2026, 12, 21), date(2026, 12, 31))])[0].end == date(2027, 1, 3)
+
+
+def test_gap_is_bridged_only_when_every_gap_day_is_off():
+    # BW Ostern 2027: 25.03. + 30.03.–03.04.; dazwischen Karfreitag, Wochenende, Ostermontag
+    bw = free_stretches([Range(date(2027, 3, 25), date(2027, 3, 25)), Range(date(2027, 3, 30), date(2027, 4, 3))])
+    assert bw == [Range(date(2027, 3, 25), date(2027, 4, 4))]
+    # Erfundener Fall mit echten Schultagen in der Lücke: bleibt getrennt
+    split = free_stretches([Range(date(2027, 6, 1), date(2027, 6, 2)), Range(date(2027, 6, 9), date(2027, 6, 10))])
+    assert len(split) == 2
+
+
+def test_official_holiday_days_ignore_gaps(radar):
+    assert radar.by_id["ostern-2027"].holiday_days("BW") == 6
+    assert radar.by_id["sommer-2027"].holiday_days("NW") == 44
+
+
+def test_next_start_skips_past_period_starts(radar):
+    # 15.03.2027: Hamburgs Frühjahrsferien vorbei, die anderen Osterferien beginnen erst am 22.03.
+    assert radar.running_period(date(2027, 3, 15)) is None
+    period, start = radar.next_start(date(2027, 3, 15))
+    assert (period.id, start) == ("ostern-2027", date(2027, 3, 22))
 
 
 def test_quiet_days_prefer_low_pressure(radar):

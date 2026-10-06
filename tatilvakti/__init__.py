@@ -33,6 +33,24 @@ class State:
     build_id: str
 
 
+PACKAGE_DIR = Path(__file__).parent
+
+
+def _content_fingerprint() -> str:
+    """Hash über alles, was das gerenderte HTML bestimmt: Templates, Texte, Daten, Code.
+
+    Ändert sich davon irgendetwas, bekommt der Service Worker eine neue Version und
+    speichert alle Seiten neu – auch wenn kein statisches Asset geändert wurde.
+    """
+    digest = hashlib.sha256()
+    for pattern in ("templates/*", "i18n/*.json", "data/*.json", "*.py"):
+        for path in sorted(PACKAGE_DIR.glob(pattern)):
+            if path.is_file():
+                digest.update(path.relative_to(PACKAGE_DIR).as_posix().encode())
+                digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 def _hash_assets() -> dict[str, str]:
     hashes = {}
     for path in sorted(STATIC_DIR.rglob("*")):
@@ -69,8 +87,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         raise RuntimeError("Datensätze fehlerhaft:\n" + "\n".join(problems))
 
     hashes = _hash_assets()
-    data_fingerprint = "".join(content.meta(n)["as_of"] for n in ("holidays", "customs", "transit", "crossings"))
-    build_id = hashlib.sha256(("".join(hashes.values()) + data_fingerprint).encode()).hexdigest()[:12]
+    build_id = hashlib.sha256(("".join(hashes.values()) + _content_fingerprint()).encode()).hexdigest()[:12]
     app.extensions["tv"] = State(content, HolidayRadar(content.holidays), Translator(), hashes, build_id)
 
     init_db(app.config["TV_DB_PATH"])

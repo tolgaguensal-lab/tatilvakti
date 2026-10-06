@@ -97,23 +97,31 @@ def add_report(conn: sqlite3.Connection, crossing: str, direction: str, bucket, 
         if observed < now - MAX_REPORT_AGE_MIN * 60:
             raise StaleReport("observed_at")
 
-    client = client_key(conn, ip, now)
-    recent_same = conn.execute(
-        "SELECT 1 FROM reports WHERE client = ? AND crossing = ? AND direction = ? AND created_at > ? LIMIT 1",
-        (client, crossing, direction, now - SAME_SPOT_COOLDOWN_MIN * 60),
-    ).fetchone()
-    if recent_same:
-        raise RateLimited("same_spot")
-    per_hour = conn.execute(
-        "SELECT COUNT(*) FROM reports WHERE client = ? AND created_at > ?", (client, now - 3600)
-    ).fetchone()[0]
-    if per_hour >= MAX_REPORTS_PER_HOUR:
-        raise RateLimited("per_hour")
-
-    cur = conn.execute(
-        "INSERT INTO reports (crossing, direction, bucket, observed_at, created_at, client) VALUES (?, ?, ?, ?, ?, ?)",
-        (crossing, direction, bucket, observed, now, client),
-    )
+    # Prüfen und Speichern in EINER Schreibtransaktion: BEGIN IMMEDIATE sperrt sofort für
+    # andere Schreiber, parallele Requests desselben Clients sehen also die erste Meldung.
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        client = client_key(conn, ip, now)
+        recent_same = conn.execute(
+            "SELECT 1 FROM reports WHERE client = ? AND crossing = ? AND direction = ? AND created_at > ? LIMIT 1",
+            (client, crossing, direction, now - SAME_SPOT_COOLDOWN_MIN * 60),
+        ).fetchone()
+        if recent_same:
+            raise RateLimited("same_spot")
+        per_hour = conn.execute(
+            "SELECT COUNT(*) FROM reports WHERE client = ? AND created_at > ?", (client, now - 3600)
+        ).fetchone()[0]
+        if per_hour >= MAX_REPORTS_PER_HOUR:
+            raise RateLimited("per_hour")
+        cur = conn.execute(
+            "INSERT INTO reports (crossing, direction, bucket, observed_at, created_at, client) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (crossing, direction, bucket, observed, now, client),
+        )
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
     maintenance(conn, now)
     return cur.lastrowid
 

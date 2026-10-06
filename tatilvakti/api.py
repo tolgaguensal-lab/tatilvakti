@@ -5,7 +5,7 @@ from flask import Flask, current_app, request
 
 from . import borders as B
 from .db import get_db
-from .views import iso, now_ts, tv
+from .views import iso, now_ts, same_origin, tv
 
 
 def _crossing_json(c: dict, st: dict) -> dict:
@@ -44,6 +44,8 @@ def border_detail(cid: str):
 def border_report(cid: str):
     if cid not in tv().content.crossing_by_id:
         return {"error": "not_found"}, 404
+    if not same_origin(require=False):  # JSON braucht ohnehin CORS-Preflight; hier zusätzlich
+        return {"error": "forbidden"}, 403
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return {"error": "invalid", "detail": "json_expected"}, 400

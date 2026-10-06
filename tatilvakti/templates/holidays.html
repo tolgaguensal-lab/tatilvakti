@@ -34,8 +34,11 @@
   <article class="card card--brand" data-per-state="{{ code }}"{% if land != code %} hidden{% endif %}>
     {%- if info %}
     <h2 class="card__title">{{ t("hol_your", state=states[code].name) }}</h2>
-    <p class="big">{{ fmt_date(info.span.start, with_weekday=True) }} – {{ fmt_date(info.span.end, with_weekday=True) }}
-      <span class="pill">{{ plural("days", info.span.days) }}</span></p>
+    <p class="big">{{ fmt_ranges(info.ranges) }}
+      <span class="pill">{{ plural("hol_days", info.days) }}</span></p>
+    {%- if info.free_differs %}
+    <p class="muted">{{ t("hol_free", dates=fmt_ranges(info.free)) }}</p>
+    {%- endif %}
     <div class="quiet">
       {%- for kind, label in [("departure", "hol_quiet_departure"), ("return", "hol_quiet_return")] %}
       <div class="quiet__col">
@@ -49,7 +52,7 @@
       {%- endfor %}
     </div>
     <p class="hint">{{ t("hol_quiet_expl") }}</p>
-    <a class="btn btn--wa" href="{{ share_urls[code] }}" target="_blank" rel="noopener noreferrer" data-share data-share-text="{{ t('hol_share_text', period=period.label[lang] ~ ' ' ~ states[code].short, dates=fmt_range(info.span.start, info.span.end)) }}" data-share-url="{{ abs_url(href('holidays', zeitraum=period.id, land=code)) }}">{{ icon("chat", "icon--s") }}{{ t("share_whatsapp") }}</a>
+    <a class="btn btn--wa" href="{{ share_urls[code] }}" target="_blank" rel="noopener noreferrer" data-share data-share-text="{{ share_texts[code] }}" data-share-url="{{ abs_url(href('holidays', zeitraum=period.id, land=code)) }}">{{ icon("chat", "icon--s") }}{{ t("share_whatsapp") }}</a>
     {%- else %}
     <p>{{ t("hol_no_range", state=states[code].name) }}</p>
     {%- endif %}

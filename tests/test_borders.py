@@ -1,7 +1,11 @@
 """Grenz-Meldungen: ehrliche Aggregation, Spam-Schutz, Datensparsamkeit."""
+import threading
+import time
+
 import pytest
 
 from tatilvakti import borders as B
+from tatilvakti.db import connect
 
 
 def report(db, clock, bucket, ip="10.0.0.1", crossing="kapikule", direction="to_tr", **kw):
@@ -111,3 +115,58 @@ def test_hourly_pattern_needs_enough_reports(db, clock):
     assert pattern["enough"] is True and pattern["usable_hours"] == 4
     # 10:00 UTC = 13:00 Istanbul
     assert pattern["slots"][13]["count"] == 3 and pattern["slots"][13]["bucket"] == 2
+
+
+class _Result:
+    def __init__(self, row):
+        self.row = row
+
+    def fetchone(self):
+        return self.row
+
+
+class _SlowConn:
+    """Verbindung, die nach der Cooldown-Prüfung kurz wartet – macht das Race-Fenster sichtbar."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, params=()):
+        cur = self._conn.execute(sql, params)
+        if sql.startswith("SELECT 1 FROM reports WHERE client"):
+            row = cur.fetchone()
+            time.sleep(0.05)
+            return _Result(row)
+        return cur
+
+
+def test_concurrent_reports_from_one_client_are_serialized(app, clock):
+    """Parallele Requests desselben Clients: genau einer kommt durch (atomare Sperre)."""
+    path = app.config["TV_DB_PATH"]
+    workers = 6
+    barrier = threading.Barrier(workers)
+    outcomes = []
+    lock = threading.Lock()
+
+    def send():
+        conn = connect(path)
+        try:
+            barrier.wait()
+            B.add_report(_SlowConn(conn), "kapikule", "to_tr", 5, "198.51.100.4", clock.ts)
+            result = "ok"
+        except B.RateLimited:
+            result = "limited"
+        finally:
+            conn.close()
+        with lock:
+            outcomes.append(result)
+
+    threads = [threading.Thread(target=send) for _ in range(workers)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    assert sorted(outcomes) == ["limited"] * (workers - 1) + ["ok"]
+    conn = connect(path)
+    assert conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 1
+    conn.close()
