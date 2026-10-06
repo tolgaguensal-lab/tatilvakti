@@ -1,0 +1,45 @@
+{% macro icon(name, cls="") -%}
+<svg class="icon {{ cls }}" aria-hidden="true" focusable="false"><use href="#i-{{ name }}"></use></svg>
+{%- endmacro %}
+
+{% macro ext(url, label, cls="ext") -%}
+<a class="{{ cls }}" href="{{ url }}" target="_blank" rel="noopener noreferrer">{{ label }}{{ icon("external", "icon--xs") }}<span class="sr-only"> ({{ t("opens_external") }})</span></a>
+{%- endmacro %}
+
+{% macro reltime(ts) -%}
+<time datetime="{{ iso(ts) }}" data-ts="{{ ts }}">{{ ago(ts) }}</time>
+{%- endmacro %}
+
+{# Status einer Grenzrichtung – JS aktualisiert denselben Aufbau live (data-status) #}
+{% macro status(st, cid, dir, compact=False) -%}
+{%- set txt = status_text(st) -%}
+<div class="status status--{{ st.level }}{% if compact %} status--compact{% endif %}" data-status data-cid="{{ cid }}" data-dir="{{ dir }}">
+  <span class="status__dot" aria-hidden="true"></span>
+  <span class="status__body">
+    <span class="status__main">{{ txt.level_label if compact and st.state != "live" else txt.main }}</span>
+    <span class="status__meta">
+      {%- if compact %}
+      {%- if st.state == "live" %}<span class="status__level">{{ txt.level_label }}</span> · {{ st.count }}× · {{ reltime(st.last_at) }}{% endif -%}
+      {%- else %}
+      {%- if st.state == "live" %}<span class="status__level">{{ txt.level_label }}</span> · {{ txt.count }}{% endif -%}
+      {%- if st.last_at %}{% if st.state == "live" %} · {% endif %}<span class="status__last">{{ t("b_last_report", ago=reltime(st.last_at)) | safe }}</span>{% endif -%}
+      {%- endif %}
+    </span>
+  </span>
+</div>
+{%- endmacro %}
+
+{% macro asof(date_str, sources=None, due=False) -%}
+<p class="asof">
+  {{ icon("clock", "icon--xs") }}
+  <span>{{ t("checked_on", date=fmt_date(date_str | todate)) }}</span>
+  {%- if sources %}<span> · {{ t("sources") if sources|length > 1 else t("source") }}:
+    {% for s in sources %}{{ ext(s.url, s.name) }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}
+</p>
+{%- if due %}<p class="due">{{ icon("alert", "icon--xs") }} {{ t("review_due") }}</p>{% endif %}
+{%- endmacro %}
+
+{% macro cstatus(status) -%}
+{%- set icons = {"ok": "check", "limit": "gauge", "declare": "alert", "no": "ban"} -%}
+<span class="chip chip--{{ status }}">{{ icon(icons[status], "icon--xs") }}{{ t("c_status_" ~ status) }}</span>
+{%- endmacro %}

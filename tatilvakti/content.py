@@ -1,0 +1,184 @@
+"""Kuratierte Datensätze laden und prüfen.
+
+Jeder Datensatz hat meta.as_of (geprüft am) und meta.review_after. Ist review_after
+überschritten, zeigt die App sichtbar „Prüfung fällig“, statt alte Werte als
+aktuell auszugeben.
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
+
+from .i18n import LANGS, fold
+
+DATA_DIR = Path(__file__).parent / "data"
+DATASETS = ("holidays", "customs", "transit", "crossings")
+CUSTOMS_STATUSES = ("ok", "limit", "declare", "no")
+TOLL_SYSTEMS = ("vignette", "evignette", "toll", "hgs")
+
+
+@dataclass
+class Content:
+    holidays: dict
+    customs: dict
+    transit: dict
+    crossings: dict
+    crossing_by_id: dict = field(default_factory=dict)
+
+    def meta(self, name: str) -> dict:
+        return getattr(self, name)["meta"]
+
+    def review_due(self, name: str, today: date) -> bool:
+        return is_due(self.meta(name).get("review_after"), today)
+
+
+def is_due(review_after: str | None, today: date) -> bool:
+    return bool(review_after) and today > date.fromisoformat(review_after)
+
+
+def load_content(data_dir: Path = DATA_DIR) -> Content:
+    raw = {}
+    for name in DATASETS:
+        with open(data_dir / f"{name}.json", encoding="utf-8") as fh:
+            raw[name] = json.load(fh)
+    content = Content(**raw)
+    content.crossing_by_id = {c["id"]: c for c in content.crossings["crossings"]}
+    # Suchindex für den Zoll-Check (diakritik-unabhängig, beide Sprachen)
+    for item in content.customs["items"]:
+        parts = [item["title"][l] for l in LANGS] + [item["rule"][l] for l in LANGS] + item.get("keywords", [])
+        item["search"] = fold(" ".join(parts))
+    return content
+
+
+# ---------------------------------------------------------------- Validierung
+
+def _is_bilingual(value) -> bool:
+    return isinstance(value, dict) and all(isinstance(value.get(l), str) and value[l].strip() for l in LANGS)
+
+
+def _check_date(value, where, problems):
+    try:
+        date.fromisoformat(value)
+    except (TypeError, ValueError):
+        problems.append(f"{where}: ungültiges Datum {value!r}")
+
+
+def _check_url(value, where, problems):
+    if not (isinstance(value, str) and value.startswith("https://")):
+        problems.append(f"{where}: Quelle braucht https-URL, ist {value!r}")
+
+
+def validate(content: Content) -> list[str]:
+    """Liefert eine Liste von Problemen (leer = alles in Ordnung)."""
+    problems: list[str] = []
+    for name in DATASETS:
+        meta = content.meta(name)
+        _check_date(meta.get("as_of"), f"{name}.meta.as_of", problems)
+        _check_date(meta.get("review_after"), f"{name}.meta.review_after", problems)
+
+    # Ferien: alle 16 Länder je Zeitraum, Start <= Ende, sinnvolle Länge
+    states = content.holidays["states"]
+    if len(states) != 16:
+        problems.append(f"holidays: {len(states)} statt 16 Bundesländer")
+    for state, info in states.items():
+        if not isinstance(info.get("population"), int) or info["population"] <= 0:
+            problems.append(f"holidays.states.{state}: Einwohnerzahl fehlt")
+    for src in content.holidays["meta"]["sources"]:
+        _check_url(src.get("url"), "holidays.meta.sources", problems)
+    seen_ids = set()
+    for period in content.holidays["periods"]:
+        pid = period["id"]
+        if pid in seen_ids:
+            problems.append(f"holidays: doppelte Periode {pid}")
+        seen_ids.add(pid)
+        if not _is_bilingual(period.get("label")):
+            problems.append(f"holidays.{pid}: Label nicht zweisprachig")
+        if set(period["ranges"]) != set(states):
+            problems.append(f"holidays.{pid}: Länder fehlen oder sind unbekannt")
+        for state, ranges in period["ranges"].items():
+            for start, end in ranges:
+                try:
+                    s, e = date.fromisoformat(start), date.fromisoformat(end)
+                except ValueError:
+                    problems.append(f"holidays.{pid}.{state}: ungültiges Datum")
+                    continue
+                if e < s or (e - s).days > 60:
+                    problems.append(f"holidays.{pid}.{state}: unplausibler Zeitraum {start}–{end}")
+
+    # Zoll
+    sources = content.customs["sources"]
+    for key, src in sources.items():
+        _check_url(src.get("url"), f"customs.sources.{key}", problems)
+    ids = set()
+    for item in content.customs["items"]:
+        iid = item.get("id")
+        if iid in ids:
+            problems.append(f"customs: doppelte id {iid}")
+        ids.add(iid)
+        if item.get("direction") not in content.customs["directions"]:
+            problems.append(f"customs.{iid}: unbekannte Richtung")
+        if item.get("status") not in CUSTOMS_STATUSES:
+            problems.append(f"customs.{iid}: unbekannter Status")
+        for fieldname in ("title", "rule"):
+            if not _is_bilingual(item.get(fieldname)):
+                problems.append(f"customs.{iid}.{fieldname}: nicht zweisprachig")
+        if "detail" in item and not _is_bilingual(item["detail"]):
+            problems.append(f"customs.{iid}.detail: nicht zweisprachig")
+        if not item.get("sources"):
+            problems.append(f"customs.{iid}: keine Quelle")
+        for ref in item.get("sources", []):
+            if ref not in sources:
+                problems.append(f"customs.{iid}: unbekannte Quelle {ref}")
+        if "review_after" in item:
+            _check_date(item["review_after"], f"customs.{iid}.review_after", problems)
+
+    # Transit
+    countries = content.transit["countries"]
+    for code, country in countries.items():
+        if country.get("system") not in TOLL_SYSTEMS:
+            problems.append(f"transit.{code}: unbekanntes Mautsystem")
+        if not _is_bilingual(country.get("name")):
+            problems.append(f"transit.{code}.name: nicht zweisprachig")
+        _check_url(country["shop"].get("url"), f"transit.{code}.shop", problems)
+        _check_url(country["source"].get("url"), f"transit.{code}.source", problems)
+        if country.get("prices") and "prices_valid_until" not in country:
+            problems.append(f"transit.{code}: Preise ohne Gültigkeitsdatum")
+        for price in country.get("prices", []):
+            if not _is_bilingual(price.get("label")):
+                problems.append(f"transit.{code}: Preis-Label nicht zweisprachig")
+        for note in country.get("notes", []):
+            if not _is_bilingual(note):
+                problems.append(f"transit.{code}: Hinweis nicht zweisprachig")
+    for route in content.transit["routes"]:
+        for code in route["countries"]:
+            if code not in countries:
+                problems.append(f"transit.route.{route['id']}: unbekanntes Land {code}")
+        for cid in route["controls"]:
+            if cid not in content.crossing_by_id:
+                problems.append(f"transit.route.{route['id']}: unbekannter Übergang {cid}")
+        for listname in ("pros", "cons"):
+            for entry in route[listname]:
+                if not _is_bilingual(entry):
+                    problems.append(f"transit.route.{route['id']}.{listname}: nicht zweisprachig")
+    for doc in content.transit["documents"]:
+        if not _is_bilingual(doc["text"]):
+            problems.append(f"transit.documents.{doc['id']}: nicht zweisprachig")
+
+    # Grenzübergänge
+    csources = content.crossings["sources"]
+    for key, src in csources.items():
+        _check_url(src.get("url"), f"crossings.sources.{key}", problems)
+    for crossing in content.crossings["crossings"]:
+        cid = crossing["id"]
+        if len(crossing.get("countries", [])) != 2:
+            problems.append(f"crossings.{cid}: braucht genau 2 Länder")
+        if not _is_bilingual(crossing.get("note")):
+            problems.append(f"crossings.{cid}.note: nicht zweisprachig")
+        for ref in crossing.get("official", []):
+            if ref not in csources:
+                problems.append(f"crossings.{cid}: unbekannte Quelle {ref}")
+        if not crossing.get("tz"):
+            problems.append(f"crossings.{cid}: Zeitzone fehlt")
+    return problems

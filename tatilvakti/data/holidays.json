@@ -1,0 +1,152 @@
+{
+  "meta": {
+    "dataset": "holidays",
+    "as_of": "2026-10-06",
+    "review_after": "2027-09-30",
+    "sources": [
+      {"name": "KMK – Ferienkalender der Länder", "url": "https://www.kmk.org/service/ferienregelung/ferienkalender.html"},
+      {"name": "Schulministerium NRW – Ferienordnung", "url": "https://www.schulministerium.nrw/service/ferienordnung-nrw-bis-2029-30"},
+      {"name": "Kultusministerium Baden-Württemberg – Ferien", "url": "https://km.baden-wuerttemberg.de/de/service/ferien"}
+    ],
+    "population_source": {"name": "Statistisches Bundesamt (Destatis), Bevölkerungsfortschreibung Zensus 2022, Stand 31.12.2024", "url": "https://www.destatis.de/DE/Presse/Pressemitteilungen/2025/06/PD25_221_124.html"},
+    "note": {
+      "de": "Hauptferien der Länder nach KMK-Beschluss, am 06.10.2026 über mehrere unabhängige Quellen abgeglichen. Einzelne bewegliche Ferientage fehlen. Maßgeblich ist immer das Kultusministerium deines Landes.",
+      "tr": "Eyaletlerin ana okul tatilleri (KMK kararı), 06.10.2026 tarihinde birden fazla bağımsız kaynakla karşılaştırıldı. Tek tük serbest tatil günleri dahil değildir. Kesin bilgi her zaman eyaletinizin Eğitim Bakanlığı'ndadır."
+    }
+  },
+  "states": {
+    "BW": {"name": "Baden-Württemberg", "short": "BW", "population": 11245898},
+    "BY": {"name": "Bayern", "short": "BY", "population": 13248928},
+    "BE": {"name": "Berlin", "short": "BE", "population": 3700577},
+    "BB": {"name": "Brandenburg", "short": "BB", "population": 2551889},
+    "HB": {"name": "Bremen", "short": "HB", "population": 706915},
+    "HH": {"name": "Hamburg", "short": "HH", "population": 1869473},
+    "HE": {"name": "Hessen", "short": "HE", "population": 6278594},
+    "MV": {"name": "Mecklenburg-Vorpommern", "short": "MV", "population": 1573685},
+    "NI": {"name": "Niedersachsen", "short": "NI", "population": 7943265},
+    "NW": {"name": "Nordrhein-Westfalen", "short": "NRW", "population": 18034454},
+    "RP": {"name": "Rheinland-Pfalz", "short": "RP", "population": 4129569},
+    "SL": {"name": "Saarland", "short": "SL", "population": 1012141},
+    "SN": {"name": "Sachsen", "short": "SN", "population": 4042422},
+    "ST": {"name": "Sachsen-Anhalt", "short": "ST", "population": 2135597},
+    "SH": {"name": "Schleswig-Holstein", "short": "SH", "population": 2959517},
+    "TH": {"name": "Thüringen", "short": "TH", "population": 2100277}
+  },
+  "periods": [
+    {
+      "id": "herbst-2026",
+      "kind": "herbst",
+      "label": {"de": "Herbstferien 2026", "tr": "2026 Sonbahar tatili"},
+      "ranges": {
+        "BW": [["2026-10-26", "2026-10-30"]],
+        "BY": [["2026-11-02", "2026-11-06"]],
+        "BE": [["2026-10-19", "2026-10-31"]],
+        "BB": [["2026-10-19", "2026-10-30"]],
+        "HB": [["2026-10-12", "2026-10-24"]],
+        "HH": [["2026-10-19", "2026-10-30"]],
+        "HE": [["2026-10-05", "2026-10-17"]],
+        "MV": [["2026-10-15", "2026-10-24"]],
+        "NI": [["2026-10-12", "2026-10-24"]],
+        "NW": [["2026-10-17", "2026-10-31"]],
+        "RP": [["2026-10-05", "2026-10-16"]],
+        "SL": [["2026-10-05", "2026-10-16"]],
+        "SN": [["2026-10-12", "2026-10-24"]],
+        "ST": [["2026-10-19", "2026-10-30"]],
+        "SH": [["2026-10-12", "2026-10-24"]],
+        "TH": [["2026-10-12", "2026-10-24"]]
+      }
+    },
+    {
+      "id": "weihnachten-2026",
+      "kind": "weihnachten",
+      "label": {"de": "Weihnachtsferien 2026/27", "tr": "2026/27 Yılbaşı tatili"},
+      "ranges": {
+        "BW": [["2026-12-23", "2027-01-09"]],
+        "BY": [["2026-12-24", "2027-01-08"]],
+        "BE": [["2026-12-23", "2027-01-02"]],
+        "BB": [["2026-12-23", "2027-01-02"]],
+        "HB": [["2026-12-23", "2027-01-09"]],
+        "HH": [["2026-12-21", "2027-01-01"]],
+        "HE": [["2026-12-23", "2027-01-12"]],
+        "MV": [["2026-12-21", "2027-01-02"]],
+        "NI": [["2026-12-23", "2027-01-09"]],
+        "NW": [["2026-12-23", "2027-01-06"]],
+        "RP": [["2026-12-23", "2027-01-08"]],
+        "SL": [["2026-12-21", "2026-12-31"]],
+        "SN": [["2026-12-23", "2027-01-02"]],
+        "ST": [["2026-12-21", "2027-01-02"]],
+        "SH": [["2026-12-21", "2027-01-06"]],
+        "TH": [["2026-12-23", "2027-01-02"]]
+      }
+    },
+    {
+      "id": "ostern-2027",
+      "kind": "ostern",
+      "label": {"de": "Oster-/Frühjahrsferien 2027", "tr": "2027 Paskalya/bahar tatili"},
+      "ranges": {
+        "BW": [["2027-03-25", "2027-03-25"], ["2027-03-30", "2027-04-03"]],
+        "BY": [["2027-03-22", "2027-04-02"]],
+        "BE": [["2027-03-22", "2027-04-02"]],
+        "BB": [["2027-03-22", "2027-04-03"]],
+        "HB": [["2027-03-22", "2027-04-03"]],
+        "HH": [["2027-03-01", "2027-03-12"]],
+        "HE": [["2027-03-22", "2027-04-02"]],
+        "MV": [["2027-03-24", "2027-04-02"]],
+        "NI": [["2027-03-22", "2027-04-03"]],
+        "NW": [["2027-03-22", "2027-04-03"]],
+        "RP": [["2027-03-22", "2027-04-02"]],
+        "SL": [["2027-03-30", "2027-04-09"]],
+        "SN": [["2027-03-26", "2027-04-02"]],
+        "ST": [["2027-03-22", "2027-03-27"]],
+        "SH": [["2027-03-30", "2027-04-10"]],
+        "TH": [["2027-03-22", "2027-04-03"]]
+      }
+    },
+    {
+      "id": "sommer-2027",
+      "kind": "sommer",
+      "label": {"de": "Sommerferien 2027", "tr": "2027 Yaz tatili"},
+      "ranges": {
+        "BW": [["2027-07-29", "2027-09-11"]],
+        "BY": [["2027-08-02", "2027-09-13"]],
+        "BE": [["2027-07-01", "2027-08-14"]],
+        "BB": [["2027-07-01", "2027-08-14"]],
+        "HB": [["2027-07-08", "2027-08-18"]],
+        "HH": [["2027-07-01", "2027-08-11"]],
+        "HE": [["2027-06-28", "2027-08-06"]],
+        "MV": [["2027-07-05", "2027-08-14"]],
+        "NI": [["2027-07-08", "2027-08-18"]],
+        "NW": [["2027-07-19", "2027-08-31"]],
+        "RP": [["2027-06-28", "2027-08-06"]],
+        "SL": [["2027-06-28", "2027-08-06"]],
+        "SN": [["2027-07-10", "2027-08-20"]],
+        "ST": [["2027-07-10", "2027-08-20"]],
+        "SH": [["2027-07-03", "2027-08-14"]],
+        "TH": [["2027-07-10", "2027-08-20"]]
+      }
+    },
+    {
+      "id": "sommer-2028",
+      "kind": "sommer",
+      "label": {"de": "Sommerferien 2028", "tr": "2028 Yaz tatili"},
+      "ranges": {
+        "BW": [["2028-07-27", "2028-09-09"]],
+        "BY": [["2028-07-31", "2028-09-11"]],
+        "BE": [["2028-07-01", "2028-08-12"]],
+        "BB": [["2028-06-29", "2028-08-12"]],
+        "HB": [["2028-07-20", "2028-08-30"]],
+        "HH": [["2028-07-03", "2028-08-11"]],
+        "HE": [["2028-07-03", "2028-08-11"]],
+        "MV": [["2028-06-26", "2028-08-05"]],
+        "NI": [["2028-07-20", "2028-08-30"]],
+        "NW": [["2028-07-10", "2028-08-22"]],
+        "RP": [["2028-07-03", "2028-08-11"]],
+        "SL": [["2028-07-03", "2028-08-11"]],
+        "SN": [["2028-07-22", "2028-09-01"]],
+        "ST": [["2028-07-22", "2028-09-01"]],
+        "SH": [["2028-06-24", "2028-08-04"]],
+        "TH": [["2028-07-22", "2028-09-01"]]
+      }
+    }
+  ]
+}

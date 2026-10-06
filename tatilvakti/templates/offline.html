@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon with context %}
+{% block title %}{{ t("o_title") }} – {{ t("app_name") }}{% endblock %}
+{% block main %}
+<header class="pagehead">
+  <h1>{{ icon("offline") }}{{ t("o_title") }}</h1>
+  <p class="lead">{{ t("o_text") }}</p>
+</header>
+<ul class="card links links--big">
+  <li><a href="{{ href('home') }}">{{ icon("home", "icon--s") }}{{ t("nav_home") }}</a></li>
+  <li><a href="{{ href('holidays') }}">{{ icon("calendar", "icon--s") }}{{ t("hol_title") }}</a></li>
+  <li><a href="{{ href('route') }}">{{ icon("route", "icon--s") }}{{ t("r_title") }}</a></li>
+  <li><a href="{{ href('borders') }}">{{ icon("border", "icon--s") }}{{ t("b_title") }}</a></li>
+  <li><a href="{{ href('customs') }}">{{ icon("bag", "icon--s") }}{{ t("c_title") }}</a></li>
+</ul>
+{% endblock %}

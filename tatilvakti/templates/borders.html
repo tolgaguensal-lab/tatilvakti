@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, status, asof with context %}
+{% block title %}{{ t("b_title") }}: Kapıkule, Röszke, Gradina – {{ t("app_name") }}{% endblock %}
+{% block main %}
+<header class="pagehead">
+  <h1>{{ icon("border") }}{{ t("b_title") }}</h1>
+  <p class="lead">{{ t("b_lead") }}</p>
+</header>
+
+<p class="note">{{ icon("info", "icon--s") }}<span>{{ t("b_crowd_note") }}</span></p>
+
+<div class="seg seg--wide" role="group" aria-label="{{ t('b_direction') }}" data-dir-switch hidden>
+  <button type="button" class="seg__btn is-active" data-dir="to_tr" aria-pressed="true">{{ icon("arrow", "icon--s") }}{{ t("b_dir_to_tr") }}</button>
+  <button type="button" class="seg__btn" data-dir="to_de" aria-pressed="false">{{ icon("arrow", "icon--s icon--flip") }}{{ t("b_dir_to_de") }}</button>
+</div>
+
+<section class="card map-card" aria-labelledby="map-title">
+  <h2 id="map-title" class="card__title">{{ t("b_map_title") }}</h2>
+  {%- set stops = [("DE", 180, 30), ("AT", 180, 92), ("SI", 88, 160), ("HR", 88, 222), ("HU", 200, 166), ("RO", 300, 280), ("RS", 170, 318), ("BG", 250, 420), ("TR", 250, 520)] %}
+  <svg class="map" viewBox="0 0 386 548" role="img" aria-label="{{ t('b_map_label') }}" data-map data-dir="to_tr">
+    <path class="map__line map__line--trunk" d="M180,30 L180,92 M170,318 L250,420 L250,520"></path>
+    <path class="map__line map__line--a" d="M180,92 L200,166 L170,318"></path>
+    <path class="map__line map__line--b" d="M180,92 L88,160 L88,222 L170,318"></path>
+    <path class="map__line map__line--c" d="M200,166 L300,280 L250,420"></path>
+    {%- for code, x, y in stops %}
+    <g class="map__stop{% if code in ('DE', 'TR') %} map__stop--end{% endif %}">
+      <circle cx="{{ x }}" cy="{{ y }}" r="{{ 7 if code in ('DE', 'TR') else 4.5 }}"></circle>
+      <text x="{{ x - 12 if code in ('SI', 'HR', 'RS') else x + 12 }}" y="{{ y + 4 }}"{% if code in ('SI', 'HR', 'RS') %} text-anchor="end"{% endif %}>{{ cname(code) }}</text>
+    </g>
+    {%- endfor %}
+    <text class="map__schengen" x="268" y="204">Schengen</text>
+    {%- for c in crossings if c.map %}
+    {%- set st = statuses[c.id] %}
+    <a href="{{ href('crossing', cid=c.id) }}" class="map__node" data-node data-cid="{{ c.id }}" data-l-to_tr="{{ st.to_tr.level }}" data-l-to_de="{{ st.to_de.level }}">
+      <circle class="map__halo" cx="{{ c.map.x }}" cy="{{ c.map.y }}" r="13"></circle>
+      <circle class="map__dot" cx="{{ c.map.x }}" cy="{{ c.map.y }}" r="8"></circle>
+      <text x="{{ c.map.x + 18 if c.id != 'batrovci' else c.map.x - 18 }}" y="{{ c.map.y + 5 }}"{% if c.id == 'batrovci' %} text-anchor="end"{% endif %}>{{ c.short }}</text>
+    </a>
+    {%- endfor %}
+  </svg>
+  <ul class="map-legend">
+    <li><i class="sw sw--ok"></i>{{ t("b_level_ok") }}</li>
+    <li><i class="sw sw--mid"></i>{{ t("b_level_mid") }}</li>
+    <li><i class="sw sw--bad"></i>{{ t("b_level_bad") }}</li>
+    <li><i class="sw sw--none"></i>{{ t("b_level_none") }}</li>
+  </ul>
+</section>
+
+<section aria-labelledby="main-title">
+  <h2 id="main-title" class="section-title">{{ t("b_main") }}</h2>
+  <ul class="crossings">
+    {%- for c in crossings if c.main %}
+    <li class="card crossing">
+      <a class="crossing__head" href="{{ href('crossing', cid=c.id) }}">
+        <span class="crossing__name">{{ c.name }}</span>
+        <span class="crossing__countries">{{ cname(c.countries[0]) }} → {{ cname(c.countries[1]) }}</span>
+        {{ icon("chevron", "icon--s crossing__chev") }}
+      </a>
+      <div class="crossing__dirs">
+        <div class="dirrow"><span class="dirlabel">{{ t("b_dir_to_tr_short") }}</span>{{ status(statuses[c.id].to_tr, c.id, "to_tr", compact=True) }}</div>
+        <div class="dirrow"><span class="dirlabel">{{ t("b_dir_to_de_short") }}</span>{{ status(statuses[c.id].to_de, c.id, "to_de", compact=True) }}</div>
+      </div>
+    </li>
+    {%- endfor %}
+  </ul>
+</section>
+
+<section aria-labelledby="more-title">
+  <h2 id="more-title" class="section-title">{{ t("b_more") }}</h2>
+  <ul class="crossings crossings--compact">
+    {%- for c in crossings if not c.main %}
+    <li class="card crossing">
+      <a class="crossing__head" href="{{ href('crossing', cid=c.id) }}">
+        <span class="crossing__name">{{ c.name }}</span>
+        <span class="crossing__countries">{{ cname(c.countries[0]) }} → {{ cname(c.countries[1]) }}</span>
+        {{ icon("chevron", "icon--s crossing__chev") }}
+      </a>
+      <div class="crossing__dirs">
+        <div class="dirrow"><span class="dirlabel">{{ t("b_dir_to_tr_short") }}</span>{{ status(statuses[c.id].to_tr, c.id, "to_tr", compact=True) }}</div>
+        <div class="dirrow"><span class="dirlabel">{{ t("b_dir_to_de_short") }}</span>{{ status(statuses[c.id].to_de, c.id, "to_de", compact=True) }}</div>
+      </div>
+    </li>
+    {%- endfor %}
+  </ul>
+</section>
+
+<section class="card" aria-labelledby="waves-title">
+  <h2 id="waves-title" class="card__title">{{ icon("calendar") }}{{ t("b_waves_title") }}</h2>
+  {%- if waves %}
+  <ul class="waves">
+    {%- for w in waves %}
+    <li class="waves__item waves__item--{{ w.kind }}">
+      <span class="waves__date">{{ fmt_date(w.date, with_weekday=True, with_year=False) }}</span>
+      <span class="waves__kind">{{ icon("arrow", "icon--xs" ~ (" icon--flip" if w.kind == "end" else "")) }}{{ t("b_wave_start") if w.kind == "start" else t("b_wave_end") }}</span>
+      <span class="waves__states">{% for s in w.states %}{{ radar.states[s].short }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
+      <span class="waves__share">{{ fmt_pct(w.share) }} %</span>
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- else %}
+  <p>{{ t("b_waves_none") }}</p>
+  {%- endif %}
+  <p class="hint">{{ t("b_waves_expl") }}</p>
+</section>
+
+{{ asof(crossings_meta.as_of) }}
+<p class="hint">{{ crossings_meta.note[lang] }}</p>
+{% endblock %}

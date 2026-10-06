@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, asof, ext with context %}
+{% block title %}{{ t("hol_title") }}: {{ period.label[lang] }} – {{ t("app_name") }}{% endblock %}
+{% block main %}
+<header class="pagehead">
+  <h1>{{ icon("calendar") }}{{ t("hol_title") }}</h1>
+  <p class="lead">{{ t("hol_lead") }}</p>
+</header>
+
+<nav class="chips" aria-label="{{ t('hol_period') }}">
+  {%- for p in periods %}
+  <a class="chips__item{% if p.id == period.id %} is-active{% endif %}" href="{{ href('holidays', zeitraum=p.id) }}"{% if p.id == period.id %} aria-current="page"{% endif %}>{{ p.label[lang] }}</a>
+  {%- endfor %}
+</nav>
+
+<form class="card inline-form" method="get" action="{{ href('holidays') }}" data-prefs>
+  <input type="hidden" name="zeitraum" value="{{ period.id }}">
+  <label class="field">
+    <span class="field__label">{{ t("hol_state") }}</span>
+    <select name="land" data-pref="state">
+      <option value="">{{ t("pref_state_none") }}</option>
+      {%- for code, s in states.items() | sort(attribute="1.name") %}
+      <option value="{{ code }}"{% if land == code %} selected{% endif %}>{{ s.name }}</option>
+      {%- endfor %}
+    </select>
+  </label>
+  <button class="btn btn--ghost js-hide" type="submit">OK</button>
+</form>
+
+<section class="personal" aria-live="polite">
+  <p class="hint" data-per-state="none"{% if land %} hidden{% endif %}>{{ t("hol_pick_state") }}</p>
+  {%- for code in states %}
+  {%- set info = personal.get(code) %}
+  <article class="card card--brand" data-per-state="{{ code }}"{% if land != code %} hidden{% endif %}>
+    {%- if info %}
+    <h2 class="card__title">{{ t("hol_your", state=states[code].name) }}</h2>
+    <p class="big">{{ fmt_ranges(info.ranges) }}
+      <span class="pill">{{ plural("hol_days", info.days) }}</span></p>
+    {%- if info.free_differs %}
+    <p class="muted">{{ t("hol_free", dates=fmt_ranges(info.free)) }}</p>
+    {%- endif %}
+    <div class="quiet">
+      {%- for kind, label in [("departure", "hol_quiet_departure"), ("return", "hol_quiet_return")] %}
+      <div class="quiet__col">
+        <h3>{{ t(label) }}</h3>
+        <ul class="quiet__list">
+          {%- for day, share in info.quiet[kind] %}
+          <li><strong>{{ fmt_date(day, with_weekday=True, with_year=False) }}</strong><span class="muted">{{ t("hol_share_pct", pct=fmt_pct(share)) }}</span></li>
+          {%- endfor %}
+        </ul>
+      </div>
+      {%- endfor %}
+    </div>
+    <p class="hint">{{ t("hol_quiet_expl") }}</p>
+    <a class="btn btn--wa" href="{{ share_urls[code] }}" target="_blank" rel="noopener noreferrer" data-share data-share-text="{{ share_texts[code] }}" data-share-url="{{ abs_url(href('holidays', zeitraum=period.id, land=code)) }}">{{ icon("chat", "icon--s") }}{{ t("share_whatsapp") }}</a>
+    {%- else %}
+    <p>{{ t("hol_no_range", state=states[code].name) }}</p>
+    {%- endif %}
+  </article>
+  {%- endfor %}
+</section>
+
+<section class="card" aria-labelledby="tl-title">
+  <h2 id="tl-title" class="card__title">{{ period.label[lang] }}</h2>
+  <figure class="tl" aria-label="{{ t('hol_chart_label', period=period.label[lang]) }}">
+    <div class="tl__corner"></div>
+    <svg class="tl__months" width="100%" height="18" aria-hidden="true">
+      {%- for m in chart.months %}
+      <text x="{{ m.x }}%" y="13"{% if m.edge %} class="is-edge"{% endif %}>{{ m.label }}</text>
+      {%- endfor %}
+    </svg>
+
+    <div class="tl__axis" aria-hidden="true"><span>100 %</span><span>{{ t("hol_pressure") }}</span><span>0 %</span></div>
+    <svg class="tl__area" viewBox="0 0 {{ chart.ndays }} 100" preserveAspectRatio="none" aria-hidden="true">
+      {%- for w in chart.all16 %}
+      <rect class="tl__all16" x="{{ w.i }}" y="0" width="{{ w.n }}" height="100"></rect>
+      {%- endfor %}
+      <path class="tl__fill" d="{{ chart.area }}"></path>
+    </svg>
+
+    <ol class="tl__labels" aria-hidden="true">
+      {%- for r in chart.rows %}
+      <li data-tl-state="{{ r.code }}"{% if land == r.code %} class="is-you"{% endif %} title="{{ r.name }}">{{ r.short }}</li>
+      {%- endfor %}
+    </ol>
+    <svg class="tl__bars" width="100%" height="{{ chart.height }}" aria-hidden="true">
+      {%- for m in chart.months if not m.edge %}
+      <line class="tl__grid" x1="{{ m.x }}%" x2="{{ m.x }}%" y1="0" y2="100%"></line>
+      {%- endfor %}
+      {%- for w in chart.all16 %}
+      <rect class="tl__all16" x="{{ w.x }}%" y="0" width="{{ w.w }}%" height="100%"></rect>
+      {%- endfor %}
+      {%- for r in chart.rows %}
+      <g class="tl__row{% if land == r.code %} is-you{% endif %}" data-tl-state="{{ r.code }}">
+        <rect class="tl__rowbg" x="0" y="{{ r.y + 1 }}" width="100%" height="{{ chart.row_h - 2 }}" rx="5"></rect>
+        {%- for b in r.bars %}
+        <rect class="tl__bar" x="{{ b.x }}%" y="{{ r.y + 5 }}" width="{{ b.w }}%" height="{{ chart.row_h - 10 }}" rx="3"></rect>
+        {%- endfor %}
+      </g>
+      {%- endfor %}
+      {%- if chart.today_x is not none %}
+      <line class="tl__today" x1="{{ chart.today_x }}%" x2="{{ chart.today_x }}%" y1="0" y2="100%"></line>
+      {%- endif %}
+    </svg>
+    <figcaption class="tl__legend">
+      <span><i class="sw sw--area"></i>{{ t("hol_pressure") }}</span>
+      {%- if chart.all16 %}<span><i class="sw sw--all16"></i>{{ t("hol_all16") }}</span>{% endif %}
+      <span><i class="sw sw--you"></i>{{ t("hol_legend_you") }}</span>
+    </figcaption>
+  </figure>
+
+  <dl class="facts">
+    <div>
+      <dt>{{ t("hol_peak") }}</dt>
+      <dd>{{ fmt_pct(peak[1]) }} % · {{ fmt_date(peak[0], with_weekday=True) }} · {{ t("hol_states_n", n=peak[2]) }}</dd>
+    </div>
+    <div>
+      <dt>{{ t("hol_all16") }}</dt>
+      <dd>{% if all16 %}{% for w in all16 %}{{ fmt_range(w.start, w.end) }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}{{ t("hol_all16_none") }}{% endif %}</dd>
+    </div>
+  </dl>
+  <p class="hint">{{ t("hol_pressure_expl") }} {{ t("hol_no_price_promise") }}</p>
+</section>
+
+<details class="card details">
+  <summary>{{ t("hol_table") }}</summary>
+  <table class="table">
+    <thead><tr><th scope="col">{{ t("hol_table_state") }}</th><th scope="col">{{ t("hol_table_dates") }}</th></tr></thead>
+    <tbody>
+      {%- for r in chart.rows %}
+      <tr data-tl-state="{{ r.code }}"{% if land == r.code %} class="is-you"{% endif %}>
+        <th scope="row">{{ r.name }}</th>
+        <td>{% for rg in period.ranges[r.code] %}{{ fmt_range(rg.start, rg.end) }}{% if not loop.last %} + {% endif %}{% endfor %}</td>
+      </tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+</details>
+
+{{ asof(radar_meta.as_of, radar_meta.sources, due=radar_due) }}
+<p class="asof">{{ t("source") }} {{ t("hol_pressure") }}: {{ ext(radar_meta.population_source.url, radar_meta.population_source.name) }}</p>
+<p class="hint">{{ radar_meta.note[lang] }}</p>
+{% endblock %}

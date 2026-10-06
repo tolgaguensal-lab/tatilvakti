@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, status, cstatus with context %}
+{% block main %}
+<section class="hero">
+  <p class="eyebrow">{{ t("tagline") }}</p>
+  <h1>{{ t("home_title") }}</h1>
+  <p class="lead">{{ t("home_lead") }}</p>
+  <div class="trip" aria-hidden="true">
+    <span class="trip__end">D</span><span class="trip__road"></span><span class="trip__end trip__end--tr">TR</span>
+  </div>
+</section>
+
+<section class="card prefs" aria-labelledby="pref-title">
+  <h2 id="pref-title" class="card__title">{{ t("pref_title") }}</h2>
+  <form class="prefs__form" action="{{ href('holidays') }}" method="get" data-prefs>
+    <label class="field">
+      <span class="field__label">{{ t("pref_state") }}</span>
+      <select name="land" data-pref="state">
+        <option value="">{{ t("pref_state_none") }}</option>
+        {%- for code, s in states.items() | sort(attribute="1.name") %}
+        <option value="{{ code }}">{{ s.name }}</option>
+        {%- endfor %}
+      </select>
+    </label>
+    <fieldset class="seg" data-pref="mode">
+      <legend class="field__label">{{ t("pref_mode") }}</legend>
+      <label class="seg__opt"><input type="radio" name="mode" value="car" checked>{{ icon("car") }}<span>{{ t("mode_car") }}</span></label>
+      <label class="seg__opt"><input type="radio" name="mode" value="plane">{{ icon("plane") }}<span>{{ t("mode_plane") }}</span></label>
+    </fieldset>
+    <button class="btn btn--ghost js-hide" type="submit">{{ t("home_holiday_cta") }}</button>
+  </form>
+  <p class="hint">{{ t("pref_local") }}</p>
+</section>
+
+<ol class="journey">
+  <li class="station">
+    <span class="station__no" aria-hidden="true">1</span>
+    <div class="station__card card">
+      <p class="station__kicker">{{ t("station_n", n=1) }}</p>
+      <h2 class="station__title">{{ icon("calendar") }}{{ t("station_when") }}</h2>
+      <div data-per-state="none">
+        {%- if running %}
+        <p class="big">{{ t("home_running_any", period=running.label[lang], n=running_now) }}</p>
+        {%- elif upcoming %}
+        <p class="big">{{ t("home_next_any", period=upcoming[0].label[lang], date=fmt_date(upcoming[1], with_weekday=True)) }}</p>
+        {%- endif %}
+        <p class="muted">{{ t("home_pick_state") }}</p>
+      </div>
+      {%- for code, info in next_by_state.items() %}
+      <div data-per-state="{{ code }}" hidden>
+        <p class="muted">{{ t("home_next_holiday", state=states[code].name) }}</p>
+        <p class="big">{{ info.period.label[lang] }}</p>
+        <p>{{ fmt_ranges(info.ranges) }}
+          <span class="pill">{{ t("running") if info.running else info.when }}</span></p>
+      </div>
+      {%- endfor %}
+      <a class="cta" href="{{ href('holidays') }}" data-state-link>{{ t("home_holiday_cta") }}{{ icon("chevron", "icon--s") }}</a>
+    </div>
+  </li>
+
+  <li class="station only-car">
+    <span class="station__no" aria-hidden="true">2</span>
+    <div class="station__card card">
+      <p class="station__kicker">{{ t("station_n", n=2) }}</p>
+      <h2 class="station__title">{{ icon("route") }}{{ t("station_how") }}</h2>
+      <p>{{ t("home_route_teaser") }}</p>
+      <p class="fact">{{ icon("check", "icon--s") }}<span>{{ t("home_route_fact") }}</span></p>
+      <a class="cta" href="{{ href('route') }}">{{ t("home_route_cta") }}{{ icon("chevron", "icon--s") }}</a>
+    </div>
+  </li>
+
+  <li class="station only-car">
+    <span class="station__no" aria-hidden="true">3</span>
+    <div class="station__card card">
+      <p class="station__kicker">{{ t("station_n", n=3) }}</p>
+      <h2 class="station__title">{{ icon("border") }}{{ t("station_border") }}</h2>
+      <ul class="mini-borders">
+        {%- for c in main_crossings %}
+        <li>
+          <a class="mini-borders__name" href="{{ href('crossing', cid=c.id) }}">{{ c.short }}</a>
+          <div class="dirrow"><span class="dirlabel">{{ t("b_dir_to_tr_short") }}</span>{{ status(statuses[c.id].to_tr, c.id, "to_tr", compact=True) }}</div>
+          <div class="dirrow"><span class="dirlabel">{{ t("b_dir_to_de_short") }}</span>{{ status(statuses[c.id].to_de, c.id, "to_de", compact=True) }}</div>
+        </li>
+        {%- endfor %}
+      </ul>
+      <div class="cta-row">
+        <a class="cta" href="{{ href('borders') }}">{{ t("home_border_cta") }}{{ icon("chevron", "icon--s") }}</a>
+        <a class="cta cta--accent" href="{{ href('crossing', cid='kapikule') }}#melden">{{ t("home_border_report_cta") }}</a>
+      </div>
+    </div>
+  </li>
+
+  <li class="station">
+    <span class="station__no" aria-hidden="true">4</span>
+    <div class="station__card card">
+      <p class="station__kicker">{{ t("station_n", n=4) }}</p>
+      <h2 class="station__title">{{ icon("bag") }}{{ t("station_bag") }}</h2>
+      <p>{{ t("home_customs_teaser") }}</p>
+      <ul class="mini-rules">
+        {%- for item in featured %}
+        <li><a href="{{ href('customs') }}#{{ item.id }}">{{ item.title[lang] }}</a>{{ cstatus(item.status) }}</li>
+        {%- endfor %}
+      </ul>
+      <a class="cta" href="{{ href('customs') }}">{{ t("home_customs_cta") }}{{ icon("chevron", "icon--s") }}</a>
+    </div>
+  </li>
+</ol>
+
+<p class="note only-plane">{{ icon("plane", "icon--s") }}<span>{{ t("home_plane_note") }}</span></p>
+{% endblock %}
