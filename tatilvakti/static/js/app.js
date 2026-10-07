@@ -253,7 +253,8 @@
           bucket.checked = false;
           if (res.data && res.data.crossing) applyCrossing(res.data.crossing);
         } else if (res.status === 429) {
-          say("error", S.b_report_ratelimited);
+          // crossing_busy: the crossing-wide cap is full – affects everyone, not just this client
+          say("error", res.data && res.data.detail === "crossing_busy" ? S.b_report_busy : S.b_report_ratelimited);
         } else if (res.status === 422) {
           say("error", S.b_report_stale);
         } else if (res.status >= 500 || res.status === 0) {
