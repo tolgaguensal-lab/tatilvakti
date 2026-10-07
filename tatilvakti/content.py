@@ -11,12 +11,19 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from .holidays import Range, free_stretches
 from .i18n import LANGS, fold
 
 DATA_DIR = Path(__file__).parent / "data"
 DATASETS = ("holidays", "customs", "transit", "crossings")
 CUSTOMS_STATUSES = ("ok", "limit", "declare", "no")
 TOLL_SYSTEMS = ("vignette", "evignette", "toll", "hgs")
+# Kürzeste freie Zeit am Stück (Ferien plus angrenzende Wochenenden und bundesweite Feiertage),
+# die das Ferien-Radar führt. quiet_days() wählt Abreise- und Rückreisetage aus je 7 Tagen am
+# Anfang und am Ende; bei kürzeren Blöcken wären beide Listen gleich, und waves() meldete
+# Ferienbeginn und -ende am selben Tag. Kurze Ferien (Brückentage, zwei Tage Winterferien)
+# bleiben deshalb draußen, bis die Ferienlogik sie eigens behandelt.
+MIN_FREE_DAYS = 8
 
 
 @dataclass
@@ -70,6 +77,13 @@ def _check_url(value, where, problems):
         problems.append(f"{where}: Quelle braucht https-URL, ist {value!r}")
 
 
+def _check_source(src, where, problems):
+    if not (isinstance(src, dict) and isinstance(src.get("name"), str) and src["name"].strip()):
+        problems.append(f"{where}: Quelle braucht Name und URL")
+        return
+    _check_url(src.get("url"), where, problems)
+
+
 def validate(content: Content) -> list[str]:
     """Liefert eine Liste von Problemen (leer = alles in Ordnung)."""
     problems: list[str] = []
@@ -78,7 +92,9 @@ def validate(content: Content) -> list[str]:
         _check_date(meta.get("as_of"), f"{name}.meta.as_of", problems)
         _check_date(meta.get("review_after"), f"{name}.meta.review_after", problems)
 
-    # Ferien: alle 16 Länder je Zeitraum, Start <= Ende, sinnvolle Länge
+    # Ferien: alle 16 Länder je Zeitraum, Start <= Ende, sinnvolle Länge. Eine leere Liste
+    # heißt „dieses Land hat in dem Zeitraum keine Ferien“ (z. B. Pfingsten in Hessen) –
+    # der Schlüssel muss trotzdem da sein, damit ein vergessenes Land auffällt.
     states = content.holidays["states"]
     if len(states) != 16:
         problems.append(f"holidays: {len(states)} statt 16 Bundesländer")
@@ -88,6 +104,7 @@ def validate(content: Content) -> list[str]:
     for src in content.holidays["meta"]["sources"]:
         _check_url(src.get("url"), "holidays.meta.sources", problems)
     seen_ids = set()
+    taken: dict[str, list[tuple[date, date, str]]] = {}  # Land → belegte Ferientage (alle Zeiträume)
     for period in content.holidays["periods"]:
         pid = period["id"]
         if pid in seen_ids:
@@ -97,15 +114,37 @@ def validate(content: Content) -> list[str]:
             problems.append(f"holidays.{pid}: Label nicht zweisprachig")
         if set(period["ranges"]) != set(states):
             problems.append(f"holidays.{pid}: Länder fehlen oder sind unbekannt")
+        if not any(period["ranges"].values()):
+            problems.append(f"holidays.{pid}: kein Land hat in diesem Zeitraum Ferien")
         for state, ranges in period["ranges"].items():
-            for start, end in ranges:
+            if not isinstance(ranges, list):
+                problems.append(f"holidays.{pid}.{state}: Liste von Zeiträumen erwartet (leer = keine Ferien)")
+                continue
+            valid: list[Range] = []
+            for pair in ranges:
+                if not (isinstance(pair, list) and len(pair) == 2):
+                    problems.append(f"holidays.{pid}.{state}: Zeitraum braucht genau Start und Ende")
+                    continue
+                start, end = pair
                 try:
                     s, e = date.fromisoformat(start), date.fromisoformat(end)
-                except ValueError:
+                except (TypeError, ValueError):
                     problems.append(f"holidays.{pid}.{state}: ungültiges Datum")
                     continue
                 if e < s or (e - s).days > 60:
                     problems.append(f"holidays.{pid}.{state}: unplausibler Zeitraum {start}–{end}")
+                    continue
+                for s2, e2, other in taken.setdefault(state, []):
+                    if s <= e2 and s2 <= e:
+                        problems.append(f"holidays.{pid}.{state}: {start}–{end} überschneidet sich mit {other}")
+                taken[state].append((s, e, pid))
+                valid.append(Range(s, e))
+            for stretch in free_stretches(valid):
+                if stretch.days < MIN_FREE_DAYS:
+                    problems.append(
+                        f"holidays.{pid}.{state}: nur {stretch.days} freie Tage am Stück "
+                        f"({stretch.start}–{stretch.end}); kurze Ferien unter {MIN_FREE_DAYS} Tagen führt das Radar nicht"
+                    )
 
     # Zoll
     sources = content.customs["sources"]
@@ -133,6 +172,10 @@ def validate(content: Content) -> list[str]:
                 problems.append(f"customs.{iid}: unbekannte Quelle {ref}")
         if "review_after" in item:
             _check_date(item["review_after"], f"customs.{iid}.review_after", problems)
+    # Verwaiste Quellen deuten auf eine ersetzte, aber nicht entfernte Angabe hin
+    used = {ref for item in content.customs["items"] for ref in item.get("sources", [])}
+    for key in sorted(set(sources) - used):
+        problems.append(f"customs.sources.{key}: wird von keiner Regel verwendet")
 
     # Transit
     countries = content.transit["countries"]
@@ -151,6 +194,8 @@ def validate(content: Content) -> list[str]:
         for note in country.get("notes", []):
             if not _is_bilingual(note):
                 problems.append(f"transit.{code}: Hinweis nicht zweisprachig")
+            if "source" in note:  # optional: eigene Quelle, wenn die Länderquelle den Hinweis nicht abdeckt
+                _check_source(note["source"], f"transit.{code}.notes.source", problems)
     for route in content.transit["routes"]:
         for code in route["countries"]:
             if code not in countries:
@@ -165,6 +210,15 @@ def validate(content: Content) -> list[str]:
     for doc in content.transit["documents"]:
         if not _is_bilingual(doc["text"]):
             problems.append(f"transit.documents.{doc['id']}: nicht zweisprachig")
+        if "link" in doc:
+            if not isinstance(doc["link"], str):
+                problems.append(f"transit.documents.{doc['id']}: Link muss Text sein, ist {doc['link']!r}")
+            else:
+                page, _, anchor = doc["link"].partition("#")
+                if page != "customs" or anchor not in ids:  # ids = Zoll-Regeln von oben
+                    problems.append(f"transit.documents.{doc['id']}: Link {doc['link']!r} zeigt auf keine Zoll-Regel")
+        if "source" in doc:
+            _check_source(doc["source"], f"transit.documents.{doc['id']}.source", problems)
 
     # Grenzübergänge
     csources = content.crossings["sources"]

@@ -69,7 +69,7 @@
       <p class="muted">{{ t("r_no_prices") }}</p>
       {%- endif %}
       <ul class="ticks">
-        {%- for n in ct.notes %}<li>{{ icon("info", "icon--xs") }}<span>{{ n[lang] }}</span></li>{% endfor %}
+        {%- for n in ct.notes %}<li>{{ icon("info", "icon--xs") }}<span>{{ n[lang] }}{% if n.source %} <span class="src-inline">{{ t("source") }}: {{ ext(n.source.url, n.source.name) }}</span>{% endif %}</span></li>{% endfor %}
       </ul>
       <p class="rule__src">{{ t("source") }}: {{ ext(ct.source.url, ct.source.name) }}</p>
     </div>
@@ -84,6 +84,7 @@
     <li>
       <label><input type="checkbox" data-check="{{ doc.id }}"><span>{{ doc.text[lang] }}</span></label>
       {%- if doc.link %}{% set page, anchor = doc.link.split("#") %} <a href="{{ href(page) }}#{{ anchor }}">{{ t("r_doc_more") }}</a>{% endif %}
+      {%- if doc.source %} <span class="src-inline">{{ t("source") }}: {{ ext(doc.source.url, doc.source.name) }}</span>{% endif %}
     </li>
     {%- endfor %}
   </ul>

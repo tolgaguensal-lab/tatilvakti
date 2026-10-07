@@ -82,28 +82,46 @@
       "prices": [
         {
           "label": {
-            "de": "7 Tage",
-            "tr": "7 gün"
+            "de": "7 Tage · Klasse 2A (normaler Pkw)",
+            "tr": "7 gün · 2A sınıfı (normal otomobil)"
           },
           "value": "16,00 €"
         },
         {
           "label": {
-            "de": "1 Monat",
-            "tr": "1 ay"
+            "de": "1 Monat · Klasse 2A",
+            "tr": "1 ay · 2A sınıfı"
           },
           "value": "32,00 €"
+        },
+        {
+          "label": {
+            "de": "7 Tage · Klasse 2B (hoher Van, Kleinbus)",
+            "tr": "7 gün · 2B sınıfı (yüksek van, minibüs)"
+          },
+          "value": "32,00 €"
+        },
+        {
+          "label": {
+            "de": "1 Monat · Klasse 2B",
+            "tr": "1 ay · 2B sınıfı"
+          },
+          "value": "64,10 €"
         }
       ],
       "prices_valid_until": "2026-12-31",
       "source": {
-        "name": "DARS e-vinjeta (Preise 2026, mehrfach abgeglichen)",
+        "name": "DARS e-vinjeta – Preise 2026 (Klassen 2A und 2B)",
         "url": "https://evinjeta.dars.si"
       },
       "notes": [
         {
           "de": "Nur digital, ans Kennzeichen gebunden, Kontrolle per Kamera. Kürzeste Variante: 7 Tage.",
           "tr": "Yalnızca dijital, plakaya bağlı, kamerayla denetlenir. En kısa seçenek: 7 gün."
+        },
+        {
+          "de": "Klasse 2B gilt für Fahrzeuge bis 3,5 t, die über der Vorderachse 1,30 m oder höher sind – also viele Vans und Kleinbusse. Eine Vignette der falschen Klasse gilt als ungültig, es droht ein Bußgeld. Im DARS-Shop die Klasse deines Modells prüfen.",
+          "tr": "2B sınıfı, ön dingil üzerindeki yüksekliği 1,30 m veya daha fazla olan 3,5 tona kadar araçlar içindir – yani birçok van ve minibüs. Yanlış sınıfta alınan vinyet geçersiz sayılır, para cezası kesilebilir. Aracının sınıfını DARS sitesinde kontrol et."
         }
       ]
     },
@@ -119,8 +137,8 @@
       },
       "prices": [],
       "source": {
-        "name": "Kroatische Regierung – neues Mautsystem",
-        "url": "https://vlada.gov.hr/vijesti/naplatne-kucice-odlaze-u-povijest-novi-sustav-naplate-cestarine-krajem-ljeta-2026/43047"
+        "name": "CroLibertas – offizielle Seite des neuen Mautsystems (ab 01.03.2027)",
+        "url": "https://www.crolibertas.hr"
       },
       "notes": [
         {
@@ -128,8 +146,8 @@
           "tr": "Kilometreye göre otoyol ücreti; şimdiye kadar gişelerde (nakit veya kart) ya da ENC cihazıyla."
         },
         {
-          "de": "Kroatien stellt auf schrankenlose E-Maut per Kamera um, die Mautstellen sollen 2027 wegfallen. Vor der Fahrt den aktuellen Stand prüfen.",
-          "tr": "Hırvatistan kameralı, bariyersiz e-geçiş sistemine geçiyor; gişelerin 2027'de kaldırılması planlanıyor. Yola çıkmadan güncel durumu kontrol et."
+          "de": "Ab 01.03.2027 gilt das neue System CroLibertas ohne Mautstellen: Pkw zahlen dann per ENC-Gerät oder nach vorheriger Registrierung von Kennzeichen und Zahlungsmittel (crolibertas.hr). Vor der Fahrt den aktuellen Stand prüfen.",
+          "tr": "01.03.2027'den itibaren gişesiz yeni CroLibertas sistemi geçerli: otomobiller ENC cihazıyla ya da plakayı ve ödeme yöntemini önceden kaydettirerek öder (crolibertas.hr). Yola çıkmadan güncel durumu kontrol et."
         }
       ]
     },
@@ -146,21 +164,32 @@
       "prices": [
         {
           "label": {
-            "de": "10 Tage (Pkw, D1)",
-            "tr": "10 gün (otomobil, D1)"
+            "de": "10 Tage · D1 (Pkw bis 7 Sitzplätze)",
+            "tr": "10 gün · D1 (en fazla 7 koltuklu otomobil)"
           },
-          "value": "ca. 6.900 Ft"
+          "value": "6.900 Ft"
+        },
+        {
+          "label": {
+            "de": "10 Tage · D2 (8–9-Sitzer, Wohnmobil, Transporter)",
+            "tr": "10 gün · D2 (8–9 koltuklu araç, karavan, kamyonet)"
+          },
+          "value": "10.040 Ft"
         }
       ],
       "prices_valid_until": "2026-12-31",
       "source": {
-        "name": "e-matrica 2026 (mehrere Quellen, gerundet)",
+        "name": "NÚSZ (Nemzeti Útdíjfizetési Szolgáltató) – e-matrica, Preise 2026",
         "url": "https://nemzetiutdij.hu"
       },
       "notes": [
         {
           "de": "Digitale Vignette („e-matrica“), ans Kennzeichen gebunden. Am besten vor der Auffahrt auf die Autobahn kaufen.",
           "tr": "Dijital vinyet („e-matrica“), plakaya bağlı. En iyisi otoyola çıkmadan önce satın almak."
+        },
+        {
+          "de": "D1 gilt nur für Fahrzeuge bis 3,5 t mit höchstens 7 Sitzplätzen inklusive Fahrer. Mehr Sitzplätze, Wohnmobil oder Transporter: D2. Maßgeblich sind Fahrzeugklasse (Feld J) und Sitzplätze (Feld S.1) im Fahrzeugschein.",
+          "tr": "D1 yalnızca sürücü dahil en fazla 7 koltuklu, 3,5 tona kadar araçlar için geçerlidir. Daha fazla koltuk, karavan veya kamyonet: D2. Belirleyici olan, ruhsattaki araç sınıfı (J alanı) ve koltuk sayısıdır (S.1 alanı)."
         }
       ]
     },
@@ -187,6 +216,22 @@
         {
           "de": "Kein EU-Land: Grenzkontrollen bei Ein- und Ausreise.",
           "tr": "AB ülkesi değil: girişte ve çıkışta sınır kontrolü var."
+        },
+        {
+          "de": "Serbien gehört nicht zum EU-Roaming: Mobile Daten können teuer werden. Tarif vorher prüfen oder Datenroaming abschalten.",
+          "tr": "Sırbistan AB roaming bölgesine dahil değil: mobil veri pahalı olabilir. Tarifeni önceden kontrol et ya da veri roamingini kapat.",
+          "source": {
+            "name": "EU-Kommission – Roaming und Westbalkan",
+            "url": "https://digital-strategy.ec.europa.eu/en/news/roam-home-commission-proposes-open-negotiations-extend-eu-roaming-western-balkans"
+          }
+        },
+        {
+          "de": "Im Auto mitführen: Verbandkasten, Warndreieck, Warnwesten, Abschleppseil und Ersatzlampen. Licht ist auch tagsüber Pflicht.",
+          "tr": "Araçta bulunması zorunlu: ilk yardım çantası, üçgen reflektör, reflektörlü yelekler, çekme halatı ve yedek ampuller. Gündüz de farlarını açman zorunlu.",
+          "source": {
+            "name": "ADAC – Mit dem Fahrzeug in Serbien",
+            "url": "https://www.adac.de/reise-freizeit/reiseplanung/reiseziele/serbien/fahrzeug/"
+          }
         }
       ]
     },
@@ -197,31 +242,65 @@
       },
       "system": "vignette",
       "shop": {
-        "name": "CNAIR (staatlicher Straßenbetreiber)",
-        "url": "https://www.cnadnr.ro"
+        "name": "TollRo (CNAIR) – etoll.ro",
+        "url": "https://etoll.ro"
       },
       "prices": [
         {
           "label": {
-            "de": "10 Tage (je nach Abgasnorm)",
-            "tr": "10 gün (emisyon normuna göre)"
+            "de": "10 Tage · Pkw (Kat. A) · Euro 6",
+            "tr": "10 gün · Otomobil (A kategorisi) · Euro 6"
           },
-          "value": "30–39 Lei"
+          "value": "30 Lei"
+        },
+        {
+          "label": {
+            "de": "10 Tage · Pkw (Kat. A) · Euro 4–5",
+            "tr": "10 gün · Otomobil (A kategorisi) · Euro 4–5"
+          },
+          "value": "35 Lei"
+        },
+        {
+          "label": {
+            "de": "10 Tage · Pkw (Kat. A) · Euro 3 oder älter",
+            "tr": "10 gün · Otomobil (A kategorisi) · Euro 3 veya daha eski"
+          },
+          "value": "39 Lei"
         }
       ],
-      "prices_valid_until": "2027-09-30",
+      "prices_valid_until": "2026-12-31",
       "source": {
-        "name": "Rovinieta-Tarife ab 01.10.2026 (Digi24)",
-        "url": "https://www.digi24.ro/digieconomic/consumer/cat-va-costa-rovinieta-pentru-autoturisme-de-la-1-octombrie-tarifele-difera-in-functie-de-norma-de-poluare-120763"
+        "name": "CNAIR (rumänischer Straßenbetreiber) – Tarife Rovinietă und TollRo ab 01.10.2026 (Ordin MTI 888/2026)",
+        "url": "https://www.cnadnr.ro"
       },
       "notes": [
         {
-          "de": "Die Vignette („Rovinieta“) gilt für alle Nationalstraßen, nicht nur für Autobahnen. Seit 01.10.2026 hängt der Preis von der Abgasnorm ab.",
-          "tr": "Vinyet („Rovinieta“) yalnızca otoyollar için değil, tüm devlet yolları için gerekir. 01.10.2026'dan beri fiyat emisyon normuna göre değişiyor."
+          "de": "Die Vignette („Rovinieta“) gilt für alle Nationalstraßen, nicht nur für Autobahnen. Seit 01.10.2026 hängt der Preis von der Abgasnorm ab: Gib beim Kauf die Euro-Norm aus dem Fahrzeugschein an, sonst wird der teuerste Tarif berechnet.",
+          "tr": "Vinyet („Rovinieta“) yalnızca otoyollar için değil, tüm devlet yolları için gerekir. 01.10.2026'dan beri fiyat emisyon normuna göre değişiyor: Satın alırken ruhsattaki Euro normunu gir, yoksa en pahalı tarif uygulanır."
         },
         {
-          "de": "Die Donaubrücken nach Bulgarien (Calafat–Vidin, Giurgiu–Ruse) kosten eine eigene Gebühr.",
-          "tr": "Bulgaristan'a geçen Tuna köprüleri (Calafat–Vidin, Giurgiu–Ruse) ayrıca ücretlidir."
+          "de": "Die Preise oben gelten für Pkw (Kategorie A). Ist dein Fahrzeug als Lkw, Transporter oder Bus zugelassen, gilt eine andere Kategorie – im Shop die Kategorie deines Fahrzeugs prüfen.",
+          "tr": "Yukarıdaki fiyatlar otomobiller (A kategorisi) için geçerlidir. Aracın kamyon, kamyonet veya otobüs olarak tescilliyse farklı bir kategori geçerlidir – satış sitesinde aracının kategorisini kontrol et."
+        },
+        {
+          "de": "Seit 01.10.2026 gibt es die Vignette nur noch über die offiziellen Kanäle des neuen Systems TollRo: Portal etoll.ro, App „TollRo“, CNAIR-Verkaufsstellen (auch an der Grenze) und zugelassene Verkäufer.",
+          "tr": "01.10.2026'dan beri vinyet yalnızca yeni TollRo sisteminin resmi kanallarından alınabiliyor: etoll.ro portalı, „TollRo“ uygulaması, CNAIR satış noktaları (sınırda da) ve yetkili satıcılar."
+        },
+        {
+          "de": "Donaubrücke Calafat–Vidin: 6 € je Richtung.",
+          "tr": "Calafat–Vidin Tuna köprüsü: her yön için 6 €.",
+          "source": {
+            "name": "Brücke Vidin–Calafat – Gebühren",
+            "url": "https://www.vidincalafatbridge.bg/en/charges"
+          }
+        },
+        {
+          "de": "Donaubrücke Giurgiu–Ruse: Richtung Bulgarien (Hinweg) seit 01.10.2026 gebührenfrei, Richtung Rumänien (Rückweg) verlangt Bulgarien weiterhin eine Gebühr.",
+          "tr": "Giurgiu–Ruse Tuna köprüsü: Bulgaristan yönü (gidiş) 01.10.2026'dan beri ücretsiz, Romanya yönü (dönüş) için Bulgaristan ücret almaya devam ediyor.",
+          "source": {
+            "name": "Radio România Internațional – Brückengebühr Giurgiu–Ruse entfällt",
+            "url": "https://www.rri.ro/actualitate/alerte-si-sfaturi-de-calatorie/taxa-pentru-trecerea-podului-giurgiu-ruse-eliminata-de-la-1-octombrie-id1064500.html"
+          }
         }
       ]
     },
@@ -238,35 +317,46 @@
       "prices": [
         {
           "label": {
+            "de": "1 Tag",
+            "tr": "1 gün"
+          },
+          "value": "5,30 €"
+        },
+        {
+          "label": {
             "de": "Wochenende",
             "tr": "Hafta sonu"
           },
-          "value": "5,11 €"
+          "value": "6,60 €"
         },
         {
           "label": {
             "de": "7 Tage",
             "tr": "7 gün"
           },
-          "value": "7,67 €"
+          "value": "10,00 €"
         },
         {
           "label": {
             "de": "30 Tage",
             "tr": "30 gün"
           },
-          "value": "15,34 €"
+          "value": "19,90 €"
         }
       ],
-      "prices_valid_until": "2026-12-31",
+      "prices_valid_until": "2027-01-31",
       "source": {
-        "name": "BG TOLL – e-Vignette",
-        "url": "https://bgtoll.bg/en/e-vignette"
+        "name": "BG TOLL (Straßenagentur) – Vignettenpreise ab 01.08.2026",
+        "url": "https://bgtoll.bg"
       },
       "notes": [
         {
           "de": "Bulgarien zahlt seit 01.01.2026 in Euro. Die e-Vignette ist ans Kennzeichen gebunden.",
           "tr": "Bulgaristan 01.01.2026'dan beri euro kullanıyor. E-vinyet plakaya bağlıdır."
+        },
+        {
+          "de": "Ohne gültige Vignette wird seit 01.08.2026 eine Ausgleichsgebühr von 46,50 € fällig.",
+          "tr": "Geçerli vinyet olmadan yakalanırsan 01.08.2026'dan beri 46,50 € tazminat ücreti ödersin."
         }
       ]
     },
@@ -297,6 +387,14 @@
         {
           "de": "Ohne HGS durchgefahren? Innerhalb von 15 Tagen nachzahlen (HGS aufladen oder ivd.gib.gov.tr), sonst wird es teurer. Mit offener Maut kann die Ausreise verweigert werden.",
           "tr": "HGS'siz mi geçtin? 15 gün içinde öde (HGS yükle veya ivd.gib.gov.tr), yoksa cezalı olur. Ödenmemiş geçişle ülkeden çıkışa izin verilmeyebilir."
+        },
+        {
+          "de": "Pflicht im Auto: zwei Warndreiecke. Empfohlen: Warnwesten für alle, Verbandkasten und Feuerlöscher.",
+          "tr": "Araçta zorunlu: iki üçgen reflektör. Tavsiye edilen: herkes için reflektörlü yelek, ilk yardım çantası ve yangın söndürücü.",
+          "source": {
+            "name": "ADAC – Mit dem Fahrzeug in die Türkei",
+            "url": "https://www.adac.de/reise-freizeit/reiseplanung/reiseziele/tuerkei/fahrzeug/"
+          }
         }
       ]
     }
@@ -405,8 +503,8 @@
           "tr": "Romanya'da güzergâha göre otoyol olmayan bölümler var – süreyi navigasyonda karşılaştır"
         },
         {
-          "de": "Donaubrücke kostet extra",
-          "tr": "Tuna köprüsü ayrıca ücretli"
+          "de": "Donaubrücke: Calafat–Vidin 6 € je Richtung; Giurgiu → Ruse seit 01.10.2026 frei, zurück kostenpflichtig",
+          "tr": "Tuna köprüsü: Calafat–Vidin her yön 6 €; Giurgiu → Ruse 01.10.2026'dan beri ücretsiz, dönüş ücretli"
         }
       ]
     }
@@ -415,8 +513,8 @@
     {
       "id": "gruene-karte",
       "text": {
-        "de": "Grüne Versicherungskarte – „TR“ darf nicht durchgestrichen sein",
-        "tr": "Yeşil kart sigortası – „TR“ çizili olmamalı"
+        "de": "Grüne Versicherungskarte – „TR“ darf nicht durchgestrichen sein; Schutz im asiatischen Teil mit der Versicherung klären",
+        "tr": "Yeşil kart sigortası – „TR“ çizili olmamalı; Asya kısmındaki teminatı sigortanla netleştir"
       },
       "link": "customs#tr-gruene-karte"
     },
@@ -425,6 +523,13 @@
       "text": {
         "de": "Fahrzeugschein (Zulassungsbescheinigung Teil I)",
         "tr": "Araç ruhsatı (Zulassungsbescheinigung Teil I)"
+      }
+    },
+    {
+      "id": "fuehrerschein",
+      "text": {
+        "de": "Führerschein für alle, die fahren",
+        "tr": "Aracı kullanacak herkes için ehliyet"
       }
     },
     {
@@ -450,11 +555,41 @@
       }
     },
     {
+      "id": "ausstattung",
+      "text": {
+        "de": "Pflichtausstattung für jedes Land deiner Route prüfen – Warnwesten, Warndreieck, Verbandkasten und Licht am Tag sind nicht überall gleich geregelt",
+        "tr": "Güzergâhındaki her ülkenin zorunlu araç donanımını kontrol et – reflektörlü yelek, üçgen reflektör, ilk yardım çantası ve gündüz farı kuralları her yerde aynı değil"
+      },
+      "source": {
+        "name": "ÖAMTC – Mitführpflichten für Autofahrer in Europa",
+        "url": "https://www.oeamtc.at/thema/reiseplanung/mitfuehrpflichten-fuer-autofahrer-in-europa-16183282"
+      }
+    },
+    {
       "id": "ausweis",
       "text": {
         "de": "Gültige Ausweise für alle Mitreisenden, auch die Kinder",
         "tr": "Çocuklar dahil tüm yolcular için geçerli kimlik belgeleri"
       }
+    },
+    {
+      "id": "einverstaendnis",
+      "text": {
+        "de": "Empfohlen, wenn Kinder nur mit einem Elternteil reisen: formlose Einverständniserklärung des anderen Elternteils, bei unterschiedlichen Nachnamen auch eine Kopie der Geburtsurkunde",
+        "tr": "Çocuklar yalnızca bir ebeveynle seyahat ediyorsa önerilir: diğer ebeveynin serbest formatta yazılı izni, soyadları farklıysa doğum belgesinin bir kopyası da"
+      },
+      "source": {
+        "name": "Auswärtiges Amt – Einverständniserklärung für Minderjährige",
+        "url": "https://www.auswaertiges-amt.de/de/service/fragenkatalog-node/11-kindohneeltern-606308"
+      }
+    },
+    {
+      "id": "haustier",
+      "text": {
+        "de": "Mit Hund oder Katze: EU-Heimtierausweis und Tollwut-Antikörpertest – den Test vor der Abreise machen lassen",
+        "tr": "Köpek veya kediyle: AB evcil hayvan pasaportu ve kuduz antikor testi – testi yola çıkmadan önce yaptır"
+      },
+      "link": "customs#eu-haustier"
     }
   ],
   "schengen_note": {

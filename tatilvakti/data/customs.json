@@ -4,8 +4,8 @@
     "as_of": "2026-10-06",
     "review_after": "2027-03-31",
     "note": {
-      "de": "Kuratiert aus den offiziellen Seiten des deutschen Zolls und des türkischen Handelsministeriums. Regeln ändern sich – im Zweifel gilt die verlinkte Quelle.",
-      "tr": "Alman Gümrüğü ve T.C. Ticaret Bakanlığı'nın resmi sayfalarından derlendi. Kurallar değişebilir – şüphede bağlantıdaki resmi kaynak geçerlidir."
+      "de": "Kuratiert aus amtlichen Quellen (deutscher Zoll, EU, T.C. Ticaret Bakanlığı, Resmî Gazete, BTK, Veterinärbehörden); zur Kfz-Versicherung aus ADAC und dem Versichererverband GDV. Regeln ändern sich – im Zweifel gilt die verlinkte Quelle.",
+      "tr": "Resmî kaynaklardan derlendi (Alman Gümrüğü, AB, T.C. Ticaret Bakanlığı, Resmî Gazete, BTK, veteriner makamları); araç sigortası konusunda ADAC ve Alman sigortacılar birliği GDV'den. Kurallar değişebilir – şüphede bağlantıdaki kaynak geçerlidir."
     }
   },
   "sources": {
@@ -24,8 +24,20 @@
     "tr_tasit": {"name": "T.C. Ticaret Bakanlığı – Yolcu Beraberi Taşıtlar", "url": "https://ticaret.gov.tr/gumruk-islemleri/sikca-sorulan-sorular/bireysel/yolcu-beraberi-tasitlar"},
     "btk_mcks": {"name": "BTK – Merkezi Cihaz Kayıt Sistemi", "url": "https://tuketici.btk.gov.tr/merkezi-cihaz-kayit-sistemi"},
     "edevlet_imei": {"name": "e-Devlet – IMEI Kaydet", "url": "https://www.turkiye.gov.tr/btk-imei-kaydet"},
-    "imei_fee_2026": {"name": "Vodafone TR – IMEI-Gebühr 2026", "url": "https://www.vodafone.com.tr/teknoloji/blog/yurtdisi-telefon-imei-kayit-ucreti-ne-kadar"},
-    "gruene_karte": {"name": "Generali – FAQ Grüne Karte", "url": "https://www.generali.de/journal/faq-ivk-internationale-versicherungskarte-fuer-kraftverkehr-gruene-karte-"}
+    "mcks": {"name": "BTK – Merkezi Cihaz Kayıt Sistemi (mcks.gov.tr)", "url": "https://www.mcks.gov.tr"},
+    "edevlet_btk": {"name": "e-Devlet – Dienste der BTK (u. a. „Kayıtlı Cihazlarım ve Kayıt Hakkı Sorgulama“)", "url": "https://www.turkiye.gov.tr/bilgi-teknolojileri-ve-iletisim-kurumu"},
+    "rg_harc_2026": {"name": "Resmî Gazete vom 31.12.2025, Sayı 33124 (5. Mükerrer) – Harçlar Kanunu Genel Tebliği (Seri No: 98), Gebühren 2026", "url": "https://www.resmigazete.gov.tr"},
+    "gruene_karte": {"name": "GDV (Die Versicherer) – Grüne Karte", "url": "https://www.dieversicherer.de/versicherer/auto/news/gruene-karte-kfz-versicherung-142706"},
+    "adac_tuerkei": {"name": "ADAC – Mit dem Fahrzeug in die Türkei", "url": "https://www.adac.de/reise-freizeit/reiseplanung/reiseziele/tuerkei/fahrzeug/"},
+    "eu_barmittel": {"name": "EUR-Lex – Verordnung (EU) 2018/1672 über Barmittelkontrollen", "url": "https://eur-lex.europa.eu/legal-content/DE/TXT/?uri=CELEX:32018R1672"},
+    "tr_nakit_cikis": {"name": "Gümrük Rehberi – Nakit para ve ziynet eşyası ile yurt dışına çıkış", "url": "https://gumrukrehberi.gov.tr/sayfa/yolcu-beraberinde-yurt-d%C4%B1%C5%9F%C4%B1na-%C3%A7%C4%B1k%C4%B1%C5%9F%C4%B1-yasak-olan-nakit-para-ve-ziynet-e%C5%9Fyas%C4%B1-nelerdir"},
+    "tr_hediye": {"name": "Gümrük Rehberi – Yolcu beraberinde ve vergileri ödenerek getirilen eşya", "url": "https://gumrukrehberi.gov.tr/sayfa/yolcu-beraberinde-ve-vergileri-%C3%B6denerek-getirilen-e%C5%9Fya-ile-ilgili-%C5%9Fartlar-nelerdir"},
+    "tr_tasit_sure": {"name": "Gümrük Rehberi – Geçici olarak getirilen taşıtlara verilen süre", "url": "https://gumrukrehberi.gov.tr/sayfa/t%C3%BCrkiyeye-ge%C3%A7ici-olarak-getirilen-ta%C5%9F%C4%B1tlara-verilen-s%C3%BCre-nedir"},
+    "tr_tasit_seri9": {"name": "T.C. Ticaret Bakanlığı – Gümrük Genel Tebliği Seri No: 9 (Resmî Gazete 14.08.2026)", "url": "https://ticaret.gov.tr/duyurular/gecici-ithal-edilen-kara-tasitlarina-i%CC%87liskin-gumruk-genel-tebliginde-degisiklik-yapilmasina-dair-teblig"},
+    "ef_vo": {"name": "Einreise-Freimengen-Verordnung, § 2", "url": "https://www.gesetze-im-internet.de/ef-vo_2008/__2.html"},
+    "kblv_tuerkei": {"name": "KBLV Bayern – Hunde und Katzen aus der Türkei", "url": "https://www.kblv.bayern.de/grenzkontrollstelle/hunde_katzen_tuerkei/hunde_katzen_tuerkei_lang-de.php"},
+    "eu_heimtiere": {"name": "Your Europe – Reisen mit Haustieren", "url": "https://europa.eu/youreurope/citizens/travel/carry/pets-and-other-animals/index_de.htm"},
+    "zoll_kraftstoff": {"name": "Zoll – Einfuhr von Kraftstoff durch Privatpersonen", "url": "https://www.zoll.de/DE/Fachthemen/Steuern/Verbrauchsteuern/Energie/Verfahren/Warenbewegung/Einfuhr/_functions/hintergrund_1.html?faqCalledDoc=137596"}
   },
   "directions": {
     "to_tr": {"de": "Hinreise: rein in die Türkei", "tr": "Gidiş: Türkiye'ye giriş"},
@@ -40,16 +52,16 @@
       "featured": true,
       "title": {"de": "Handy aus Deutschland (IMEI)", "tr": "Almanya'dan getirilen telefon (IMEI)"},
       "rule": {
-        "de": "Mit türkischer SIM-Karte nur 120 Tage ab Einreise nutzbar, danach wird das Gerät gesperrt – außer du registrierst es. Gebühr 2026: 54.258 TL.",
-        "tr": "Türk SIM kartıyla yurda girişten itibaren yalnızca 120 gün kullanılabilir; kayıt yaptırmazsan cihaz kapatılır. 2026 kayıt ücreti: 54.258 TL."
+        "de": "Mit türkischer SIM-Karte nur 120 Tage ab Einreise nutzbar, danach wird das Gerät gesperrt – außer du registrierst es. Gebühr 2026: 54.258 TL. Pro Pass geht das nur für ein Gerät alle drei Kalenderjahre.",
+        "tr": "Türk SIM kartıyla yurda girişten itibaren yalnızca 120 gün kullanılabilir; kayıt yaptırmazsan cihaz kapatılır. 2026 kayıt ücreti: 54.258 TL. Pasaport başına üç takvim yılında yalnızca bir cihaz kaydettirebilirsin."
       },
       "detail": {
-        "de": "Registrieren kannst du innerhalb der 120 Tage über e-Devlet („IMEI Kaydet“), mit dem Pass, mit dem du eingereist bist. Danach läuft das Gerät nur mit Leitungen, die auf dich registriert sind. Wer nur mit deutscher SIM (Roaming) oder einer Reise-eSIM eines ausländischen Anbieters surft, steckt keine türkische SIM ein – die 120-Tage-Regel wird dann nach übereinstimmenden Berichten nicht ausgelöst. Roaming-Preise vorher prüfen.",
-        "tr": "Kaydı 120 gün içinde e-Devlet üzerinden („IMEI Kaydet“), giriş yaptığın pasaportla yapabilirsin. Kayıttan sonra cihaz yalnızca senin adına kayıtlı hatlarla çalışır. Sadece Alman SIM'iyle (roaming) veya yabancı bir operatörün seyahat eSIM'iyle internete giren kişi Türk SIM takmamış olur – bu durumda 120 gün kuralı yaygın bilgiye göre devreye girmez. Roaming ücretlerini önceden kontrol et."
+        "de": "Registrieren kannst du innerhalb der 120 Tage über e-Devlet („IMEI Kaydet“), mit dem Pass, mit dem du eingereist bist. Danach läuft das Gerät nur mit Leitungen, die auf dich registriert sind. Ob du gerade ein Registrierungsrecht hast, zeigt e-Devlet unter „Kayıtlı Cihazlarım ve Kayıt Hakkı Sorgulama“. Wer nur mit deutscher SIM (Roaming) oder einer Reise-eSIM eines ausländischen Anbieters surft, steckt keine türkische SIM ein – die 120-Tage-Regel wird dann nach übereinstimmenden Berichten nicht ausgelöst. Roaming-Preise vorher prüfen.",
+        "tr": "Kaydı 120 gün içinde e-Devlet üzerinden („IMEI Kaydet“), giriş yaptığın pasaportla yapabilirsin. Kayıttan sonra cihaz yalnızca senin adına kayıtlı hatlarla çalışır. Şu an kayıt hakkın olup olmadığını e-Devlet'te „Kayıtlı Cihazlarım ve Kayıt Hakkı Sorgulama“ hizmetinden görebilirsin. Sadece Alman SIM'iyle (roaming) veya yabancı bir operatörün seyahat eSIM'iyle internete giren kişi Türk SIM takmamış olur – bu durumda 120 gün kuralı yaygın bilgiye göre devreye girmez. Roaming ücretlerini önceden kontrol et."
       },
-      "sources": ["btk_mcks", "edevlet_imei", "imei_fee_2026"],
+      "sources": ["btk_mcks", "mcks", "edevlet_imei", "edevlet_btk", "rg_harc_2026"],
       "review_after": "2026-12-31",
-      "keywords": ["handy", "telefon", "smartphone", "imei", "esim", "sim", "btk", "registrierung", "kayıt", "harç", "iphone", "cep"]
+      "keywords": ["handy", "telefon", "smartphone", "imei", "esim", "sim", "btk", "registrierung", "kayıt", "kayıt hakkı", "harç", "iphone", "cep", "pasaport", "3 jahre", "3 yıl"]
     },
     {
       "id": "tr-tabak",
@@ -91,21 +103,40 @@
       "keywords": ["parfüm", "parfum", "kolonya", "kosmetik", "kozmetik", "lotion", "losyon", "duft"]
     },
     {
+      "id": "tr-geschenke",
+      "direction": "to_tr",
+      "category": "waren",
+      "status": "limit",
+      "featured": true,
+      "title": {"de": "Geschenke & neue Waren", "tr": "Hediyeler ve yeni eşyalar"},
+      "rule": {
+        "de": "Abgabenfrei bis 430 € Warenwert pro Person, für Kinder unter 15 Jahren bis 150 €. Liegt der Wert darüber, aber nicht über 1.500 €, wird ein Pauschalsatz fällig; darüber gelten die normalen Einfuhrabgaben.",
+        "tr": "Kişi başı 430 € değerine kadar vergisiz, 15 yaşından küçük çocuklar için 150 €'ya kadar. Değer bunu aşar ama 1.500 €'yu geçmezse tek ve maktu vergi ödenir; daha fazlasına normal ithalat vergileri uygulanır."
+      },
+      "detail": {
+        "de": "Gilt nur für Mengen, die nicht nach Handel aussehen. Tabak, Alkohol und Parfüm haben eigene Grenzen. Für teure eigene Geräte (Laptop, Kamera) den Kaufbeleg mitnehmen oder vor der Abreise beim deutschen Zoll einen Nämlichkeitsnachweis holen – dann ist bei der Rückkehr klar, dass sie nicht aus der Türkei stammen.",
+        "tr": "Yalnızca ticari izlenim vermeyen miktarlar için geçerlidir. Tütün, alkol ve parfüm için ayrı sınırlar var. Pahalı kendi cihazların (dizüstü bilgisayar, fotoğraf makinesi) için faturayı yanına al ya da yola çıkmadan Alman gümrüğünden Nämlichkeitsnachweis al – böylece dönüşte bunların Türkiye'den alınmadığı belli olur."
+      },
+      "sources": ["tr_hediye", "tr_muafiyet", "zoll_persoenlich"],
+      "review_after": "2027-03-31",
+      "keywords": ["geschenke", "geschenk", "mitbringsel", "hediye", "hediyelik", "neue waren", "yeni eşya", "elektronik", "laptop", "bilgisayar", "kamera", "430", "150", "1500", "kind", "kinder", "çocuk", "freigrenze", "muafiyet"]
+    },
+    {
       "id": "tr-bargeld",
       "direction": "to_tr",
       "category": "geld",
       "status": "declare",
       "title": {"de": "Bargeld", "tr": "Nakit para"},
       "rule": {
-        "de": "Ab 10.000 € (oder Gegenwert) pro Person anmelden: beim deutschen Zoll, wenn du die EU verlässt, und beim türkischen Zoll, wenn du die Türkei wieder verlässt.",
-        "tr": "Kişi başı 10.000 € (veya karşılığı) ve üzeri beyan edilmeli: AB'den çıkarken Alman gümrüğüne, Türkiye'den çıkarken Türk gümrüğüne."
+        "de": "Ab 10.000 € (oder Gegenwert) pro Person beim Zoll des EU-Landes anmelden, über das du die EU verlässt – mit dem Auto meist Ungarn, Kroatien oder Bulgarien, beim Flug ab Deutschland der deutsche Zoll.",
+        "tr": "Kişi başı 10.000 € (veya karşılığı) ve üzeri, AB'den çıktığın ülkenin gümrüğüne beyan edilmeli – araçla genelde Macaristan, Hırvatistan veya Bulgaristan, Almanya'dan uçakla gidiyorsan Alman gümrüğü."
       },
       "detail": {
-        "de": "In Deutschland geht die Anmeldung auch vorab online über das Zoll-Portal. Als Barmittel zählen auch Goldmünzen (mind. 90 % Gold) und Goldbarren (mind. 99,5 %).",
-        "tr": "Almanya'da beyan Zoll-Portal üzerinden önceden çevrim içi de yapılabilir. Altın sikkeler (en az %90 altın) ve külçe altın (en az %99,5) da nakit sayılır."
+        "de": "Die Online-Anmeldung im deutschen Zoll-Portal gilt nur, wenn du direkt über Deutschland ausreist, also beim Flug. Wer über Serbien fährt, verlässt die EU zweimal (Richtung Serbien und Richtung Türkei) und reist dazwischen in Bulgarien wieder ein – angemeldet wird an jeder dieser EU-Außengrenzen. Als Barmittel zählen auch Goldmünzen (mind. 90 % Gold) und Goldbarren (mind. 99,5 %).",
+        "tr": "Alman Zoll-Portal üzerinden çevrim içi beyan yalnızca doğrudan Almanya'dan çıkışta, yani uçakla geçerlidir. Sırbistan üzerinden giden AB'den iki kez çıkar (Sırbistan'a ve Türkiye'ye geçerken) ve arada Bulgaristan'da yeniden girer – beyan, bu AB dış sınırlarının her birinde yapılır. Altın sikkeler (en az %90 altın) ve külçe altın (en az %99,5) da nakit sayılır."
       },
-      "sources": ["zoll_barmittel", "tr_muhafaza"],
-      "keywords": ["bargeld", "nakit", "geld", "para", "euro", "döviz", "devisen", "10000", "beyan"]
+      "sources": ["eu_barmittel", "zoll_barmittel"],
+      "keywords": ["bargeld", "nakit", "geld", "para", "euro", "döviz", "devisen", "10000", "beyan", "anmeldung"]
     },
     {
       "id": "tr-schmuck",
@@ -131,11 +162,16 @@
       "status": "declare",
       "title": {"de": "Grüne Versicherungskarte", "tr": "Yeşil kart sigortası"},
       "rule": {
-        "de": "Für die Einreise mit dem Auto Pflicht. Das Feld „TR“ darf nicht durchgestrichen sein – bei manchen Versicherern kostet die Türkei extra.",
-        "tr": "Araçla girişte zorunlu. Karttaki „TR“ alanı çizili olmamalı – bazı sigortacılar Türkiye için ek prim ister."
+        "de": "Für die Einreise mit dem Auto Pflicht. Das Feld „TR“ darf nicht durchgestrichen sein – bei manchen Versicherern kostet die Türkei extra. Frag deine Versicherung, ob der Schutz auch im asiatischen Teil gilt.",
+        "tr": "Araçla girişte zorunlu. Karttaki „TR“ alanı çizili olmamalı – bazı sigortacılar Türkiye için ek prim ister. Teminatın Türkiye'nin Asya kısmında da geçerli olup olmadığını sigortana sor."
       },
-      "sources": ["gruene_karte"],
-      "keywords": ["grüne karte", "yeşil kart", "versicherung", "sigorta", "auto", "araba", "araç", "kfz"]
+      "detail": {
+        "de": "Die Kfz-Haftpflicht gilt mit der Grünen Karte in der Regel in der ganzen Türkei. Die Kasko deckt nach vielen Verträgen aber nur den europäischen Teil ab, also nicht Anatolien. Lass dir den Schutz für den asiatischen Teil schriftlich bestätigen oder schließ für die Reise eine Zusatzdeckung ab.",
+        "tr": "Yeşil kartla trafik sigortası (zorunlu mali sorumluluk) genellikle Türkiye'nin tamamında geçerlidir. Ancak birçok sözleşmede kasko yalnızca Avrupa kısmını kapsar, yani Anadolu'yu kapsamaz. Asya kısmındaki teminatı sigortana yazılı olarak onaylat ya da yolculuk için ek teminat al."
+      },
+      "sources": ["adac_tuerkei", "gruene_karte"],
+      "review_after": "2027-03-31",
+      "keywords": ["grüne karte", "yeşil kart", "versicherung", "sigorta", "kasko", "haftpflicht", "trafik sigortası", "asiatisch", "anatolien", "anadolu", "asya", "auto", "araba", "araç", "kfz"]
     },
     {
       "id": "tr-vollmacht",
@@ -157,15 +193,33 @@
       "status": "limit",
       "title": {"de": "Wie lange darf das Auto bleiben?", "tr": "Araç ne kadar kalabilir?"},
       "rule": {
-        "de": "Türkische Staatsbürger mit Wohnsitz im Ausland (mind. 185 Tage im Jahr im Ausland) dürfen ihr Auto mit ausländischem Kennzeichen bis zu 730 Tage in der Türkei nutzen; frühere Aufenthalte werden angerechnet.",
-        "tr": "Yurt dışında yerleşik Türk vatandaşları (yılda en az 185 gün yurt dışında) yabancı plakalı araçlarını Türkiye'de 730 güne kadar kullanabilir; önceki kalış süreleri düşülür."
+        "de": "Türkische Staatsbürger und Mavi-Kart-Inhaber mit Wohnsitz im Ausland (in den 12 Monaten vor der Einreise mind. 185 Tage im Ausland) dürfen ihr Auto mit ausländischem Kennzeichen bis zu 730 Tage in der Türkei nutzen; frühere Aufenthalte werden angerechnet.",
+        "tr": "Yurt dışında yerleşik Türk vatandaşları ve Mavi Kart sahipleri (girişten önceki 12 ayda en az 185 gün yurt dışında) yabancı plakalı araçlarını Türkiye'de 730 güne kadar kullanabilir; önceki kalış süreleri düşülür."
       },
       "detail": {
-        "de": "Für Nicht-Türken und Sonderfälle (Rente, Verlängerung) gelten andere Fristen – die Details stehen beim Handelsministerium.",
-        "tr": "Yabancı uyruklular ve özel durumlar (emeklilik, uzatma) için farklı süreler geçerlidir – ayrıntılar Ticaret Bakanlığı'nda."
+        "de": "Für ausländische Staatsangehörige ohne Mavi Kart und für Sonderfälle (Rente, Verlängerung) gelten andere Fristen – die Details stehen beim Handelsministerium.",
+        "tr": "Mavi Kart'ı olmayan yabancı uyruklular ve özel durumlar (emeklilik, uzatma) için farklı süreler geçerlidir – ayrıntılar Ticaret Bakanlığı'nda."
       },
-      "sources": ["tr_tasit"],
-      "keywords": ["auto", "araç", "araba", "kennzeichen", "plaka", "730", "185", "aufenthalt", "süre"]
+      "sources": ["tr_tasit", "tr_tasit_sure"],
+      "keywords": ["auto", "araç", "araba", "kennzeichen", "plaka", "730", "185", "aufenthalt", "süre", "mavi kart", "blaue karte", "doppelpass", "çifte vatandaş"]
+    },
+    {
+      "id": "tr-auto-fahrer",
+      "direction": "to_tr",
+      "category": "auto",
+      "status": "limit",
+      "title": {"de": "Wer darf dein Auto in der Türkei fahren?", "tr": "Aracını Türkiye'de kim kullanabilir?"},
+      "rule": {
+        "de": "Ehepartner, Eltern, Großeltern, Kinder und Enkel, die ebenfalls im Ausland wohnen, dürfen dein Auto auch ohne dich fahren – aber nur, solange du selbst in der Türkei bist. Reist du früher ab, darf deine Familie das Auto also nicht weiterfahren. Andere Personen mit Wohnsitz im Ausland nur, wenn du mit im Auto sitzt. Wer in der Türkei wohnt, darf dein Auto nicht fahren – außer in einem Notfall, während du mit im Auto sitzt.",
+        "tr": "Yurt dışında yerleşik eşin, annen-baban, büyükannen-büyükbaban, çocukların ve torunların sen araçta olmasan da aracını kullanabilir – ama yalnızca sen Türkiye'deyken. Sen Türkiye'den erken ayrılırsan ailen de aracı kullanmaya devam edemez. Yurt dışında yerleşik diğer kişiler ancak sen de araçtaysan kullanabilir. Türkiye'de yerleşik biri aracını kullanamaz – acil bir durumda ve sen de araçtayken hariç."
+      },
+      "detail": {
+        "de": "So geregelt seit 14.08.2026 (Gümrük Genel Tebliği Seri No: 9). Verstöße können teuer werden – frag im Zweifel beim Zoll nach.",
+        "tr": "Bu kural 14.08.2026'dan beri geçerli (Gümrük Genel Tebliği Seri No: 9). İhlaller pahalıya patlayabilir – emin değilsen gümrüğe sor."
+      },
+      "sources": ["tr_tasit_seri9", "tr_tasit"],
+      "review_after": "2027-03-31",
+      "keywords": ["fahren", "fahrer", "sürücü", "kullanmak", "kullanabilir", "rückflug", "abreise", "erken dönüş", "verwandte", "akraba", "ehepartner", "eş", "eltern", "anne", "baba", "kinder", "çocuk", "enkel", "torun", "auto", "araç", "araba", "kennzeichen", "plaka"]
     },
     {
       "id": "eu-fleisch",
@@ -204,14 +258,33 @@
       "keywords": ["obst", "meyve", "gemüse", "sebze", "pflanze", "bitki", "feigen", "incir", "quitte", "ayva", "oliven", "zeytin", "weinblätter", "asma yaprağı", "knoblauch", "sarımsak", "samen", "tohum", "setzling", "fide", "kirschen", "kiraz", "tomate", "domates", "biber"]
     },
     {
+      "id": "eu-haustier",
+      "direction": "to_eu",
+      "category": "tiere",
+      "status": "declare",
+      "featured": true,
+      "title": {"de": "Hund & Katze zurück in die EU", "tr": "Köpeğin veya kedinle AB'ye dönüş"},
+      "rule": {
+        "de": "Nur mit Mikrochip, EU-Heimtierausweis, gültiger Tollwutimpfung und bestandenem Tollwut-Antikörpertest (mind. 0,5 IE/ml). Lass den Test VOR der Abreise in der EU machen – sonst darf das Tier erst 3 Monate nach der Blutentnahme zurück.",
+        "tr": "Yalnızca mikroçip, AB evcil hayvan pasaportu, geçerli kuduz aşısı ve başarılı kuduz antikor testiyle (en az 0,5 IU/ml). Testi yola çıkmadan ÖNCE AB'de yaptır – yoksa hayvanın dönüşü ancak kan alımından 3 ay sonra mümkün olur."
+      },
+      "detail": {
+        "de": "Das Blut darf frühestens 30 Tage nach der ersten Tollwutimpfung abgenommen werden. Untersucht wird in einem EU-zugelassenen Labor, das Ergebnis kommt in den Heimtierausweis. Der Test bleibt gültig, solange die Tollwutimpfung immer rechtzeitig aufgefrischt wird. Ohne gültigen Test drohen an der EU-Grenze Zurückweisung oder Quarantäne – auf deine Kosten.",
+        "tr": "Kan, ilk kuduz aşısından en erken 30 gün sonra alınabilir. Test AB onaylı bir laboratuvarda yapılır, sonuç evcil hayvan pasaportuna işlenir. Kuduz aşısı her seferinde zamanında yenilendiği sürece test geçerliliğini korur. Geçerli test yoksa AB sınırında geri çevrilme veya karantina söz konusu olabilir – masraflar sana ait."
+      },
+      "sources": ["kblv_tuerkei", "eu_heimtiere"],
+      "review_after": "2027-03-31",
+      "keywords": ["hund", "katze", "haustier", "heimtier", "tier", "köpek", "kedi", "evcil", "evcil hayvan", "hayvan", "tollwut", "kuduz", "titer", "titertest", "antikörper", "antikor", "heimtierausweis", "pasaport", "mikrochip", "çip", "impfung", "aşı"]
+    },
+    {
       "id": "eu-trocken",
       "direction": "to_eu",
       "category": "lebensmittel",
       "status": "limit",
       "title": {"de": "Olivenöl, Tee, Gewürze, Trockenobst, Süßes", "tr": "Zeytinyağı, çay, baharat, kuru meyve, tatlı"},
       "rule": {
-        "de": "Verarbeitete pflanzliche Lebensmittel in Mengen für den Eigenbedarf sind erlaubt. Ihr Wert zählt zur Freigrenze (300 € mit Auto, 430 € mit Flugzeug).",
-        "tr": "İşlenmiş bitkisel gıdalar kişisel ihtiyaç miktarında serbesttir. Değerleri muafiyet sınırına sayılır (araçla 300 €, uçakla 430 €)."
+        "de": "Verarbeitete pflanzliche Lebensmittel in Mengen für den Eigenbedarf sind erlaubt. Ihr Wert zählt zur Freigrenze (300 € mit Auto, 430 € mit Flugzeug, unter 15 Jahren 175 €).",
+        "tr": "İşlenmiş bitkisel gıdalar kişisel ihtiyaç miktarında serbesttir. Değerleri muafiyet sınırına sayılır (araçla 300 €, uçakla 430 €, 15 yaş altı 175 €)."
       },
       "detail": {
         "de": "Für manche Waren wie Gewürze, Tee, Nüsse oder Trockenobst gelten EU-Schutzmaßnahmen; Kleinmengen im Gepäck für den Eigenbedarf sind davon ausgenommen. Sehr große Mengen gelten als gewerblich.",
@@ -227,15 +300,15 @@
       "status": "limit",
       "title": {"de": "Einkäufe & Geschenke", "tr": "Alışveriş ve hediyeler"},
       "rule": {
-        "de": "Zusammen bis 300 € Warenwert pro Person bei Anreise mit Auto oder Bus, bis 430 € mit Flugzeug oder Schiff. Tabak und Alkohol zählen extra.",
-        "tr": "Araç veya otobüsle gelişte kişi başı toplam 300 €, uçak veya gemiyle 430 € değerinde eşya. Tütün ve alkol ayrıca sayılır."
+        "de": "Zusammen bis 300 € Warenwert pro Person bei Anreise mit Auto oder Bus, bis 430 € mit Flugzeug oder Schiff. Für Kinder und Jugendliche unter 15 Jahren gilt immer 175 €. Tabak und Alkohol zählen extra.",
+        "tr": "Araç veya otobüsle gelişte kişi başı toplam 300 €, uçak veya gemiyle 430 € değerinde eşya. 15 yaşından küçük çocuklar için her durumda 175 €. Tütün ve alkol ayrıca sayılır."
       },
       "detail": {
         "de": "Darüber: beim Zoll anmelden, dann fallen Zoll und Einfuhrumsatzsteuer an. Werte von mehreren Personen dürfen nicht für einen einzelnen teuren Gegenstand zusammengelegt werden.",
         "tr": "Fazlası gümrükte beyan edilmeli; gümrük vergisi ve ithalat KDV'si ödenir. Tek bir pahalı eşya için birden fazla kişinin hakkı birleştirilemez."
       },
-      "sources": ["zoll_freimengen"],
-      "keywords": ["einkäufe", "alışveriş", "geschenke", "hediye", "kleidung", "kıyafet", "elektronik", "300", "430", "freigrenze", "muafiyet", "teppich", "halı", "handy", "telefon"]
+      "sources": ["zoll_freimengen", "ef_vo"],
+      "keywords": ["einkäufe", "alışveriş", "geschenke", "hediye", "kleidung", "kıyafet", "elektronik", "300", "430", "175", "kind", "kinder", "çocuk", "freigrenze", "muafiyet", "teppich", "halı", "handy", "telefon"]
     },
     {
       "id": "eu-gold",
@@ -245,15 +318,15 @@
       "featured": true,
       "title": {"de": "Goldschmuck aus der Türkei", "tr": "Türkiye'den alınan altın takı"},
       "rule": {
-        "de": "Neu gekaufter Schmuck zählt zur Freigrenze (300 € / 430 €). Darüber musst du ihn anmelden und Abgaben zahlen – sonst droht ein Steuerstrafverfahren.",
-        "tr": "Yeni alınan takılar muafiyet sınırına sayılır (300 € / 430 €). Fazlası beyan edilip vergisi ödenmeli – aksi halde vergi ceza davası açılabilir."
+        "de": "Neu gekaufter Schmuck zählt zur Freigrenze (300 € / 430 €, Kinder unter 15 Jahren 175 €). Darüber musst du ihn anmelden und Abgaben zahlen – sonst droht ein Steuerstrafverfahren.",
+        "tr": "Yeni alınan takılar muafiyet sınırına sayılır (300 € / 430 €, 15 yaş altı çocuklar 175 €). Fazlası beyan edilip vergisi ödenmeli – aksi halde vergi ceza davası açılabilir."
       },
       "detail": {
         "de": "Der Zoll meldet regelmäßig Fälle von nicht angemeldetem Goldschmuck bei Türkei-Rückkehrern. Kaufbeleg aufheben und am Zoll anmelden.",
         "tr": "Alman Gümrüğü, Türkiye dönüşü beyan edilmeyen altın takı vakalarını düzenli olarak duyuruyor. Faturayı sakla ve gümrükte beyan et."
       },
-      "sources": ["zoll_gold", "zoll_freimengen"],
-      "keywords": ["gold", "altın", "schmuck", "takı", "bilezik", "armband", "kette", "kolye", "ring", "yüzük", "çeyrek", "hochzeit", "düğün"]
+      "sources": ["zoll_gold", "zoll_freimengen", "ef_vo"],
+      "keywords": ["gold", "altın", "schmuck", "takı", "bilezik", "armband", "kette", "kolye", "ring", "yüzük", "çeyrek", "hochzeit", "düğün", "kind", "çocuk", "175"]
     },
     {
       "id": "eu-anlagegold",
@@ -262,10 +335,10 @@
       "status": "declare",
       "title": {"de": "Goldbarren & Goldmünzen", "tr": "Külçe altın ve altın sikke"},
       "rule": {
-        "de": "Anlagegold ist von der Einfuhrumsatzsteuer befreit, gilt aber als Barmittel: ab 10.000 € Wert anmelden.",
-        "tr": "Yatırım altını ithalat KDV'sinden muaftır ama nakit sayılır: 10.000 € ve üzeri değerde beyan edilmeli."
+        "de": "Anlagegold ist von der Einfuhrumsatzsteuer befreit, gilt aber als Barmittel: ab 10.000 € Wert beim Zoll des Landes anmelden, über das du in die EU einreist.",
+        "tr": "Yatırım altını ithalat KDV'sinden muaftır ama nakit sayılır: 10.000 € ve üzeri değerde, AB'ye giriş yaptığın ülkenin gümrüğüne beyan edilmeli."
       },
-      "sources": ["zoll_steuerbefreiung", "zoll_barmittel"],
+      "sources": ["zoll_steuerbefreiung", "eu_barmittel", "zoll_barmittel"],
       "keywords": ["gold", "altın", "barren", "külçe", "münze", "sikke", "çeyrek", "cumhuriyet", "anlagegold", "yatırım"]
     },
     {
@@ -275,11 +348,16 @@
       "status": "declare",
       "title": {"de": "Bargeld", "tr": "Nakit para"},
       "rule": {
-        "de": "Ab 10.000 € (oder Gegenwert) pro Person bei der Einreise in die EU anmelden – auch vorab online möglich.",
-        "tr": "Kişi başı 10.000 € (veya karşılığı) ve üzeri AB'ye girişte beyan edilmeli – önceden çevrim içi de mümkün."
+        "de": "Beim Verlassen der Türkei anmelden: Devisen über 10.000 € oder Türkische Lira über 185.000 TL. Bei der Einreise in die EU ab 10.000 € (oder Gegenwert) beim Zoll des Einreiselandes anmelden – mit dem Auto meist Bulgarien, beim Flug der deutsche Zoll.",
+        "tr": "Türkiye'den çıkarken beyan et: 10.000 €'yu aşan döviz veya 185.000 TL'yi aşan Türk lirası. AB'ye girişte 10.000 € (veya karşılığı) ve üzeri, giriş yaptığın ülkenin gümrüğüne beyan edilmeli – araçla genelde Bulgaristan, uçakla Alman gümrüğü."
       },
-      "sources": ["zoll_barmittel"],
-      "keywords": ["bargeld", "nakit", "geld", "para", "lira", "euro", "10000", "beyan"]
+      "detail": {
+        "de": "Wer über Serbien fährt, reist in Bulgarien in die EU ein, verlässt sie Richtung Serbien wieder und reist in Ungarn oder Kroatien erneut ein – angemeldet wird an jeder dieser EU-Außengrenzen. Vorab online über das deutsche Zoll-Portal geht nur bei direkter Ankunft in Deutschland, also beim Flug. Wer nicht anmeldet, riskiert auf beiden Seiten Bußgeld und Sicherstellung des Geldes.",
+        "tr": "Sırbistan üzerinden dönen, Bulgaristan'da AB'ye girer, Sırbistan'a geçerken AB'den çıkar ve Macaristan'da ya da Hırvatistan'da yeniden girer – beyan, bu AB dış sınırlarının her birinde yapılır. Alman Zoll-Portal üzerinden önceden çevrim içi beyan yalnızca doğrudan Almanya'ya gelişte, yani uçakla mümkündür. Beyan etmeyen, her iki tarafta da para cezası ve paraya el konulması riskiyle karşılaşır."
+      },
+      "sources": ["tr_nakit_cikis", "eu_barmittel", "zoll_barmittel"],
+      "review_after": "2027-03-31",
+      "keywords": ["bargeld", "nakit", "geld", "para", "lira", "tl", "türkische lira", "türk lirası", "euro", "döviz", "devisen", "10000", "185000", "beyan", "anmeldung", "masak"]
     },
     {
       "id": "eu-tabak",
@@ -310,6 +388,23 @@
       },
       "sources": ["zoll_freimengen"],
       "keywords": ["alkohol", "alkol", "rakı", "wein", "şarap", "bier", "bira", "schnaps", "içki"]
+    },
+    {
+      "id": "eu-kraftstoff",
+      "direction": "to_eu",
+      "category": "auto",
+      "status": "limit",
+      "title": {"de": "Benzin & Diesel im Kanister", "tr": "Bidonda benzin ve mazot"},
+      "rule": {
+        "de": "Abgabenfrei: der Kraftstoff im fest eingebauten Tank und bis zu 10 Liter in einem Reservekanister pro Fahrzeug.",
+        "tr": "Vergisiz: araca sabit takılı depodaki yakıt ve araç başına bir yedek bidonda 10 litreye kadar."
+      },
+      "detail": {
+        "de": "Der Kraftstoff im Kanister muss zum Motor passen und ist nur für dieses Fahrzeug gedacht. Was über 10 Liter hinausgeht, wird versteuert.",
+        "tr": "Bidondaki yakıt aracın motoruna uygun olmalı ve yalnızca bu araçta kullanılmalı. 10 litreyi aşan kısım vergilendirilir."
+      },
+      "sources": ["zoll_kraftstoff", "zoll_freimengen"],
+      "keywords": ["kanister", "reservekanister", "benzin", "diesel", "kraftstoff", "sprit", "tank", "bidon", "yakıt", "benzin bidonu", "mazot", "motorin", "akaryakıt", "depo"]
     },
     {
       "id": "eu-medizin",
