@@ -1,0 +1,76 @@
+# tatilvakti v2 – läuft PARALLEL zur Alt-App (tatilvakti.service, Port 3095) und berührt sie nicht.
+# Einrichtung, Update und Rollback: README.md → Betrieb, Ablösung der Alt-App: docs/MIGRATION.md
+#
+#   Code:   /opt/tatilvakti-v2/current  (Symlink auf releases/<zeit>-<rev>, gesetzt von scripts/deploy.sh)
+#   Daten:  /var/lib/tatilvakti-v2      (StateDirectory: tatilvakti.db, backups/)
+#   Salts:  /run/tatilvakti-v2          (RuntimeDirectory auf tmpfs: salts.db, wird NIE gesichert)
+#   Config: /etc/tatilvakti-v2.env      (Vorlage: deploy/tatilvakti-v2.env.example)
+[Unit]
+Description=tatilvakti v2 – Sıla yolu (Flask/gunicorn)
+After=network.target
+# Keine Neustart-Endlosschleife: nach 5 Fehlstarts in 2 Minuten aufgeben (Pangolin liefert dann 502)
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=tatilvakti-v2
+Group=tatilvakti-v2
+WorkingDirectory=/opt/tatilvakti-v2/current
+# Pfade gehören zu StateDirectory/RuntimeDirectory unten, deshalb hier und nicht in der Env-Datei
+Environment=TV_DB_PATH=/var/lib/tatilvakti-v2/tatilvakti.db
+Environment=TV_SALT_DB_PATH=/run/tatilvakti-v2/salts.db
+# Ohne '-': fehlt die Datei (TV_BASE_URL, Impressum …), startet der Dienst bewusst nicht
+EnvironmentFile=/etc/tatilvakti-v2.env
+# Logging: Fehler-Log und App-Logs (Level INFO, siehe wsgi.py) gehen über stderr ins Journal,
+# ohne IP-Adressen. Kein Access-Log; für die Umstiegsphase gibt es eines ohne IP (Env-Vorlage).
+# Kein Control-Socket: gunicorn ab 25.1 legt sonst gunicorn.ctl unter $XDG_RUNTIME_DIR bzw.
+# $HOME/.gunicorn an und löscht einen vorhandenen (Kollision mit anderen gunicorn-Diensten).
+ExecStart=/opt/tatilvakti-v2/current/.venv/bin/gunicorn \
+    --workers 2 --threads 4 \
+    --bind 127.0.0.1:3096 \
+    --no-control-socket \
+    --error-logfile - --log-level info \
+    wsgi:app
+SyslogIdentifier=tatilvakti-v2
+# gunicorn: SIGTERM an den Master = sanft beenden, Reste danach hart
+KillMode=mixed
+Restart=on-failure
+RestartSec=3
+
+StateDirectory=tatilvakti-v2
+StateDirectoryMode=0700
+RuntimeDirectory=tatilvakti-v2
+RuntimeDirectoryMode=0700
+# Tagesschlüssel überleben Neustart und Deploy (sonst gälte das Melde-Limit danach neu), nicht
+# aber einen Reboot (tmpfs). Alte Schlüssel löscht die Wartung (tatilvakti-v2-maintenance.timer).
+RuntimeDirectoryPreserve=yes
+UMask=0077
+
+# Härtung
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

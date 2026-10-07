@@ -1,0 +1,50 @@
+# Datensparsamkeit unabhängig vom Verkehr: 'flask --app tatilvakti maintenance' löscht Prüfwerte
+# nach 48 h, alte Tagesschlüssel und alte Meldungen. Gestartet von tatilvakti-v2-maintenance.timer.
+# Sofort ausführen:  sudo systemctl start tatilvakti-v2-maintenance.service
+#   (mit Ausgabe im Terminal: sudo /opt/tatilvakti-v2/current/scripts/tv-flask.sh maintenance)
+[Unit]
+Description=tatilvakti v2 – Wartung (Prüfwerte und Tagesschlüssel löschen)
+After=tatilvakti-v2.service
+
+[Service]
+Type=oneshot
+User=tatilvakti-v2
+Group=tatilvakti-v2
+WorkingDirectory=/opt/tatilvakti-v2/current
+Environment=TV_DB_PATH=/var/lib/tatilvakti-v2/tatilvakti.db
+Environment=TV_SALT_DB_PATH=/run/tatilvakti-v2/salts.db
+EnvironmentFile=/etc/tatilvakti-v2.env
+ExecStart=/opt/tatilvakti-v2/current/.venv/bin/flask --app tatilvakti maintenance
+SyslogIdentifier=tatilvakti-v2-maintenance
+# Dieselben Verzeichnisse wie der Hauptdienst. Preserve=yes, damit das Ende dieses Laufs
+# /run/tatilvakti-v2 nicht unter dem laufenden Hauptdienst wegräumt.
+StateDirectory=tatilvakti-v2
+StateDirectoryMode=0700
+RuntimeDirectory=tatilvakti-v2
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+UMask=0077
+
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+PrivateNetwork=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM

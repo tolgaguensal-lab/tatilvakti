@@ -28,7 +28,8 @@ SSR-HTML  ◀── network-first (4 s) ─────── Flask + Jinja (DE 
 app.js    ◀── cache-first (Hash-URLs) ──── static/ (CSS, JS, Icons, ohne Build)
 sw.js     ◀── generiert: Version + ─────── /sw.js (Asset-Hashes + Datenstand
               Precache-Liste                → neue Version bei jeder Änderung)
-fetch     ◀─▶ /api/v1/borders ──────────── SQLite (WAL): reports, salts, kv
+fetch     ◀─▶ /api/v1/borders ──────────── SQLite (WAL): reports, kv;
+                                            Tagesschlüssel in eigener Datei
 localStorage: Bundesland, Reiseart,         data/*.json: Ferien, Zoll, Transit,
   Checkliste, Offline-Meldungen               Übergänge (validiert beim Start)
 ```
@@ -36,14 +37,15 @@ localStorage: Bundesland, Reiseart,         data/*.json: Ferien, Zoll, Transit,
 - **Stack:** Python 3.10+, Flask, gunicorn, SQLite. Sonst keine Abhängigkeiten, kein Build-Step, keine externen Skripte oder Fonts.
 - **i18n:** lokalisierte Slugs (`/de/ferien` ↔ `/tr/tatil`), `hreflang`, Sprachwechsel als EU-Nummernschild (D | TR). Ein Test erzwingt identische Schlüssel und Platzhalter in `de.json` und `tr.json`; die Datenvalidierung verlangt jeden kuratierten Text in beiden Sprachen.
 - **Service Worker:** Der Server generiert ihn mit Build-ID (Hash über Assets und Datenstand). Man muss nie manuell eine Cache-Version hochzählen. Vorab gespeichert werden alle Seiten in beiden Sprachen, alle Ferienzeiträume und alle Grenzübergänge (42 Seiten).
-- **Sicherheit:** strikte CSP ohne `unsafe-inline` (auch keine Inline-Styles; die SVG-Diagramme nutzen nur Attribute), `Referrer-Policy: no-referrer`, keine Cookies (ein Test prüft das auf jeder Seite).
-- **Spam-Schutz ohne IP-Speicherung:** HMAC(IP) mit täglich wechselndem Zufallsschlüssel. Der Prüfwert wird nach 48 h gelöscht, der Schlüssel nach 2 Tagen. Limits: 1 Meldung pro Übergang und Richtung in 20 Min., 10 Meldungen pro Stunde. Dazu ein Honeypot-Feld.
+- **Sicherheit:** strikte CSP ohne `unsafe-inline` (auch keine Inline-Styles; die SVG-Diagramme nutzen nur Attribute), `Referrer-Policy: same-origin` (fremde Seiten erhalten keinen Referrer, eigene Formulare und API-Aufrufe tragen Origin bzw. Referer, die der CSRF-Schutz gegen den eigenen Host prüft; mit `no-referrer` schickten Browser `Origin: null` und keinen Referer, das Formular ohne JS würde abgelehnt), keine Cookies (ein Test prüft das auf jeder Seite).
+- **Spam-Schutz ohne IP-Speicherung:** HMAC(IP) mit täglich wechselndem Zufallsschlüssel. Der Prüfwert wird nach 48 h gelöscht, der Schlüssel nach 2 Tagen. Die Schlüssel liegen in einer eigenen Datei (`TV_SALT_DB_PATH`, in Produktion auf tmpfs), Sicherungen enthalten weder Schlüssel noch Prüfwerte. Limits: 1 Meldung pro Übergang und Richtung in 20 Min., 10 Meldungen pro Stunde. Dazu ein Honeypot-Feld.
 
 ```
 tatilvakti/
   __init__.py      App-Factory, Datenvalidierung beim Start, Asset-Hashing
   views.py         Seiten, PWA (/sw.js, Manifest), SEO (sitemap, robots), /healthz
   api.py           /api/v1/borders, /api/v1/borders/<id>, POST …/reports
+  cli.py           Befehle: flask --app tatilvakti maintenance | purge-reports
   borders.py       Meldungen, Median, Rate-Limits, Tagesverlauf, Datensparsamkeit
   holidays.py      Ferien-Druck, Überlappung, ruhigste Tage, Ferien-Wellen
   content.py       Laden + Validieren der kuratierten Daten
@@ -52,36 +54,157 @@ tatilvakti/
   i18n/            de.json, tr.json
   templates/       Jinja-Templates (SSR)
   static/          app.css, app.js, sw.js, Icons
-tests/             pytest (Daten, Logik, HTTP, Datenschutz, CSP)
-deploy/            systemd-Beispiel
+tests/             pytest (Daten, Logik, HTTP, Datenschutz, CSP, Betriebsskripte)
+deploy/            systemd-Units (Dienst, Wartung, Backup) und Env-Vorlage
+scripts/           deploy.sh, rollback.sh, preflight.py, backup.py, tv-flask.sh
+docs/MIGRATION.md  Ablösung der Alt-App: Entscheidungen, Umschalten, Prüfliste, Rollback
 ```
 
-## Setup
+## Setup (Entwicklung)
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest              # 80 Tests
+.venv/bin/pip install --require-hashes -r requirements-dev.txt
+.venv/bin/python -m pytest
 .venv/bin/flask --app tatilvakti run --debug     # http://127.0.0.1:5000
 ```
 
-Produktion (Beispiel, auch in `deploy/tatilvakti.service`):
+**Abhängigkeiten:** Direkt verwendete Pakete stehen in `requirements.in` (Laufzeit) und `requirements-dev.in` (plus pytest). Die `.txt`-Dateien pinnen alle Pakete samt Abhängigkeiten mit Hashes. Aktualisieren mit [uv](https://docs.astral.sh/uv/), danach Tests laufen lassen:
 
 ```bash
-.venv/bin/pip install -r requirements.txt
-TV_DB_PATH=/var/lib/tatilvakti/tatilvakti.db TV_TRUST_PROXY=1 \
-  .venv/bin/gunicorn --workers 2 --threads 4 --bind 127.0.0.1:3095 wsgi:app
-curl -s http://127.0.0.1:3095/healthz
+uv pip compile requirements.in --universal --python-version 3.10 --generate-hashes -o requirements.txt
+uv pip compile requirements-dev.in --universal --python-version 3.10 --generate-hashes -o requirements-dev.txt
 ```
+
+## Betrieb
+
+| | |
+|---|---|
+| Dienst | `tatilvakti-v2.service`: gunicorn auf `127.0.0.1:3096`, Benutzer `tatilvakti-v2` |
+| Code | `/opt/tatilvakti-v2/releases/<UTC-Zeit>-<commit>`, jedes Release mit eigenem venv. Aktiv ist der Symlink `current`. |
+| Daten | `/var/lib/tatilvakti-v2/tatilvakti.db`, Sicherungen in `backups/` |
+| Tagesschlüssel | `/run/tatilvakti-v2/salts.db` (tmpfs, wird nie gesichert) |
+| Konfiguration | `/etc/tatilvakti-v2.env`, Vorlage `deploy/tatilvakti-v2.env.example` |
+| Timer | `tatilvakti-v2-maintenance.timer` (alle 5 Min.), `tatilvakti-v2-backup.timer` (nachts) |
+
+v2 läuft **parallel** zur Alt-App (`tatilvakti.service`, Port 3095) und berührt sie nicht. Die Ablösung, also Umschalten in Pangolin, Prüfliste, Rollback und Entscheidungen zu den Alt-Diensten, beschreibt [docs/MIGRATION.md](docs/MIGRATION.md).
+
+### Einrichten (einmalig)
+
+```bash
+sudo apt install python3-venv git                     # Debian/Ubuntu
+sudo useradd --system --user-group --no-create-home --home-dir /nonexistent \
+     --shell /usr/sbin/nologin tatilvakti-v2
+sudo git clone <repo-url> /opt/tatilvakti-v2/src && cd /opt/tatilvakti-v2/src
+sudo install -m 0640 -o root -g tatilvakti-v2 deploy/tatilvakti-v2.env.example /etc/tatilvakti-v2.env
+sudoedit /etc/tatilvakti-v2.env                       # Impressum eintragen
+sudo cp deploy/tatilvakti-v2*.service deploy/tatilvakti-v2*.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo scripts/deploy.sh                                # erstes Release, startet noch nichts
+sudo systemctl enable --now tatilvakti-v2.service tatilvakti-v2-maintenance.timer tatilvakti-v2-backup.timer
+curl -s http://127.0.0.1:3096/healthz
+```
+
+Die Units schreiben nur in ihre eigenen Verzeichnisse (`StateDirectory`, `RuntimeDirectory`). Code und Konfiguration sind für den Dienst schreibgeschützt.
+
+### Update und Rollback
+
+```bash
+cd /opt/tatilvakti-v2/src && sudo git pull
+sudo scripts/deploy.sh                    # Optionen: --rev <tag|commit>, --no-tests, --keep <n>
+```
+
+`deploy.sh` baut ein neues Release aus dem eingecheckten Stand (`git archive`), installiert die Pakete nur mit passenden Hashes und startet dann den **Preflight** (`scripts/preflight.py`) als Dienstbenutzer. Der Preflight prüft die Konfiguration, ruft `create_app()` gegen eine Kopie der Produktions-DB auf, lädt alle Seiten und die Offline-Liste des Service Workers und lässt `pytest` laufen. Erst danach schaltet `deploy.sh` den Symlink `current` um und startet den Dienst neu. Meldet `/healthz` danach nicht die neue Build-ID, geht es automatisch auf das vorige Release zurück, und `deploy.sh` startet dieses neu. Das klappt auch, wenn systemd den Dienst nach mehreren Fehlstarts schon aufgegeben hat (`failed`, start-limit-hit): Vor jedem Neustart läuft `systemctl reset-failed`. Ein kaputter Datenstand erreicht so nie die laufende Seite. Meldet `/healthz` `salt_db: false`, gibt `deploy.sh` eine WARNUNG aus: Die Seiten laufen, aber Meldungen scheitern.
+
+Geänderte Units in `deploy/` übernimmt `deploy.sh` nicht selbst, es weist nur darauf hin. Dann die Dateien erneut nach `/etc/systemd/system/` kopieren, `sudo systemctl daemon-reload` ausführen und die betroffenen Units neu starten.
+
+Der Neustart unterbricht die Seite für wenige Sekunden. Nach jeder Änderung an Daten, Texten oder Templates lädt jedes Gerät die Offline-Daten neu. Solche Deploys deshalb nicht mitten in einer Ferienwelle einspielen.
+
+```bash
+sudo /opt/tatilvakti-v2/current/scripts/rollback.sh            # zurück auf das vorige Release
+sudo /opt/tatilvakti-v2/current/scripts/rollback.sh --list     # Releases anzeigen
+sudo /opt/tatilvakti-v2/current/scripts/rollback.sh <release>  # ein bestimmtes Release
+```
+
+`rollback.sh` startet den Dienst neu, wenn er läuft, gerade startet oder abgestürzt ist (`failed`). Einen bewusst gestoppten Dienst startet es nur mit `--start`. `deploy.sh` und `rollback.sh` laufen nie gleichzeitig (Sperre `/opt/tatilvakti-v2/.lock`).
+
+Zurück zur Alt-App: [docs/MIGRATION.md → Rollback](docs/MIGRATION.md#7-rollback).
+
+### Befehle
+
+`scripts/tv-flask.sh` führt `flask --app tatilvakti <befehl>` als Dienstbenutzer aus, mit derselben Env-Datei und denselben Pfaden wie der Dienst. Lokal ohne Wrapper: `.venv/bin/flask --app tatilvakti <befehl>`.
+
+```bash
+# Datensparsamkeit sofort ausführen (läuft sonst alle 5 Min. per Timer und bei Verkehr in der App)
+sudo /opt/tatilvakti-v2/current/scripts/tv-flask.sh maintenance
+
+# Meldungen gezielt löschen, z. B. nach Spam. Erst mit --dry-run zählen.
+sudo /opt/tatilvakti-v2/current/scripts/tv-flask.sh purge-reports --crossing kapikule \
+     [--direction to_tr|to_de] --since 2026-10-06T14:00 [--until 2026-10-06T16:00] [--dry-run]
+```
+
+`purge-reports` löscht nach Eingangszeit der Meldung (`since` ≤ t < `until`, ohne `--until` bis jetzt) und gibt die Anzahl aus. Zeiten im Format ISO 8601. Ohne Zeitzone gilt deutsche Zeit.
+
+### Konfiguration
 
 | Variable | Bedeutung |
 |---|---|
-| `TV_DB_PATH` | SQLite-Datei (Standard: `instance/tatilvakti.db`) |
-| `TV_TRUST_PROXY` | Anzahl vertrauenswürdiger Reverse-Proxys, damit der Spam-Schutz die echte Client-IP sieht (hinter Pangolin/Traefik/Caddy: `1`) |
-| `TV_BASE_URL` | Öffentliche URL für Canonical, `hreflang`, Sitemap und Share-Links, z. B. `https://tatilvakti.guenlab.de` |
+| `TV_BASE_URL` | Öffentliche URL für Canonical, `hreflang`, Sitemap und Teilen-Links: `https://tatilvakti.guenlab.de` |
+| `TV_TRUST_PROXY` | Anzahl vertrauenswürdiger Reverse-Proxys, damit der Spam-Schutz die echte Client-IP sieht (hinter Pangolin: `1`). Prüfen: MIGRATION.md → Prüfliste e) |
 | `TV_OPERATOR_NAME`, `TV_OPERATOR_ADDRESS`, `TV_OPERATOR_EMAIL` | Impressum (§ 5 DDG). Adresszeilen mit `;` trennen. Solange leer, zeigt die Info-Seite einen sichtbaren Hinweis. |
+| `TV_DB_PATH` | Haupt-DB (Standard: `instance/tatilvakti.db`). In Produktion setzt die Unit den Wert, nicht die Env-Datei. |
+| `TV_SALT_DB_PATH` | Tagesschlüssel (Standard: neben `TV_DB_PATH` als `…-salts.db`). In Produktion setzt die Unit `/run/tatilvakti-v2/salts.db` (tmpfs). |
+| `TV_LEGACY_SW_PATHS` | Kommagetrennte Pfade alter Service-Worker-Skripte, unter denen v2 einen Kill-Switch ausliefert. Erst setzen, wenn ein Release das unterstützt (MIGRATION.md, Abschnitt 3). |
+| `GUNICORN_CMD_ARGS` | Optional für die Umstiegsphase: Access-Log ohne IP (Beispiel in der Env-Vorlage) |
 
-**Betrieb:** Die SQLite-Datei sichern, das genügt. Den Access-Log des Reverse-Proxys möglichst ohne IP oder gekürzt führen; die App selbst loggt keine IPs. HTTPS ist Pflicht, sonst funktioniert der Service Worker nicht.
+### Reverse-Proxy (Pangolin/Traefik)
+
+- Ziel `127.0.0.1:3096` auf Hermes. HTTPS ist Pflicht, sonst funktioniert der Service Worker nicht, HTTP leitet auf HTTPS um.
+- Host weitergeben (`X-Forwarded-Host`): Der CSRF-Schutz vergleicht `Origin` mit dem Host bzw. `TV_BASE_URL`.
+- **Kompression einschalten.** Sie spart rund 79 % der Offline-Daten, die jedes Gerät nach einem Deploy lädt (laut Audit-Messung rund 1,2 MB → 0,26 MB). Weder die App noch gunicorn komprimieren, und Pangolin komprimiert ab Werk nicht ([Diskussion #3158](https://github.com/orgs/fosrl/discussions/3158)). Ein Schalter pro Ressource ist bisher nur vorgeschlagen ([PR #3579](https://github.com/fosrl/pangolin/pull/3579): Entwurf, nicht gemergt, Stand Oktober 2026). Deshalb die Traefik-Middleware [`compress`](https://doc.traefik.io/traefik/middlewares/http/compress/) verwenden, z. B. für den ganzen Entrypoint:
+
+  ```yaml
+  # traefik_config.yml (statisch): wirkt für alle Ressourcen dieses Entrypoints
+  entryPoints:
+    websecure:
+      http:
+        middlewares: [compress@file]
+  # dynamic_config.yml
+  http:
+    middlewares:
+      compress:
+        compress: {}
+  ```
+
+  Prüfen: `curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://tatilvakti.guenlab.de/de/ferien | grep -i content-encoding`
+- Pangolin protokolliert pro Anfrage IP und URL (Request-Log). Aufbewahrung und Auftragsverarbeitung: MIGRATION.md, Abschnitt 2.6.
+
+### Logs und Monitoring
+
+- `journalctl -u tatilvakti-v2`: App-Meldungen ab INFO (z. B. eingegangene Meldungen ohne IP, Warnungen) und gunicorn-Fehler. gunicorn schreibt kein Access-Log. Wartung und Backup: `journalctl -u tatilvakti-v2-maintenance` bzw. `-u tatilvakti-v2-backup`.
+- Die Aufbewahrung im Journal gilt für den ganzen Host. Empfehlung: begrenzen, z. B. `MaxRetentionSec=14day` in `/etc/systemd/journald.conf.d/retention.conf`.
+- `/healthz` liefert HTTP 200 mit `status` `ok` oder `attention` (Gründe in `attention`, z. B. fällige Datenprüfung `due_items`, fehlendes Impressum `imprint_ok: false`, Proxy-Fehlkonfiguration) und HTTP 503, wenn die Datenbank nicht antwortet. Außerdem `build` (Build-ID) und `datasets.*.review_due`. Geeignet für einen Uptime-Monitor mit Stichwortprüfung auf `"status":"ok"` (die Antwort ist kompaktes JSON).
+
+### Backup und Restore
+
+- `tatilvakti-v2-backup.timer` sichert nachts um 03:40 Ortszeit per SQLite-Online-Backup nach `/var/lib/tatilvakti-v2/backups/tatilvakti-<UTC-Zeit>.db`. Ein `cp` der Datei würde im WAL-Modus die jüngsten Meldungen verlieren. Die Kopie behält von jeder Meldung nur Übergang, Richtung, Wartezeit-Bereich und Zeitpunkte. Alles andere wird geleert: die Prüfwerte (`client`, `net`) und auch Spalten oder Tabellen, die `backup.py` nicht kennt (dann mit WARNUNG im Journal). Die Tagesschlüssel liegen in einer eigenen Datei und werden nie gesichert. Sofort sichern: `sudo systemctl start tatilvakti-v2-backup.service`.
+- **Aufbewahrung:** lokal 14 Tage (`--keep-days` in der Unit). Zusätzlich eine Kopie außerhalb des Hosts, z. B. 30 Tage. Dafür nur `backups/` kopieren, nie die laufende DB samt `-wal`/`-shm` und nie `/run/tatilvakti-v2`.
+- **Restore** (einmal testen):
+
+  ```bash
+  B=/var/lib/tatilvakti-v2/backups/tatilvakti-<zeit>.db
+  sudo -u tatilvakti-v2 /opt/tatilvakti-v2/current/.venv/bin/python \
+       /opt/tatilvakti-v2/current/scripts/backup.py --verify "$B"
+  # Dienst und Timer anhalten: Die Wartung (alle 5 Min.) legte sonst in der Lücke eine leere DB an
+  sudo systemctl stop tatilvakti-v2-maintenance.timer tatilvakti-v2-backup.timer
+  sudo systemctl stop tatilvakti-v2-maintenance.service tatilvakti-v2-backup.service tatilvakti-v2.service
+  # bisherige tatilvakti.db samt -wal/-shm beiseitelegen, nach erfolgreichem Restore löschen
+  sudo install -m 0600 -o tatilvakti-v2 -g tatilvakti-v2 "$B" /var/lib/tatilvakti-v2/tatilvakti.db
+  sudo systemctl start tatilvakti-v2.service tatilvakti-v2-maintenance.timer tatilvakti-v2-backup.timer
+  ```
+
+- Neue Tabellen oder Spalten im Schema (`tatilvakti/db.py`) muss `scripts/backup.py` kennen: als Inhalt (`KEEP_TABLES`, `REPORT_COLUMNS`) oder als Prüfwert bzw. Schlüssel (`HASH_COLUMNS`, `SECRET_TABLES`). Sonst schlägt `tests/test_scripts.py` fehl und damit auch der Preflight von `deploy.sh`.
+- `backup.py` und `preflight.py` öffnen die Produktions-DB nur als deren Eigentümer. Als root angelegte `-wal`/`-shm`-Dateien könnte der Dienst sonst nicht mehr beschreiben.
 
 ## Datenpflege
 
@@ -98,6 +221,7 @@ Die Entwicklungsumgebung hatte keinen direkten Zugriff auf die offiziellen Seite
 3. **Vignettenpreise 2026:** AT (ASFINAG-Pressemeldung), SI 16 € / 7 Tage, HU „ca. 6.900 Ft“ (Quellen nannten 6.900 bzw. 6.910 Ft), BG in Euro seit 01.01.2026, RO neue Tarife seit 01.10.2026.
 4. **Kroatien:** Umstellung auf schrankenlose E-Maut läuft, laut Presse sollen die Mautstellen 2027 wegfallen. Termin beobachten.
 5. **Shop-URLs** von HU (`nemzetiutdij.hu`) und RO (`cnadnr.ro`) einmal im Browser öffnen.
+6. **Ablösung der Alt-App:** Bestandsaufnahme und Entscheidungen aus [docs/MIGRATION.md](docs/MIGRATION.md) (Newsletter, Push, alte URLs, Service Worker, Proxy-Logs).
 
 ## Bewusst später (Roadmap)
 
