@@ -7,6 +7,13 @@
   var $ = function (sel, root) { return (root || document).querySelector(sel); };
   var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
   var fmt = function (str, vars) { return String(str || "").replace(/\{(\w+)\}/g, function (_, k) { return vars[k] != null ? vars[k] : ""; }); };
+  // Wert für einen Attribut-Selektor ['…"' + q(v) + '"']: Fremdwerte (URL, Speicher, API) dürfen
+  // querySelector nie werfen lassen, sonst fällt das ganze Skript aus
+  var q = function (value) {
+    value = String(value);
+    if (window.CSS && CSS.escape) return CSS.escape(value);
+    return value.replace(/[^\w-]/g, function (ch) { return "\\" + ch.charCodeAt(0).toString(16) + " "; });
+  };
 
   // ---------------------------------------------------------- local storage
   // Only per-device conveniences. Never required for the page to work.
@@ -47,9 +54,14 @@
   onlineState();
 
   // ---------------------------------------------------------- preferences
+  // Bundesland nur als Kürzel aus zwei Buchstaben übernehmen (?land= kommt aus geteilten Links)
+  function stateCode(value) {
+    var code = typeof value === "string" ? value.toUpperCase() : "";
+    return /^[A-Z]{2}$/.test(code) ? code : "";
+  }
   var params = new URLSearchParams(window.location.search);
-  var urlState = (params.get("land") || "").toUpperCase();
-  var state = urlState || store.get("state", "");
+  var urlState = stateCode(params.get("land"));
+  var state = urlState || stateCode(store.get("state", ""));
   var mode = store.get("mode", "car");
 
   function applyState(code) {
@@ -57,7 +69,7 @@
       var key = el.getAttribute("data-per-state");
       el.hidden = code ? key !== code : key !== "none";
     });
-    if (code && !$('[data-per-state="' + code + '"]')) {
+    if (code && !$('[data-per-state="' + q(code) + '"]')) {
       var none = $('[data-per-state="none"]');
       if (none) none.hidden = false;
     }
@@ -164,8 +176,8 @@
   function applyCrossing(c) {
     Object.keys(c.directions).forEach(function (dir) {
       var st = c.directions[dir];
-      $$('[data-status][data-cid="' + c.id + '"][data-dir="' + dir + '"]').forEach(function (box) { renderStatus(box, st); });
-      $$('[data-node][data-cid="' + c.id + '"]').forEach(function (node) { node.setAttribute("data-l-" + dir, st.level); });
+      $$('[data-status][data-cid="' + q(c.id) + '"][data-dir="' + q(dir) + '"]').forEach(function (box) { renderStatus(box, st); });
+      $$('[data-node][data-cid="' + q(c.id) + '"]').forEach(function (node) { node.setAttribute("data-l-" + dir, st.level); });
     });
   }
   function refreshBorders() {
@@ -289,6 +301,30 @@
   var tools = $("[data-customs-tools]");
   if (tools) {
     tools.hidden = false;
+    // Sticky-Toolbar: Sprungziele landen darunter (scroll-margin in app.css). Den Tastaturfokus
+    // (z. B. Shift+Tab zurück in die Liste) schieben wir selbst darunter, denn scroll-margin beachten
+    // Browser beim Fokussieren nicht. Sofort und noch einmal im nächsten Frame, falls der Browser
+    // erst danach scrollt. Dasselbe nach einem Sprung, für Browser ohne scroll-margin (Safari < 14.1).
+    document.documentElement.classList.add("has-toolbar");
+    var later = window.requestAnimationFrame || setTimeout;
+    var behindTools = function (el) { return !!el && !tools.contains(el) && !!(tools.compareDocumentPosition(el) & 4); };
+    var uncover = function (el) {
+      var bottom = tools.getBoundingClientRect().bottom;
+      var top = el.getBoundingClientRect().top;
+      if (top < bottom) window.scrollBy(0, top - bottom - 14);
+    };
+    document.addEventListener("focusin", function (ev) {
+      var target = ev.target;
+      if (!target.getBoundingClientRect || !behindTools(target)) return;
+      uncover(target);
+      later(function () { uncover(target); });
+    });
+    var uncoverHash = function () {
+      var target = window.location.hash.length > 1 && document.getElementById(window.location.hash.slice(1));
+      if (behindTools(target)) later(function () { uncover(target); });
+    };
+    window.addEventListener("hashchange", uncoverHash);
+    window.addEventListener("load", uncoverHash);
     var input = $("[data-customs-search]", tools);
     var empty = $("[data-customs-empty]");
     var dirFilter = "all";
@@ -344,7 +380,7 @@
   var isIos = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
   function a2hsWanted() {
-    return !!a2hs && !isStandalone() && !store.get("a2hs_off", false) && (visits >= 2 || !!store.get("state", ""));
+    return !!a2hs && !isStandalone() && !store.get("a2hs_off", false) && (visits >= 2 || !!stateCode(store.get("state", "")));
   }
   function showA2hs() {
     var ios = !installEvent && isIos;

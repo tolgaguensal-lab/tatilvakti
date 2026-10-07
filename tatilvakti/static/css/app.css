@@ -26,6 +26,17 @@
   --line-a: #0e6b6b;
   --line-b: #4f46e5;
   --line-c: #9d3c8f;
+  /* Feste Mischfarben statt color-mix() (erst ab Safari 16.2 / Chrome 111): Grundfarbe mit Deckkraft
+     (-aNN = NN %) bzw. --brand-line = 45 % --brand + 55 % --line. Bei neuen Grundfarben hier und im
+     Dark-Block nachziehen, tests/test_css.py prüft das. */
+  --bg-a88: rgba(245, 239, 230, .88);
+  --brand-line: #83a69d;
+  --none-a25: rgba(107, 114, 128, .25);
+  --ok-a25: rgba(26, 110, 54, .25);
+  --mid-a25: rgba(138, 83, 0, .25);
+  --bad-a25: rgba(180, 35, 24, .25);
+  --accent-a15: rgba(163, 60, 22, .15);
+  --accent-a45: rgba(163, 60, 22, .45);
   --shadow: 0 1px 2px rgba(27, 35, 48, .05), 0 6px 20px rgba(27, 35, 48, .06);
   --radius: 18px;
   --radius-s: 12px;
@@ -62,6 +73,14 @@
     --line-a: #5fd0c4;
     --line-b: #9c96ff;
     --line-c: #e58ad8;
+    --bg-a88: rgba(16, 22, 29, .88);
+    --brand-line: #437e80;
+    --none-a25: rgba(154, 165, 177, .25);
+    --ok-a25: rgba(99, 217, 147, .25);
+    --mid-a25: rgba(243, 196, 90, .25);
+    --bad-a25: rgba(255, 138, 128, .25);
+    --accent-a15: rgba(255, 158, 112, .15);
+    --accent-a45: rgba(255, 158, 112, .45);
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .25);
     color-scheme: dark;
   }
@@ -102,7 +121,7 @@ p { margin: 0 0 .75em; }
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 10px max(16px, env(safe-area-inset-left)) 10px max(16px, env(safe-area-inset-right));
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  background: var(--bg-a88);
   backdrop-filter: saturate(1.4) blur(10px);
   -webkit-backdrop-filter: saturate(1.4) blur(10px);
   border-bottom: 1px solid var(--line);
@@ -150,7 +169,7 @@ p { margin: 0 0 .75em; }
   box-shadow: var(--shadow);
   margin-bottom: var(--gap);
 }
-.card--brand { border-color: color-mix(in srgb, var(--brand) 45%, var(--line)); background: linear-gradient(var(--surface), var(--surface)) padding-box; }
+.card--brand { border-color: var(--brand-line); background: linear-gradient(var(--surface), var(--surface)) padding-box; }
 .card__title { display: flex; gap: 8px; align-items: center; font-size: 1.1rem; }
 .card__title .icon { color: var(--brand); }
 
@@ -202,9 +221,24 @@ fieldset { border: 0; margin: 0 0 12px; padding: 0; min-width: 0; }
   min-height: 48px; padding: 0 12px; border: 2px solid var(--line); border-radius: 12px;
   background: var(--surface); color: var(--ink); font: 600 .95rem/1.1 var(--font); cursor: pointer; text-align: center;
 }
-.seg__opt input { position: absolute; opacity: 0; pointer-events: none; }
-.seg__opt:has(input:checked), .seg__btn.is-active { border-color: var(--brand); background: var(--brand-soft); color: var(--ink); }
-.seg__opt:has(input:focus-visible) { outline: 3px solid var(--accent); outline-offset: 2px; }
+.seg__btn.is-active { border-color: var(--brand); background: var(--brand-soft); color: var(--ink); }
+/* Radios unsichtbar. Auswahl und Fokus zeigt eine Fläche hinter Symbol und Text, die das ganze Feld
+   abdeckt (::after des Text-span). Nur Geschwister-Selektoren, kein :has(): Safari < 15.4 und
+   Chrome < 105 zeigten die Auswahl sonst gar nicht an. */
+.seg__opt, .bucket { position: relative; z-index: 0; }
+.seg__opt input, .bucket input { position: absolute; opacity: 0; pointer-events: none; }
+.seg__opt input:checked ~ span::after, .seg__opt input:focus ~ span::after,
+.bucket input:checked + span::after, .bucket input:focus + span::after {
+  content: ""; position: absolute; top: -2px; right: -2px; bottom: -2px; left: -2px; z-index: -1;
+  border: 2px solid transparent; border-radius: 12px;
+}
+.seg__opt input:checked ~ span::after { border-color: var(--brand); background: var(--brand-soft); }
+.bucket input:checked + span::after { border-color: var(--ink); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--ink); }
+/* Fokusrahmen über :focus für Browser ohne :focus-visible; die Regeln darunter nehmen ihn modernen
+   Browsern nach einem Mausklick wieder weg (ältere verwerfen sie als ungültig, deshalb eigene Regeln) */
+.seg__opt input:focus ~ span::after, .bucket input:focus + span::after { outline: 3px solid var(--accent); outline-offset: 2px; }
+.seg__opt input:focus:not(:focus-visible) ~ span::after { outline: none; }
+.bucket input:focus:not(:focus-visible) + span::after { outline: none; }
 .seg--wide .seg__opt, .seg--wide .seg__btn { min-width: 46%; }
 
 .inline-form { display: flex; gap: 10px; align-items: flex-end; }
@@ -261,14 +295,14 @@ body:not(.mode-plane) .only-plane { display: none; }
 .dirlabel { display: inline-flex; align-items: center; gap: 4px; font-size: .78rem; font-weight: 700; color: var(--ink-2); white-space: nowrap; }
 .dirlabel--back .icon { transform: scaleX(-1); }
 .status { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--none-soft); }
-.status__dot { width: 12px; height: 12px; border-radius: 50%; background: var(--none); margin-top: 6px; flex: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--none) 25%, transparent); }
+.status__dot { width: 12px; height: 12px; border-radius: 50%; background: var(--none); margin-top: 6px; flex: none; box-shadow: 0 0 0 3px var(--none-a25); }
 .status__body { display: grid; min-width: 0; }
 .status__main { font-weight: 800; font-size: 1.05rem; }
 .status__meta { font-size: .8rem; color: var(--ink-2); }
 .status__level { font-weight: 700; }
-.status--ok { background: var(--ok-soft); } .status--ok .status__dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
-.status--mid { background: var(--mid-soft); } .status--mid .status__dot { background: var(--mid); box-shadow: 0 0 0 3px color-mix(in srgb, var(--mid) 25%, transparent); }
-.status--bad { background: var(--bad-soft); } .status--bad .status__dot { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 25%, transparent); }
+.status--ok { background: var(--ok-soft); } .status--ok .status__dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-a25); }
+.status--mid { background: var(--mid-soft); } .status--mid .status__dot { background: var(--mid); box-shadow: 0 0 0 3px var(--mid-a25); }
+.status--bad { background: var(--bad-soft); } .status--bad .status__dot { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-a25); }
 .status--ok .status__level { color: var(--ok); } .status--mid .status__level { color: var(--mid); } .status--bad .status__level { color: var(--bad); }
 .status--compact { padding: 6px 10px; gap: 8px; align-items: center; }
 .status--compact .status__body { display: block; }
@@ -296,7 +330,9 @@ body:not(.mode-plane) .only-plane { display: none; }
 .map[data-dir="to_tr"] [data-l-to_tr="ok"] .map__dot, .map[data-dir="to_de"] [data-l-to_de="ok"] .map__dot { fill: var(--ok); }
 .map[data-dir="to_tr"] [data-l-to_tr="mid"] .map__dot, .map[data-dir="to_de"] [data-l-to_de="mid"] .map__dot { fill: var(--mid); }
 .map[data-dir="to_tr"] [data-l-to_tr="bad"] .map__dot, .map[data-dir="to_de"] [data-l-to_de="bad"] .map__dot { fill: var(--bad); }
-.map__node:focus-visible .map__halo, .map__node:hover .map__halo { stroke: var(--accent); stroke-width: 3; }
+/* Getrennte Regeln: Browser ohne :focus-visible verwürfen sonst auch den Hover-Zustand */
+.map__node:hover .map__halo { stroke: var(--accent); stroke-width: 3; }
+.map__node:focus-visible .map__halo { stroke: var(--accent); stroke-width: 3; }
 .map-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 16px; list-style: none; padding: 0; margin: 6px 0 0; font-size: .82rem; color: var(--ink-2); }
 .sw { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
 .sw--ok { background: var(--ok); } .sw--mid { background: var(--mid); } .sw--bad { background: var(--bad); } .sw--none { background: var(--none); }
@@ -324,12 +360,10 @@ body:not(.mode-plane) .only-plane { display: none; }
 .buckets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .buckets legend { margin-bottom: 6px; }
 @media (min-width: 560px) { .buckets { grid-template-columns: repeat(3, 1fr); } }
-.bucket { position: relative; display: flex; align-items: center; justify-content: center; min-height: 52px; padding: 6px 10px; border: 2px solid var(--line); border-radius: 12px; background: var(--surface); font-weight: 700; cursor: pointer; text-align: center; }
-.bucket input { position: absolute; opacity: 0; pointer-events: none; }
+/* Auswahl und Fokus der Wartezeit: siehe .seg__opt unter Formulare */
+.bucket { display: flex; align-items: center; justify-content: center; min-height: 52px; padding: 6px 10px; border: 2px solid var(--line); border-radius: 12px; background: var(--surface); font-weight: 700; cursor: pointer; text-align: center; }
 .bucket::before { content: ""; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; flex: none; }
 .bucket--ok::before { background: var(--ok); } .bucket--mid::before { background: var(--mid); } .bucket--bad::before { background: var(--bad); }
-.bucket:has(input:checked) { border-color: var(--ink); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--ink); }
-.bucket:has(input:focus-visible) { outline: 3px solid var(--accent); outline-offset: 2px; }
 .hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 
 .pattern { display: block; overflow: visible; }
@@ -366,8 +400,9 @@ body:not(.mode-plane) .only-plane { display: none; }
 .tl__axis { display: flex; flex-direction: column; justify-content: space-between; font-size: 10px; color: var(--ink-2); text-align: right; line-height: 1; padding: 2px 0; }
 .tl__axis span:nth-child(2) { font-weight: 700; color: var(--accent); writing-mode: horizontal-tb; font-size: 9px; }
 .tl__area { display: block; width: 100%; height: 72px; border-bottom: 1px solid var(--line); }
-.tl__fill { fill: color-mix(in srgb, var(--accent) 30%, transparent); stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.tl__all16 { fill: color-mix(in srgb, var(--accent) 12%, transparent); }
+/* Flächen über fill-opacity statt Mischfarbe; fehlt das CSS ganz, greifen die fill-Attribute im Template */
+.tl__fill { fill: var(--accent); fill-opacity: .3; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.tl__all16 { fill: var(--accent); fill-opacity: .12; }
 .tl__labels { list-style: none; margin: 8px 0 0; padding: 0; }
 .tl__labels li { height: 22px; line-height: 22px; font-size: 12px; font-weight: 700; color: var(--ink-2); text-align: right; padding-right: 2px; }
 .tl__labels li.is-you { color: var(--accent); }
@@ -379,10 +414,9 @@ body:not(.mode-plane) .only-plane { display: none; }
 .tl__row.is-you .tl__bar { fill: var(--accent); opacity: 1; }
 .tl__today { stroke: var(--ink); stroke-width: 2; stroke-dasharray: 3 3; }
 .tl__legend { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: .8rem; color: var(--ink-2); }
-.sw--area { background: color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 3px; }
-.sw--all16 { background: color-mix(in srgb, var(--accent) 15%, transparent); border: 1px solid var(--accent); border-radius: 3px; }
+.sw--area { background: var(--accent-a45); border-radius: 3px; }
+.sw--all16 { background: var(--accent-a15); border: 1px solid var(--accent); border-radius: 3px; }
 .sw--you { background: var(--accent); border-radius: 3px; }
-/* Bayram-Band ohne color-mix(), damit es auch auf älteren Browsern sichtbar bleibt */
 .tl__bayram { fill: var(--mid); fill-opacity: .22; }
 .sw--bayram { background: var(--mid); opacity: .35; border-radius: 3px; }
 
@@ -408,6 +442,10 @@ body:not(.mode-plane) .only-plane { display: none; }
 .featured__title { font: 800 1.02rem/1.25 var(--font-display); }
 
 .toolbar { position: sticky; top: 58px; z-index: 5; background: var(--bg); padding: 10px 0 2px; margin-top: 10px; }
+/* Sichtbare Toolbar (app.js setzt die Klasse): Sprungziele nach ihr landen darunter statt dahinter,
+   72 px scroll-padding + 128 px Toolbar. Nicht als scroll-padding der ganzen Seite, sonst scrollt der
+   Browser beim Tippen in Suche oder Filter um 250 px. Den Tastaturfokus schiebt app.js nach. */
+html.has-toolbar .toolbar ~ [id], html.has-toolbar .toolbar ~ * [id] { scroll-margin-top: 128px; }
 .search { position: relative; display: block; margin-bottom: 8px; }
 .search .icon { position: absolute; left: 14px; top: 15px; color: var(--ink-2); }
 .search input { padding-left: 42px; }
