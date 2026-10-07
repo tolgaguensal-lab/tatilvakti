@@ -19,7 +19,8 @@
     {%- elif ds.name == "customs" %}
     <ul class="links">{% for key, s in content.customs.sources.items() %}<li>{{ ext(s.url, s.name) }}</li>{% endfor %}</ul>
     {%- elif ds.name == "transit" %}
-    <ul class="links">{% for code, ct in content.transit.countries.items() %}<li>{{ ct.name[lang] }}: {{ ext(ct.source.url, ct.source.name) }}</li>{% endfor %}</ul>
+    <ul class="links">{% for code, ct in content.transit.countries.items() %}<li>{{ ct.name[lang] }}: {{ ext(ct.source.url, ct.source.name) }}{% for n in ct.notes if n.source %} · {{ ext(n.source.url, n.source.name) }}{% endfor %}</li>{% endfor %}
+      {%- for doc in content.transit.documents if doc.source %}<li>{{ t("r_docs") }}: {{ ext(doc.source.url, doc.source.name) }}</li>{% endfor %}</ul>
     {%- elif ds.name == "crossings" %}
     <ul class="links">{% for key, s in content.crossings.sources.items() %}<li>{{ ext(s.url, s.name) }}</li>{% endfor %}</ul>
     {%- endif %}

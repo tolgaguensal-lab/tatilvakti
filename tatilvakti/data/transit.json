@@ -137,8 +137,8 @@
       },
       "prices": [],
       "source": {
-        "name": "Kroatische Regierung – neues Mautsystem ab 01.03.2027",
-        "url": "https://vlada.gov.hr/sjednica-vlade-novi-sustav-naplate-cestarine-od-1-ozujka-2027/45374"
+        "name": "CroLibertas – offizielle Seite des neuen Mautsystems (ab 01.03.2027)",
+        "url": "https://www.crolibertas.hr"
       },
       "notes": [
         {
@@ -179,8 +179,8 @@
       ],
       "prices_valid_until": "2026-12-31",
       "source": {
-        "name": "NÚSZ – E-matrica díjak 2026 (amtliche Preisliste, PDF)",
-        "url": "https://nemzetiutdij.hu/api/uploads/e_matrica_arak_2026_pdf_611db0ecc1.pdf"
+        "name": "NÚSZ (Nemzeti Útdíjfizetési Szolgáltató) – e-matrica, Preise 2026",
+        "url": "https://nemzetiutdij.hu"
       },
       "notes": [
         {
@@ -248,35 +248,39 @@
       "prices": [
         {
           "label": {
-            "de": "10 Tage · Euro 6",
-            "tr": "10 gün · Euro 6"
+            "de": "10 Tage · Pkw (Kat. A) · Euro 6",
+            "tr": "10 gün · Otomobil (A kategorisi) · Euro 6"
           },
           "value": "30 Lei"
         },
         {
           "label": {
-            "de": "10 Tage · Euro 4–5",
-            "tr": "10 gün · Euro 4–5"
+            "de": "10 Tage · Pkw (Kat. A) · Euro 4–5",
+            "tr": "10 gün · Otomobil (A kategorisi) · Euro 4–5"
           },
           "value": "35 Lei"
         },
         {
           "label": {
-            "de": "10 Tage · Euro 3 oder älter",
-            "tr": "10 gün · Euro 3 veya daha eski"
+            "de": "10 Tage · Pkw (Kat. A) · Euro 3 oder älter",
+            "tr": "10 gün · Otomobil (A kategorisi) · Euro 3 veya daha eski"
           },
           "value": "39 Lei"
         }
       ],
       "prices_valid_until": "2026-12-31",
       "source": {
-        "name": "CNAIR – Rovinietă und TollRo ab 01.10.2026 (Ordin MTI 888/2026)",
-        "url": "https://www.cnadnr.ro/ro/comunicare/comunicate-de-presa/interes-general/aplicarea-tarifelor-pentru-roviniet%C4%83-%C8%99i-tollro-va"
+        "name": "CNAIR (rumänischer Straßenbetreiber) – Tarife Rovinietă und TollRo ab 01.10.2026 (Ordin MTI 888/2026)",
+        "url": "https://www.cnadnr.ro"
       },
       "notes": [
         {
           "de": "Die Vignette („Rovinieta“) gilt für alle Nationalstraßen, nicht nur für Autobahnen. Seit 01.10.2026 hängt der Preis von der Abgasnorm ab: Gib beim Kauf die Euro-Norm aus dem Fahrzeugschein an, sonst wird der teuerste Tarif berechnet.",
           "tr": "Vinyet („Rovinieta“) yalnızca otoyollar için değil, tüm devlet yolları için gerekir. 01.10.2026'dan beri fiyat emisyon normuna göre değişiyor: Satın alırken ruhsattaki Euro normunu gir, yoksa en pahalı tarif uygulanır."
+        },
+        {
+          "de": "Die Preise oben gelten für Pkw (Kategorie A). Ist dein Fahrzeug als Lkw, Transporter oder Bus zugelassen, gilt eine andere Kategorie – im Shop die Kategorie deines Fahrzeugs prüfen.",
+          "tr": "Yukarıdaki fiyatlar otomobiller (A kategorisi) için geçerlidir. Aracın kamyon, kamyonet veya otobüs olarak tescilliyse farklı bir kategori geçerlidir – satış sitesinde aracının kategorisini kontrol et."
         },
         {
           "de": "Seit 01.10.2026 gibt es die Vignette nur noch über die offiziellen Kanäle des neuen Systems TollRo: Portal etoll.ro, App „TollRo“, CNAIR-Verkaufsstellen (auch an der Grenze) und zugelassene Verkäufer.",
@@ -342,8 +346,8 @@
       ],
       "prices_valid_until": "2027-01-31",
       "source": {
-        "name": "BG TOLL – Neue Vignettenpreise ab 01.08.2026",
-        "url": "https://bgtoll.bg/novini/aktualno/ot-1-avgust-se-promenyat-cenite-na-vinetkite"
+        "name": "BG TOLL (Straßenagentur) – Vignettenpreise ab 01.08.2026",
+        "url": "https://bgtoll.bg"
       },
       "notes": [
         {
@@ -548,6 +552,17 @@
       "text": {
         "de": "HGS für die Türkei – an der Grenze bei der PTT",
         "tr": "Türkiye için HGS – sınırdaki PTT'den"
+      }
+    },
+    {
+      "id": "ausstattung",
+      "text": {
+        "de": "Pflichtausstattung für jedes Land deiner Route prüfen – Warnwesten, Warndreieck, Verbandkasten und Licht am Tag sind nicht überall gleich geregelt",
+        "tr": "Güzergâhındaki her ülkenin zorunlu araç donanımını kontrol et – reflektörlü yelek, üçgen reflektör, ilk yardım çantası ve gündüz farı kuralları her yerde aynı değil"
+      },
+      "source": {
+        "name": "ÖAMTC – Mitführpflichten für Autofahrer in Europa",
+        "url": "https://www.oeamtc.at/thema/reiseplanung/mitfuehrpflichten-fuer-autofahrer-in-europa-16183282"
       }
     },
     {

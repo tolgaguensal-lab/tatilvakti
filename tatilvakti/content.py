@@ -11,12 +11,19 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from .holidays import Range, free_stretches
 from .i18n import LANGS, fold
 
 DATA_DIR = Path(__file__).parent / "data"
 DATASETS = ("holidays", "customs", "transit", "crossings")
 CUSTOMS_STATUSES = ("ok", "limit", "declare", "no")
 TOLL_SYSTEMS = ("vignette", "evignette", "toll", "hgs")
+# Kürzeste freie Zeit am Stück (Ferien plus angrenzende Wochenenden und bundesweite Feiertage),
+# die das Ferien-Radar führt. quiet_days() wählt Abreise- und Rückreisetage aus je 7 Tagen am
+# Anfang und am Ende; bei kürzeren Blöcken wären beide Listen gleich, und waves() meldete
+# Ferienbeginn und -ende am selben Tag. Kurze Ferien (Brückentage, zwei Tage Winterferien)
+# bleiben deshalb draußen, bis die Ferienlogik sie eigens behandelt.
+MIN_FREE_DAYS = 8
 
 
 @dataclass
@@ -113,6 +120,7 @@ def validate(content: Content) -> list[str]:
             if not isinstance(ranges, list):
                 problems.append(f"holidays.{pid}.{state}: Liste von Zeiträumen erwartet (leer = keine Ferien)")
                 continue
+            valid: list[Range] = []
             for pair in ranges:
                 if not (isinstance(pair, list) and len(pair) == 2):
                     problems.append(f"holidays.{pid}.{state}: Zeitraum braucht genau Start und Ende")
@@ -130,6 +138,13 @@ def validate(content: Content) -> list[str]:
                     if s <= e2 and s2 <= e:
                         problems.append(f"holidays.{pid}.{state}: {start}–{end} überschneidet sich mit {other}")
                 taken[state].append((s, e, pid))
+                valid.append(Range(s, e))
+            for stretch in free_stretches(valid):
+                if stretch.days < MIN_FREE_DAYS:
+                    problems.append(
+                        f"holidays.{pid}.{state}: nur {stretch.days} freie Tage am Stück "
+                        f"({stretch.start}–{stretch.end}); kurze Ferien unter {MIN_FREE_DAYS} Tagen führt das Radar nicht"
+                    )
 
     # Zoll
     sources = content.customs["sources"]
@@ -196,9 +211,12 @@ def validate(content: Content) -> list[str]:
         if not _is_bilingual(doc["text"]):
             problems.append(f"transit.documents.{doc['id']}: nicht zweisprachig")
         if "link" in doc:
-            page, _, anchor = doc["link"].partition("#")
-            if page != "customs" or anchor not in ids:  # ids = Zoll-Regeln von oben
-                problems.append(f"transit.documents.{doc['id']}: Link {doc['link']!r} zeigt auf keine Zoll-Regel")
+            if not isinstance(doc["link"], str):
+                problems.append(f"transit.documents.{doc['id']}: Link muss Text sein, ist {doc['link']!r}")
+            else:
+                page, _, anchor = doc["link"].partition("#")
+                if page != "customs" or anchor not in ids:  # ids = Zoll-Regeln von oben
+                    problems.append(f"transit.documents.{doc['id']}: Link {doc['link']!r} zeigt auf keine Zoll-Regel")
         if "source" in doc:
             _check_source(doc["source"], f"transit.documents.{doc['id']}.source", problems)
 

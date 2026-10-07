@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from tatilvakti.content import DATA_DIR
+from tatilvakti.content import DATA_DIR, MIN_FREE_DAYS
 from tatilvakti.holidays import HolidayRadar, Range, easter_sunday, free_stretches, national_holidays
 
 
@@ -162,7 +162,9 @@ def test_radar_works_with_minimal_data_and_empty_lists():
     ("/de/ferien?zeitraum=pfingsten-2027&land=HE", "Hessen hat in diesem Zeitraum keine Ferien."),
     ("/tr/tatil?zeitraum=pfingsten-2027&land=HE", "Hessen bu dönemde tatilde değil."),
     ("/de/ferien?zeitraum=pfingsten-2027&land=BW", "Deine Ferien in Baden-Württemberg"),
-    ("/de/ferien?zeitraum=pfingsten-2027&land=NW", "Deine Ferien in Nordrhein-Westfalen"),
+    # NRW hat nur den 18.05. frei (mit Pfingstwochenende 4 Tage) – zu kurz fürs Radar
+    ("/de/ferien?zeitraum=pfingsten-2027&land=NW", "Nordrhein-Westfalen hat in diesem Zeitraum keine Ferien."),
+    ("/de/ferien?zeitraum=winter-2027&land=BY", "Deine Ferien in Bayern"),
 ])
 def test_holiday_page_renders_states_with_and_without_holidays(client, path, text):
     resp = client.get(path)
@@ -175,3 +177,31 @@ def test_home_names_pfingsten_as_next_holiday_in_bw(client, clock):
     html = client.get("/de/").get_data(as_text=True)
     bw = html.split('data-per-state="BW" hidden>', 1)[1].split("</div>", 1)[0]
     assert "Himmelfahrt-/Pfingstferien 2027" in bw
+
+
+# ------------------------------------------------ Kurze Ferien führen nicht in die Irre
+
+def test_every_listed_break_is_long_enough_for_quiet_days(radar):
+    """Ab MIN_FREE_DAYS unterscheiden sich die 7-Tage-Fenster für Abreise und Rückreise."""
+    for period in radar.periods:
+        for state in radar.states:
+            assert all(s.days >= MIN_FREE_DAYS for s in period.stretches(state)), (period.id, state)
+            quiet = radar.quiet_days(period, state)
+            if quiet["departure"]:
+                assert quiet["departure"] != quiet["return"], (period.id, state)
+
+
+def test_waves_never_start_and_end_on_the_same_day(radar):
+    waves = radar.waves(date(2026, 10, 6), horizon_days=700)
+    starts = {(s, w["date"]) for w in waves if w["kind"] == "start" for s in w["states"]}
+    ends = {(s, w["date"]) for w in waves if w["kind"] == "end" for s in w["states"]}
+    assert starts and not starts & ends
+
+
+def test_no_bridge_day_wave_around_ascension_2027(radar):
+    """Vorher meldete die Grenzseite am Fr 07.05.2027 „Ferienbeginn“ für 8 Länder."""
+    waves = radar.waves(date(2027, 4, 20), horizon_days=50)
+    assert date(2027, 5, 7) not in {w["date"] for w in waves}
+    nrw_events = [w for w in waves if "NW" in w["states"]]
+    assert nrw_events == []  # NRW-Pfingstferientag 18.05. ist nicht im Radar
+    assert radar.next_for_state("BE", date(2027, 4, 20))["period"].id == "sommer-2027"

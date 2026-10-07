@@ -24,9 +24,9 @@
     "tr_tasit": {"name": "T.C. Ticaret Bakanlığı – Yolcu Beraberi Taşıtlar", "url": "https://ticaret.gov.tr/gumruk-islemleri/sikca-sorulan-sorular/bireysel/yolcu-beraberi-tasitlar"},
     "btk_mcks": {"name": "BTK – Merkezi Cihaz Kayıt Sistemi", "url": "https://tuketici.btk.gov.tr/merkezi-cihaz-kayit-sistemi"},
     "edevlet_imei": {"name": "e-Devlet – IMEI Kaydet", "url": "https://www.turkiye.gov.tr/btk-imei-kaydet"},
-    "mcks_sss": {"name": "BTK – Merkezi Cihaz Kayıt Sistemi, Sıkça Sorulan Sorular", "url": "https://www.mcks.gov.tr/sss"},
-    "edevlet_imei_hak": {"name": "e-Devlet – Kayıtlı Cihazlarım ve Kayıt Hakkı Sorgulama", "url": "https://www.turkiye.gov.tr/btk-imei-kayit-hakki-sorgulama"},
-    "rg_harc_2026": {"name": "Resmî Gazete 31.12.2025 – Harçlar Kanunu Genel Tebliği (Seri No: 98), Gebühren 2026", "url": "https://www.resmigazete.gov.tr/eskiler/2025/12/20251231M5-28.pdf"},
+    "mcks": {"name": "BTK – Merkezi Cihaz Kayıt Sistemi (mcks.gov.tr)", "url": "https://www.mcks.gov.tr"},
+    "edevlet_btk": {"name": "e-Devlet – Dienste der BTK (u. a. „Kayıtlı Cihazlarım ve Kayıt Hakkı Sorgulama“)", "url": "https://www.turkiye.gov.tr/bilgi-teknolojileri-ve-iletisim-kurumu"},
+    "rg_harc_2026": {"name": "Resmî Gazete vom 31.12.2025, Sayı 33124 (5. Mükerrer) – Harçlar Kanunu Genel Tebliği (Seri No: 98), Gebühren 2026", "url": "https://www.resmigazete.gov.tr"},
     "gruene_karte": {"name": "GDV (Die Versicherer) – Grüne Karte", "url": "https://www.dieversicherer.de/versicherer/auto/news/gruene-karte-kfz-versicherung-142706"},
     "adac_tuerkei": {"name": "ADAC – Mit dem Fahrzeug in die Türkei", "url": "https://www.adac.de/reise-freizeit/reiseplanung/reiseziele/tuerkei/fahrzeug/"},
     "eu_barmittel": {"name": "EUR-Lex – Verordnung (EU) 2018/1672 über Barmittelkontrollen", "url": "https://eur-lex.europa.eu/legal-content/DE/TXT/?uri=CELEX:32018R1672"},
@@ -36,7 +36,6 @@
     "tr_tasit_seri9": {"name": "T.C. Ticaret Bakanlığı – Gümrük Genel Tebliği Seri No: 9 (Resmî Gazete 14.08.2026)", "url": "https://ticaret.gov.tr/duyurular/gecici-ithal-edilen-kara-tasitlarina-i%CC%87liskin-gumruk-genel-tebliginde-degisiklik-yapilmasina-dair-teblig"},
     "ef_vo": {"name": "Einreise-Freimengen-Verordnung, § 2", "url": "https://www.gesetze-im-internet.de/ef-vo_2008/__2.html"},
     "kblv_tuerkei": {"name": "KBLV Bayern – Hunde und Katzen aus der Türkei", "url": "https://www.kblv.bayern.de/grenzkontrollstelle/hunde_katzen_tuerkei/hunde_katzen_tuerkei_lang-de.php"},
-    "bmleh_drittland": {"name": "BMLEH – Reisen mit Heimtieren: nicht gelistete Drittländer", "url": "https://www.bmleh.de/DE/themen/tiere/haus-und-zootiere/drittland-nicht-gelistet.html"},
     "eu_heimtiere": {"name": "Your Europe – Reisen mit Haustieren", "url": "https://europa.eu/youreurope/citizens/travel/carry/pets-and-other-animals/index_de.htm"},
     "zoll_kraftstoff": {"name": "Zoll – Einfuhr von Kraftstoff durch Privatpersonen", "url": "https://www.zoll.de/DE/Fachthemen/Steuern/Verbrauchsteuern/Energie/Verfahren/Warenbewegung/Einfuhr/_functions/hintergrund_1.html?faqCalledDoc=137596"}
   },
@@ -53,14 +52,14 @@
       "featured": true,
       "title": {"de": "Handy aus Deutschland (IMEI)", "tr": "Almanya'dan getirilen telefon (IMEI)"},
       "rule": {
-        "de": "Mit türkischer SIM-Karte nur 120 Tage ab Einreise nutzbar, danach wird das Gerät gesperrt – außer du registrierst es. Gebühr 2026: 54.258 TL. Pro Person geht das nur für ein Gerät alle drei Kalenderjahre.",
-        "tr": "Türk SIM kartıyla yurda girişten itibaren yalnızca 120 gün kullanılabilir; kayıt yaptırmazsan cihaz kapatılır. 2026 kayıt ücreti: 54.258 TL. Kişi başına üç takvim yılında yalnızca bir cihaz kaydettirebilirsin."
+        "de": "Mit türkischer SIM-Karte nur 120 Tage ab Einreise nutzbar, danach wird das Gerät gesperrt – außer du registrierst es. Gebühr 2026: 54.258 TL. Pro Pass geht das nur für ein Gerät alle drei Kalenderjahre.",
+        "tr": "Türk SIM kartıyla yurda girişten itibaren yalnızca 120 gün kullanılabilir; kayıt yaptırmazsan cihaz kapatılır. 2026 kayıt ücreti: 54.258 TL. Pasaport başına üç takvim yılında yalnızca bir cihaz kaydettirebilirsin."
       },
       "detail": {
         "de": "Registrieren kannst du innerhalb der 120 Tage über e-Devlet („IMEI Kaydet“), mit dem Pass, mit dem du eingereist bist. Danach läuft das Gerät nur mit Leitungen, die auf dich registriert sind. Ob du gerade ein Registrierungsrecht hast, zeigt e-Devlet unter „Kayıtlı Cihazlarım ve Kayıt Hakkı Sorgulama“. Wer nur mit deutscher SIM (Roaming) oder einer Reise-eSIM eines ausländischen Anbieters surft, steckt keine türkische SIM ein – die 120-Tage-Regel wird dann nach übereinstimmenden Berichten nicht ausgelöst. Roaming-Preise vorher prüfen.",
         "tr": "Kaydı 120 gün içinde e-Devlet üzerinden („IMEI Kaydet“), giriş yaptığın pasaportla yapabilirsin. Kayıttan sonra cihaz yalnızca senin adına kayıtlı hatlarla çalışır. Şu an kayıt hakkın olup olmadığını e-Devlet'te „Kayıtlı Cihazlarım ve Kayıt Hakkı Sorgulama“ hizmetinden görebilirsin. Sadece Alman SIM'iyle (roaming) veya yabancı bir operatörün seyahat eSIM'iyle internete giren kişi Türk SIM takmamış olur – bu durumda 120 gün kuralı yaygın bilgiye göre devreye girmez. Roaming ücretlerini önceden kontrol et."
       },
-      "sources": ["btk_mcks", "mcks_sss", "edevlet_imei", "edevlet_imei_hak", "rg_harc_2026"],
+      "sources": ["btk_mcks", "mcks", "edevlet_imei", "edevlet_btk", "rg_harc_2026"],
       "review_after": "2026-12-31",
       "keywords": ["handy", "telefon", "smartphone", "imei", "esim", "sim", "btk", "registrierung", "kayıt", "kayıt hakkı", "harç", "iphone", "cep", "pasaport", "3 jahre", "3 yıl"]
     },
@@ -211,8 +210,8 @@
       "status": "limit",
       "title": {"de": "Wer darf dein Auto in der Türkei fahren?", "tr": "Aracını Türkiye'de kim kullanabilir?"},
       "rule": {
-        "de": "Ohne dich im Auto nur Ehepartner, Eltern, Großeltern, Kinder und Enkel – und nur, wenn sie ebenfalls im Ausland wohnen. Andere Personen mit Wohnsitz im Ausland nur, wenn du mit im Auto sitzt. Wer in der Türkei wohnt, darf dein Auto nicht fahren – außer in einem Notfall, während du mit im Auto sitzt.",
-        "tr": "Sen araçta yokken aracını yalnızca eşin, annen-baban, büyükannen-büyükbaban, çocukların ve torunların kullanabilir – ve ancak onlar da yurt dışında yerleşikse. Yurt dışında yerleşik diğer kişiler ancak sen de araçtaysan kullanabilir. Türkiye'de yerleşik biri aracını kullanamaz – acil bir durumda ve sen de araçtayken hariç."
+        "de": "Ehepartner, Eltern, Großeltern, Kinder und Enkel, die ebenfalls im Ausland wohnen, dürfen dein Auto auch ohne dich fahren – aber nur, solange du selbst in der Türkei bist. Reist du früher ab, darf deine Familie das Auto also nicht weiterfahren. Andere Personen mit Wohnsitz im Ausland nur, wenn du mit im Auto sitzt. Wer in der Türkei wohnt, darf dein Auto nicht fahren – außer in einem Notfall, während du mit im Auto sitzt.",
+        "tr": "Yurt dışında yerleşik eşin, annen-baban, büyükannen-büyükbaban, çocukların ve torunların sen araçta olmasan da aracını kullanabilir – ama yalnızca sen Türkiye'deyken. Sen Türkiye'den erken ayrılırsan ailen de aracı kullanmaya devam edemez. Yurt dışında yerleşik diğer kişiler ancak sen de araçtaysan kullanabilir. Türkiye'de yerleşik biri aracını kullanamaz – acil bir durumda ve sen de araçtayken hariç."
       },
       "detail": {
         "de": "So geregelt seit 14.08.2026 (Gümrük Genel Tebliği Seri No: 9). Verstöße können teuer werden – frag im Zweifel beim Zoll nach.",
@@ -220,7 +219,7 @@
       },
       "sources": ["tr_tasit_seri9", "tr_tasit"],
       "review_after": "2027-03-31",
-      "keywords": ["fahren", "fahrer", "sürücü", "kullanmak", "kullanabilir", "verwandte", "akraba", "ehepartner", "eş", "eltern", "anne", "baba", "kinder", "çocuk", "enkel", "torun", "auto", "araç", "araba", "kennzeichen", "plaka"]
+      "keywords": ["fahren", "fahrer", "sürücü", "kullanmak", "kullanabilir", "rückflug", "abreise", "erken dönüş", "verwandte", "akraba", "ehepartner", "eş", "eltern", "anne", "baba", "kinder", "çocuk", "enkel", "torun", "auto", "araç", "araba", "kennzeichen", "plaka"]
     },
     {
       "id": "eu-fleisch",
@@ -264,7 +263,7 @@
       "category": "tiere",
       "status": "declare",
       "featured": true,
-      "title": {"de": "Hund & Katze zurück in die EU", "tr": "Köpek ve kedinle AB'ye dönüş"},
+      "title": {"de": "Hund & Katze zurück in die EU", "tr": "Köpeğin veya kedinle AB'ye dönüş"},
       "rule": {
         "de": "Nur mit Mikrochip, EU-Heimtierausweis, gültiger Tollwutimpfung und bestandenem Tollwut-Antikörpertest (mind. 0,5 IE/ml). Lass den Test VOR der Abreise in der EU machen – sonst darf das Tier erst 3 Monate nach der Blutentnahme zurück.",
         "tr": "Yalnızca mikroçip, AB evcil hayvan pasaportu, geçerli kuduz aşısı ve başarılı kuduz antikor testiyle (en az 0,5 IU/ml). Testi yola çıkmadan ÖNCE AB'de yaptır – yoksa hayvanın dönüşü ancak kan alımından 3 ay sonra mümkün olur."
@@ -273,7 +272,7 @@
         "de": "Das Blut darf frühestens 30 Tage nach der ersten Tollwutimpfung abgenommen werden. Untersucht wird in einem EU-zugelassenen Labor, das Ergebnis kommt in den Heimtierausweis. Der Test bleibt gültig, solange die Tollwutimpfung immer rechtzeitig aufgefrischt wird. Ohne gültigen Test drohen an der EU-Grenze Zurückweisung oder Quarantäne – auf deine Kosten.",
         "tr": "Kan, ilk kuduz aşısından en erken 30 gün sonra alınabilir. Test AB onaylı bir laboratuvarda yapılır, sonuç evcil hayvan pasaportuna işlenir. Kuduz aşısı her seferinde zamanında yenilendiği sürece test geçerliliğini korur. Geçerli test yoksa AB sınırında geri çevrilme veya karantina söz konusu olabilir – masraflar sana ait."
       },
-      "sources": ["kblv_tuerkei", "bmleh_drittland", "eu_heimtiere"],
+      "sources": ["kblv_tuerkei", "eu_heimtiere"],
       "review_after": "2027-03-31",
       "keywords": ["hund", "katze", "haustier", "heimtier", "tier", "köpek", "kedi", "evcil", "evcil hayvan", "hayvan", "tollwut", "kuduz", "titer", "titertest", "antikörper", "antikor", "heimtierausweis", "pasaport", "mikrochip", "çip", "impfung", "aşı"]
     },

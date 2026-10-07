@@ -5,15 +5,13 @@
     "review_after": "2027-09-30",
     "sources": [
       {"name": "KMK – Ferienkalender der Länder", "url": "https://www.kmk.org/service/ferienregelung/ferienkalender.html"},
-      {"name": "KMK – Ferien im Schuljahr 2026/2027 (PDF)", "url": "https://www.kmk.org/fileadmin/Dateien/pdf/Ferienkalender/FER2026_27.pdf"},
       {"name": "Schulministerium NRW – Ferienordnung", "url": "https://www.schulministerium.nrw/service/ferienordnung-nrw-bis-2029-30"},
-      {"name": "Kultusministerium Baden-Württemberg – Ferien", "url": "https://km.baden-wuerttemberg.de/de/service/ferien"},
-      {"name": "Kultusministerium Bayern – Ferien und Feiertage", "url": "https://www.km.bayern.de/termine/ferien-und-feiertage"}
+      {"name": "Kultusministerium Baden-Württemberg – Ferien", "url": "https://km.baden-wuerttemberg.de/de/service/ferien"}
     ],
     "population_source": {"name": "Statistisches Bundesamt (Destatis), Bevölkerungsfortschreibung Zensus 2022, Stand 31.12.2024", "url": "https://www.destatis.de/DE/Presse/Pressemitteilungen/2025/06/PD25_221_124.html"},
     "note": {
-      "de": "Schulferien der Länder laut KMK-Ferienkalender und Ferienordnungen der Länder, einschließlich Winter- und Pfingstferien sowie landesweit freier Einzeltage (z. B. Freitag nach Himmelfahrt), am 06.10.2026 über mehrere unabhängige Quellen abgeglichen. Bewegliche Ferientage, die jede Schule selbst festlegt, fehlen. Maßgeblich ist immer das Kultusministerium deines Landes.",
-      "tr": "Eyaletlerin okul tatilleri KMK tatil takvimine ve eyaletlerin tatil yönetmeliklerine göre; kış ve Pfingsten tatilleri ile eyalet genelindeki tek günlük tatiller (ör. Himmelfahrt'tan sonraki cuma) dahil. 06.10.2026 tarihinde birden fazla bağımsız kaynakla karşılaştırıldı. Her okulun kendi belirlediği serbest tatil günleri dahil değildir. Kesin bilgi her zaman eyaletinin Eğitim Bakanlığı'ndadır."
+      "de": "Schulferien der Länder laut KMK-Ferienkalender und Ferienordnungen der Länder (Herbst-, Weihnachts-, Winter-, Oster-, Pfingst- und Sommerferien), am 06.10.2026 über mehrere unabhängige Quellen abgeglichen. Nicht enthalten sind kurze Ferien, die zusammen mit Wochenende und Feiertagen höchstens eine Woche frei ergeben – etwa einzelne Ferientage nach Himmelfahrt oder Pfingsten oder zwei Tage Winterferien –, denn für eine Reise in die Türkei reichen sie selten. Bewegliche Ferientage, die jede Schule selbst festlegt, fehlen ebenfalls. Maßgeblich ist immer das Kultusministerium deines Landes.",
+      "tr": "Eyaletlerin okul tatilleri KMK tatil takvimine ve eyaletlerin tatil yönetmeliklerine göre (sonbahar, Noel, kış, Paskalya, Pfingsten ve yaz tatilleri); 06.10.2026 tarihinde birden fazla bağımsız kaynakla karşılaştırıldı. Hafta sonu ve resmi tatillerle birlikte en fazla bir hafta süren kısa tatiller – örneğin Himmelfahrt ya da Pfingsten'den sonraki tek tatil günleri veya iki günlük kış tatili – dahil değildir, çünkü Türkiye'ye gidip gelmek için genelde yetmez. Her okulun kendi belirlediği serbest tatil günleri de dahil değildir. Kesin bilgi her zaman eyaletinin Eğitim Bakanlığı'ndadır."
     }
   },
   "states": {
@@ -90,11 +88,11 @@
         "BY": [["2027-02-08", "2027-02-12"]],
         "BE": [["2027-02-01", "2027-02-06"]],
         "BB": [["2027-02-01", "2027-02-06"]],
-        "HB": [["2027-02-01", "2027-02-02"]],
-        "HH": [["2027-01-29", "2027-01-29"]],
+        "HB": [],
+        "HH": [],
         "HE": [],
         "MV": [["2027-02-08", "2027-02-19"]],
-        "NI": [["2027-02-01", "2027-02-02"]],
+        "NI": [],
         "NW": [],
         "RP": [],
         "SL": [["2027-02-08", "2027-02-12"]],
@@ -134,20 +132,20 @@
       "ranges": {
         "BW": [["2027-05-18", "2027-05-29"]],
         "BY": [["2027-05-18", "2027-05-28"]],
-        "BE": [["2027-05-07", "2027-05-07"], ["2027-05-18", "2027-05-19"]],
-        "BB": [["2027-05-18", "2027-05-18"]],
-        "HB": [["2027-05-07", "2027-05-07"], ["2027-05-18", "2027-05-18"]],
+        "BE": [],
+        "BB": [],
+        "HB": [],
         "HH": [["2027-05-07", "2027-05-14"]],
         "HE": [],
-        "MV": [["2027-05-07", "2027-05-07"], ["2027-05-14", "2027-05-18"]],
-        "NI": [["2027-05-07", "2027-05-07"], ["2027-05-18", "2027-05-18"]],
-        "NW": [["2027-05-18", "2027-05-18"]],
+        "MV": [],
+        "NI": [],
+        "NW": [],
         "RP": [],
         "SL": [],
-        "SN": [["2027-05-07", "2027-05-07"], ["2027-05-15", "2027-05-18"]],
+        "SN": [],
         "ST": [["2027-05-15", "2027-05-22"]],
-        "SH": [["2027-05-07", "2027-05-07"]],
-        "TH": [["2027-05-07", "2027-05-07"]]
+        "SH": [],
+        "TH": []
       }
     },
     {

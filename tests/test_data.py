@@ -69,6 +69,30 @@ def test_validation_catches_unused_source_and_dead_checklist_link():
     assert any("transit.RS.notes.source: Quelle braucht Name und URL" in p for p in problems)
 
 
+@pytest.mark.parametrize("link, message", [
+    (None, "Link muss Text sein"),
+    (42, "Link muss Text sein"),
+    ("customs#", "zeigt auf keine Zoll-Regel"),
+    ("route#tr-vollmacht", "zeigt auf keine Zoll-Regel"),
+])
+def test_validation_reports_broken_checklist_links_instead_of_crashing(link, message):
+    content = load_content()
+    content.transit["documents"][0]["link"] = link
+    assert any(message in p for p in validate(content))
+
+
+@pytest.mark.parametrize("state, ranges, days", [
+    ("NW", [["2027-05-18", "2027-05-18"]], 4),                              # Di nach Pfingsten
+    ("BW", [["2027-05-07", "2027-05-07"], ["2027-05-18", "2027-05-29"]], 4),  # Brückentag + Pfingstferien
+    ("HH", [["2027-05-07", "2027-05-11"]], 6),                              # Do Himmelfahrt bis Di
+])
+def test_validation_rejects_breaks_too_short_for_the_radar(state, ranges, days):
+    content = load_content()
+    _period(content, "pfingsten-2027")["ranges"][state] = ranges
+    problems = validate(content)
+    assert any(f"pfingsten-2027.{state}: nur {days} freie Tage am Stück" in p for p in problems), problems
+
+
 @pytest.mark.parametrize("query, expected", [
     ("kopek", "eu-haustier"),      # „köpek“ ohne Sonderzeichen getippt
     ("Katze", "eu-haustier"),
@@ -105,7 +129,7 @@ def test_cash_rules_name_the_eu_external_border_not_only_germany():
 
 def test_route_checklist_covers_licence_children_and_pets():
     docs = {doc["id"] for doc in load_content().transit["documents"]}
-    assert {"fuehrerschein", "einverstaendnis", "haustier"} <= docs
+    assert {"fuehrerschein", "einverstaendnis", "haustier", "ausstattung"} <= docs
 
 
 def test_vignette_prices_name_the_vehicle_class():
@@ -114,6 +138,41 @@ def test_vignette_prices_name_the_vehicle_class():
     hu = " ".join(p["label"]["de"] for p in countries["HU"]["prices"])
     assert "2A" in si and "2B" in si
     assert "D1" in hu and "D2" in hu
+    for price in countries["RO"]["prices"]:  # Rovinieta-Preise gelten nur für Kategorie A
+        assert "Kat. A" in price["label"]["de"] and "A kategorisi" in price["label"]["tr"]
+
+
+def test_car_driver_rule_requires_the_holder_to_be_in_turkey():
+    """Tebliğ Seri No: 9 – Verwandte dürfen ohne den Berechtigten fahren, solange er in der Türkei ist."""
+    rule = next(i for i in load_content().customs["items"] if i["id"] == "tr-auto-fahrer")["rule"]
+    assert "solange du selbst in der Türkei bist" in rule["de"]
+    assert "sen Türkiye'deyken" in rule["tr"]
+
+
+def test_imei_limit_is_per_passport():
+    rule = next(i for i in load_content().customs["items"] if i["id"] == "tr-handy")["rule"]
+    assert "Pro Pass" in rule["de"] and "Pasaport başına" in rule["tr"]
+
+
+@pytest.mark.parametrize("path, country_heading", [("/de/route", "Serbien"), ("/tr/guzergah", "Sırbistan")])
+def test_route_page_shows_sources_of_single_notes_and_checklist_items(client, path, country_heading):
+    """Hinweise mit eigener Quelle dürfen nicht unter der Länderquelle verschwinden."""
+    html = client.get(path).get_data(as_text=True)
+    rs = html.split('id="land-RS"', 1)[1].split("</details>", 1)[0]
+    assert country_heading in rs
+    assert "https://www.adac.de/reise-freizeit/reiseplanung/reiseziele/serbien/fahrzeug/" in rs
+    assert "https://digital-strategy.ec.europa.eu/" in rs
+    checklist = html.split('id="docs-title"', 1)[1].split("</section>", 1)[0]
+    for doc in load_content().transit["documents"]:
+        if "source" in doc:
+            assert doc["source"]["url"] in checklist, doc["id"]
+    assert 'class="src-inline"' in checklist and "style=" not in checklist
+
+
+def test_info_page_lists_note_and_checklist_sources(client):
+    html = client.get("/de/info").get_data(as_text=True)
+    assert "https://www.oeamtc.at/thema/reiseplanung/mitfuehrpflichten-fuer-autofahrer-in-europa-16183282" in html
+    assert "https://www.vidincalafatbridge.bg/en/charges" in html
 
 
 def test_strings_have_identical_keys_in_both_languages():
