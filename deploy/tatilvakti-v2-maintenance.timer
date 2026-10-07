@@ -1,0 +1,13 @@
+# Stündlich: hält die Zusage „Prüfwert spätestens nach 48 h gelöscht“ auch ohne neue Meldungen ein.
+#   sudo systemctl enable --now tatilvakti-v2-maintenance.timer
+[Unit]
+Description=tatilvakti v2 – Wartung stündlich
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+# Verpasste Läufe (z. B. Server war aus) nach dem Start nachholen
+Persistent=true
+
+[Install]
+WantedBy=timers.target

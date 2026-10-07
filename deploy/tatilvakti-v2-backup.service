@@ -1,0 +1,47 @@
+# Nächtliche Sicherung per SQLite-Online-Backup (scripts/backup.py). Die Kopie enthält keine
+# Prüfwerte und keine Tagesschlüssel; die Salts-DB unter /run ist für diesen Dienst unsichtbar.
+# Ablage: /var/lib/tatilvakti-v2/backups, Aufbewahrung 14 Tage (--keep-days).
+# Sofort ausführen:  sudo systemctl start tatilvakti-v2-backup.service
+[Unit]
+Description=tatilvakti v2 – Backup der Datenbank (ohne Prüfwerte)
+
+[Service]
+Type=oneshot
+User=tatilvakti-v2
+Group=tatilvakti-v2
+WorkingDirectory=/opt/tatilvakti-v2/current
+ExecStart=/opt/tatilvakti-v2/current/.venv/bin/python scripts/backup.py \
+    --db /var/lib/tatilvakti-v2/tatilvakti.db \
+    --dest /var/lib/tatilvakti-v2/backups \
+    --keep-days 14
+SyslogIdentifier=tatilvakti-v2-backup
+StateDirectory=tatilvakti-v2 tatilvakti-v2/backups
+StateDirectoryMode=0700
+InaccessiblePaths=-/run/tatilvakti-v2
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+PrivateNetwork=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM

@@ -1,0 +1,3 @@
+# Entwicklung und Preflight: Laufzeit plus Tests. Gepinnt in requirements-dev.txt.
+-r requirements.in
+pytest==9.1.1

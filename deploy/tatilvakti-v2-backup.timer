@@ -1,0 +1,12 @@
+# Nachts sichern. Eine Kopie zusätzlich außerhalb des Hosts ablegen (README → Backup).
+#   sudo systemctl enable --now tatilvakti-v2-backup.timer
+[Unit]
+Description=tatilvakti v2 – Backup nachts
+
+[Timer]
+OnCalendar=*-*-* 03:40:00
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
