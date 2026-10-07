@@ -7,6 +7,7 @@ aktuell auszugeben.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -35,6 +36,11 @@ REDIRECT_FIELDS = {"from", "to", "code", "note"}
 REDIRECT_RESERVED = ("/api/v1/", "/static/")
 # Türkische Lokativ-Endungen (in Kapıkule = Kapıkule'de)
 TR_LOCATIVE = ("da", "de", "ta", "te")
+# Preis ohne Text (gilt so in beiden Sprachen): Zahl und Währung, z. B. „9,60 €“ oder „6.900 Ft“.
+# Alles mit Worten („ca. 6.900 Ft“) braucht {de, tr}, sonst stünde „ca.“ auch in der TR-Ansicht.
+PRICE_RE = re.compile(r"^\d{1,3}(?:\.\d{3})*(?:,\d{2})? (?:€|Ft|Lei|TL)$")
+# Slug eines Ferienzeitraums in der URL (/de/ferien/sommer-2027, /tr/tatil/yaz-2027)
+SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 @dataclass
@@ -173,10 +179,22 @@ def _check_url(value, where, problems):
 
 
 def _check_source(src, where, problems):
-    if not (isinstance(src, dict) and isinstance(src.get("name"), str) and src["name"].strip()):
+    """Quelle oder Shop: https-URL und Name in beiden Sprachen ({de, tr}) – der Name steht als
+    Linktext auf der Seite, ein rein deutscher Name wäre ein deutscher Rest in der TR-Ansicht."""
+    if not isinstance(src, dict):
         problems.append(f"{where}: Quelle braucht Name und URL")
         return
+    if not _is_bilingual(src.get("name")):
+        problems.append(f"{where}: Name der Quelle nicht zweisprachig ({{de, tr}}), ist {src.get('name')!r}")
     _check_url(src.get("url"), where, problems)
+
+
+def _check_price_value(value, where, problems):
+    """Preis: reine Zahl mit Währung als Text oder – sobald Worte dabei sind („ca.“) – {de, tr}."""
+    if isinstance(value, str) and PRICE_RE.match(value):
+        return
+    if not _is_bilingual(value):
+        problems.append(f"{where}: Preis {value!r} ist weder Zahl mit Währung (z. B. „9,60 €“) noch {{de, tr}}")
 
 
 def _validate_bayrams(bayrams, problems) -> None:
@@ -246,9 +264,11 @@ def validate(content: Content) -> list[str]:
     for state, info in states.items():
         if not isinstance(info.get("population"), int) or info["population"] <= 0:
             problems.append(f"holidays.states.{state}: Einwohnerzahl fehlt")
-    for src in content.holidays["meta"]["sources"]:
-        _check_url(src.get("url"), "holidays.meta.sources", problems)
+    for idx, src in enumerate(content.holidays["meta"]["sources"]):
+        _check_source(src, f"holidays.meta.sources[{idx}]", problems)
+    _check_source(content.holidays["meta"].get("population_source"), "holidays.meta.population_source", problems)
     seen_ids = set()
+    slug_owners: dict[str, set[str]] = {}  # Slug → Zeiträume (muss genau einer sein, siehe unten)
     taken: dict[str, list[tuple[date, date, str]]] = {}  # Land → belegte Ferientage (alle Zeiträume)
     blocks: dict[str, list[tuple[Range, str]]] = {}      # Land → freie Blöcke (alle Zeiträume)
     for period in content.holidays["periods"]:
@@ -258,6 +278,14 @@ def validate(content: Content) -> list[str]:
         seen_ids.add(pid)
         if not _is_bilingual(period.get("label")):
             problems.append(f"holidays.{pid}: Label nicht zweisprachig")
+        slugs = period.get("slug")
+        if not _is_bilingual(slugs):
+            problems.append(f"holidays.{pid}.slug: nicht zweisprachig ({{de, tr}})")
+        else:
+            for lang in LANGS:
+                if not SLUG_RE.match(slugs[lang]):
+                    problems.append(f"holidays.{pid}.slug.{lang}: {slugs[lang]!r} – nur a–z, 0–9 und einzelne Bindestriche")
+                slug_owners.setdefault(slugs[lang], set()).add(pid)
         if set(period["ranges"]) != set(states):
             problems.append(f"holidays.{pid}: Länder fehlen oder sind unbekannt")
         if not any(period["ranges"].values()):
@@ -292,6 +320,11 @@ def validate(content: Content) -> list[str]:
                         f"holidays.{pid}.{state}: nur {stretch.days} freie Tage am Stück "
                         f"({stretch.start}–{stretch.end}); kurze Ferien unter {MIN_FREE_DAYS} Tagen führt das Radar nicht"
                     )
+    # Ein Slug gehört über beide Sprachen zu genau einem Zeitraum und ist nie die id eines anderen:
+    # Links mit fremdem Slug oder alter id (?zeitraum=) leitet die Seite sonst auf den falschen um.
+    for slug, owners in sorted(slug_owners.items()):
+        if len(owners | ({slug} & seen_ids)) > 1:
+            problems.append(f"holidays: Slug {slug!r} gehört zu mehreren Zeiträumen ({', '.join(sorted(owners | ({slug} & seen_ids)))})")
     # Freie Blöcke eines Landes aus zwei Zeiträumen dürfen sich nicht berühren: Reisewellen und
     # Ferien-Wellen zählten sonst einen Ferienbeginn mitten in den Ferien.
     for state, items in blocks.items():
@@ -305,7 +338,7 @@ def validate(content: Content) -> list[str]:
     # Zoll
     sources = content.customs["sources"]
     for key, src in sources.items():
-        _check_url(src.get("url"), f"customs.sources.{key}", problems)
+        _check_source(src, f"customs.sources.{key}", problems)
     ids = set()
     for item in content.customs["items"]:
         iid = item.get("id")
@@ -340,13 +373,14 @@ def validate(content: Content) -> list[str]:
             problems.append(f"transit.{code}: unbekanntes Mautsystem")
         if not _is_bilingual(country.get("name")):
             problems.append(f"transit.{code}.name: nicht zweisprachig")
-        _check_url(country["shop"].get("url"), f"transit.{code}.shop", problems)
-        _check_url(country["source"].get("url"), f"transit.{code}.source", problems)
+        _check_source(country.get("shop"), f"transit.{code}.shop", problems)
+        _check_source(country.get("source"), f"transit.{code}.source", problems)
         if country.get("prices") and "prices_valid_until" not in country:
             problems.append(f"transit.{code}: Preise ohne Gültigkeitsdatum")
         for price in country.get("prices", []):
             if not _is_bilingual(price.get("label")):
                 problems.append(f"transit.{code}: Preis-Label nicht zweisprachig")
+            _check_price_value(price.get("value"), f"transit.{code}.prices", problems)
         for note in country.get("notes", []):
             if not _is_bilingual(note):
                 problems.append(f"transit.{code}: Hinweis nicht zweisprachig")
@@ -379,8 +413,8 @@ def validate(content: Content) -> list[str]:
     # Grenzübergänge
     csources = content.crossings["sources"]
     for key, src in csources.items():
-        _check_url(src.get("url"), f"crossings.sources.{key}", problems)
-        # Kurzbezeichnung mit Land für Startseite und Übersicht (der Name ist teils nur deutsch)
+        _check_source(src, f"crossings.sources.{key}", problems)
+        # Kurzbezeichnung mit Land für Startseite und Übersicht, der volle Name steht auf der Info-Seite
         if not _is_bilingual(src.get("label")):
             problems.append(f"crossings.sources.{key}.label: nicht zweisprachig")
     for crossing in content.crossings["crossings"]:

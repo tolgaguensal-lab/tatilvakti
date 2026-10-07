@@ -206,12 +206,12 @@ def test_preview_urls_fall_back_to_the_request_host(tmp_path, clock):
 @pytest.mark.parametrize("lang, expected", [
     ("de", "Nordrhein-Westfalen, Sommerferien 2027: 19.07.–31.08.2027 · Tage mit der kleinsten Reisewelle – "
            "Abreise: Di 20.07., Mi 21.07., Do 22.07.; Rückreise: "),
-    ("tr", "Nordrhein-Westfalen, 2027 Yaz tatili: 19.07.–31.08.2027 · Tatil dalgasının en küçük olduğu günler – "
+    ("tr", "Nordrhein-Westfalen, 2027 yaz tatili: 19.07.–31.08.2027 · Tatil dalgasının en küçük olduğu günler – "
            "gidiş: Sal 20.07., Çar 21.07., Per 22.07.; dönüş: "),
 ])
 def test_holiday_share_text_names_the_state_and_the_quiet_days(client, lang, expected):
-    slug = "ferien" if lang == "de" else "tatil"
-    html = page(client, f"/{lang}/{slug}?zeitraum=sommer-2027&land=NW")
+    path = "/de/ferien/sommer-2027" if lang == "de" else "/tr/tatil/yaz-2027"
+    html = page(client, f"{path}?land=NW")
     article = re.search(r'<article class="card card--brand" data-per-state="NW">(.*?)</article>', html, re.S).group(1)
     shares = re.findall(r'data-share-text="([^"]*)"', article)
     assert len(shares) == 1  # ein Teilen-Block je Kontext
@@ -221,11 +221,12 @@ def test_holiday_share_text_names_the_state_and_the_quiet_days(client, lang, exp
     # Link-Vorschau des geteilten Links: dieselbe Zusammenfassung
     assert meta(html, "og:description") == share
     wa = htmllib.unescape(re.search(r'href="(https://wa\.me/[^"]+)"', article).group(1))
-    assert wa.endswith(f"%20https%3A//tatilvakti.example/{lang}/{slug}%3Fzeitraum%3Dsommer-2027%26land%3DNW")
+    # Geteilt wird der Pfad des Zeitraums (eigene Seite), das Bundesland bleibt als ?land= dran
+    assert wa.endswith(f"%20https%3A//tatilvakti.example{path}%3Fland%3DNW")
 
 
 def test_holiday_page_without_state_keeps_the_lead_as_preview(client):
-    html = page(client, "/de/ferien?zeitraum=sommer-2027")
+    html = page(client, "/de/ferien/sommer-2027")
     assert meta(html, "og:description").startswith("Alle 16 Bundesländer auf einen Blick.")
 
 
@@ -348,7 +349,7 @@ def test_privacy_text_covers_every_storage_key_in_app_js():
                   f"{B.RETENTION_DAYS} Tage", "Sicherungskopien", "weder Prüfwerte noch Tagesschlüssel",
                   "Die IP-Adresse selbst speichert die App nicht"]),
     ("/tr/bilgi", ["Cihazında", "eyaletin ve yolculuk şeklin", "araç belgelerinde", "henüz gönderilemeyen",
-                   "son bildiriminin sınır kapısı ve yönü", "ana ekran ipucu", "çevrimdışı kopyası",
+                   "son bildiriminin sınır kapısı ve yönü", "ana ekran ipucu", "internetsiz kullanım için kaydedilmiş kopyası",
                    "service worker önbelleği", "TDDDG md. 25 f. 2 b. 2", "çerez uyarısı da yok", "site verilerini",
                    "?land=", "erişim kaydında", "kendi dosyasında", f"en geç {B.CLIENT_HASH_TTL_H} saat",
                    f"{B.RETENTION_DAYS} gün", "yedeklerinde", "IP adresinin kendisini uygulama kaydetmez"]),

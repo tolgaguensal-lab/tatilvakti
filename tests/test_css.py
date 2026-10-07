@@ -105,11 +105,11 @@ def test_dark_block_redefines_every_mixed_token():
 def test_holiday_chart_shapes_carry_fill_attributes(client):
     # Ohne CSS bzw. ohne var() blieben SVG-Flächen sonst schwarz
     html = client.get("/de/ferien").get_data(as_text=True)
-    periods = sorted(set(re.findall(r'href="/de/ferien\?zeitraum=([\w-]+)"', html)))
+    periods = sorted(set(re.findall(r'href="(/de/ferien/[\w-]+)"', html)))
     assert len(periods) > 3
     seen = set()
-    for pid in periods:
-        page = client.get(f"/de/ferien?zeitraum={pid}").get_data(as_text=True)
+    for path in periods:
+        page = client.get(path).get_data(as_text=True)
         for tag in re.findall(r"<(?:rect|path) class=\"tl__(?:fill|all16|bayram|bar|rowbg)\"[^>]*>", page):
             kind = re.search(r'class="tl__(\w+)"', tag).group(1)
             seen.add(kind)

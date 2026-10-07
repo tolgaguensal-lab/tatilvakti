@@ -128,6 +128,7 @@ class Period:
         self.id: str = raw["id"]
         self.kind: str = raw["kind"]
         self.label: dict = raw["label"]
+        self.slug: dict = raw["slug"]  # Pfad je Sprache: /de/ferien/sommer-2027, /tr/tatil/yaz-2027
         self.ranges: dict[str, list[Range]] = {
             state: [Range(date.fromisoformat(s), date.fromisoformat(e)) for s, e in pairs]
             for state, pairs in raw["ranges"].items()
@@ -164,6 +165,10 @@ class HolidayRadar:
         self.states: dict = data["states"]
         self.periods: list[Period] = sorted((Period(p) for p in data["periods"]), key=lambda p: p.start)
         self.by_id = {p.id: p for p in self.periods}
+        self.by_slug: dict[str, dict[str, Period]] = {}  # Sprache → Slug → Zeitraum
+        for period in self.periods:
+            for lang, slug in period.slug.items():
+                self.by_slug.setdefault(lang, {})[slug] = period
         total = sum(s["population"] for s in self.states.values())
         self.weight = {code: s["population"] / total for code, s in self.states.items()}
         self.bayrams: list[Bayram] = sorted(
@@ -180,6 +185,12 @@ class HolidayRadar:
 
     def _by_weight(self, states) -> tuple[str, ...]:
         return tuple(sorted(set(states), key=lambda s: (-self.weight[s], s)))
+
+    def find_period(self, key: str) -> Period | None:
+        """Zeitraum zu einer id (alte Links mit ?zeitraum=) oder einem Slug irgendeiner Sprache."""
+        if key in self.by_id:
+            return self.by_id[key]
+        return next((slugs[key] for slugs in self.by_slug.values() if key in slugs), None)
 
     # -------------------------------------------------------------- Abfragen
 

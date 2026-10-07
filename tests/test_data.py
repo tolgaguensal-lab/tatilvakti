@@ -60,13 +60,61 @@ def test_validation_catches_broken_holiday_ranges(ranges, message):
 
 def test_validation_catches_unused_source_and_dead_checklist_link():
     content = load_content()
-    content.customs["sources"]["alt"] = {"name": "Alt", "url": "https://example.org"}
+    content.customs["sources"]["alt"] = {"name": {"de": "Alt", "tr": "Eski"}, "url": "https://example.org"}
     content.transit["documents"][0]["link"] = "customs#gibt-es-nicht"
-    content.transit["countries"]["RS"]["notes"][0]["source"] = {"name": "", "url": "https://example.org"}
+    content.transit["countries"]["RS"]["notes"][0]["source"] = {"name": {"de": "", "tr": ""}, "url": "https://example.org"}
+    content.transit["countries"]["HU"]["notes"][0]["source"] = "https://example.org"
     problems = validate(content)
     assert any("customs.sources.alt: wird von keiner Regel verwendet" in p for p in problems)
     assert any("zeigt auf keine Zoll-Regel" in p for p in problems)
-    assert any("transit.RS.notes.source: Quelle braucht Name und URL" in p for p in problems)
+    assert any("transit.RS.notes.source: Name der Quelle nicht zweisprachig" in p for p in problems)
+    assert any("transit.HU.notes.source: Quelle braucht Name und URL" in p for p in problems)
+
+
+def _sources(content):
+    """Alle Quellen und Shops mit Fundstelle: (Ort, Objekt mit name und url)."""
+    found = [(f"holidays.meta.sources[{i}]", s) for i, s in enumerate(content.holidays["meta"]["sources"])]
+    found += [("holidays.meta.population_source", content.holidays["meta"]["population_source"]),
+              ("holidays.bayrams.source", content.holidays["bayrams"]["source"])]
+    found += [(f"customs.sources.{k}", s) for k, s in content.customs["sources"].items()]
+    found += [(f"crossings.sources.{k}", s) for k, s in content.crossings["sources"].items()]
+    for code, country in content.transit["countries"].items():
+        found += [(f"transit.{code}.shop", country["shop"]), (f"transit.{code}.source", country["source"])]
+        found += [(f"transit.{code}.notes.source", n["source"]) for n in country["notes"] if "source" in n]
+    found += [(f"transit.documents.{d['id']}.source", d["source"]) for d in content.transit["documents"] if "source" in d]
+    return found
+
+
+def test_every_source_name_is_bilingual():
+    """Quellennamen sind Linktexte: in der TR-Ansicht kein „Zoll – Reisefreimengen“ (prod-6)."""
+    sources = _sources(load_content())
+    assert len(sources) > 50
+    for where, src in sources:
+        assert set(src["name"]) == set(LANGS) and all(src["name"][l].strip() for l in LANGS), where
+
+
+@pytest.mark.parametrize("where", ["holidays.meta.sources[0]", "holidays.meta.population_source",
+                                   "holidays.bayrams.source", "customs.sources.zoll_freimengen",
+                                   "crossings.sources.bg_police", "transit.HU.shop", "transit.RO.source",
+                                   "transit.RS.notes.source", "transit.documents.einverstaendnis.source"])
+def test_validation_rejects_a_german_only_source_name(where):
+    content = load_content()
+    src = dict(_sources(content))[where]
+    src["name"] = src["name"]["de"]  # Altformat: nur ein (deutscher) Text
+    assert any(p.startswith(where) and "nicht zweisprachig" in p for p in validate(content)), where
+
+
+@pytest.mark.parametrize("value, ok", [
+    ("9,60 €", True), ("6.900 Ft", True), ("30 Lei", True), ("54.258 TL", True),
+    ("ca. 6.900 Ft", False), ("6900 Ft", False), ("9.60 €", False), ("", False), (None, False),
+    ({"de": "ca. 6.900 Ft", "tr": "yaklaşık 6.900 Ft"}, True), ({"de": "ca. 6.900 Ft"}, False),
+])
+def test_price_with_words_needs_both_languages(value, ok):
+    """„ca.“ gehört nicht in die TR-Ansicht: Preise mit Worten nur als {de, tr} (prod-6)."""
+    content = load_content()
+    content.transit["countries"]["HU"]["prices"][0]["value"] = value
+    problems = [p for p in validate(content) if p.startswith("transit.HU.prices")]
+    assert (problems == []) == ok, problems
 
 
 @pytest.mark.parametrize("link, message", [
@@ -260,3 +308,26 @@ def test_validation_rejects_blocks_that_touch_across_periods():
     problems = validate(content)
     assert any("sommer-2027.HH: freier Block 2027-05-15–2027-05-30 schließt an pfingsten-2027 an" in p
                for p in problems), problems
+
+
+def test_every_period_has_a_path_per_language():
+    content = load_content()
+    for period in content.holidays["periods"]:
+        assert set(period["slug"]) == set(LANGS), period["id"]
+        assert period["slug"]["de"] == period["id"]  # alte Links ?zeitraum=<id> passen 1:1 zum Pfad
+    assert _period(content, "sommer-2027")["slug"]["tr"] == "yaz-2027"
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda c: _period(c, "sommer-2027").pop("slug"), "sommer-2027.slug: nicht zweisprachig"),
+    (lambda c: _period(c, "sommer-2027")["slug"].update(tr=""), "sommer-2027.slug: nicht zweisprachig"),
+    (lambda c: _period(c, "sommer-2027")["slug"].update(tr="Yaz 2027"), "sommer-2027.slug.tr: 'Yaz 2027'"),
+    (lambda c: _period(c, "sommer-2027")["slug"].update(tr="yaz--2027"), "sommer-2027.slug.tr: 'yaz--2027'"),
+    (lambda c: _period(c, "sommer-2027")["slug"].update(tr="yaz-2028"), "Slug 'yaz-2028' gehört zu mehreren Zeiträumen"),
+    # Slug gleich der id eines anderen Zeitraums: alte Links ?zeitraum=<id> gingen sonst ins Leere
+    (lambda c: _period(c, "sommer-2027")["slug"].update(tr="sommer-2028"), "Slug 'sommer-2028' gehört zu mehreren"),
+])
+def test_validation_rejects_broken_period_slugs(change, message):
+    content = load_content()
+    change(content)
+    assert any(message in p for p in validate(content)), validate(content)

@@ -262,5 +262,16 @@
   "i_privacy_land": "Dein Bundesland steht als ?land=… in manchen Links, etwa zum Ferien-Radar – damit die Seite gleich deine Ferien zeigt und geteilte Links funktionieren. Öffnest du so einen Link, sehen unser Server und der vorgeschaltete Proxy das Bundesland in der aufgerufenen Adresse; der Proxy kann sie in seinem Zugriffsprotokoll speichern.",
   "i_privacy_reports_title": "Wenn du eine Wartezeit meldest",
   "i_privacy_reports_keep": "Die Meldungen selbst bewahren wir {days} Tage auf – für die Anzeige der Wartezeiten und des typischen Tagesverlaufs –, danach werden sie gelöscht. Sicherungskopien der Datenbank enthalten weder Prüfwerte noch Tagesschlüssel.",
-  "i_privacy_server_title": "Beim Aufruf der Seiten"
+  "i_privacy_server_title": "Beim Aufruf der Seiten",
+  "home_title_seo": "Sıla yolu: Ferien, Grenz-Wartezeiten, Vignetten und Zoll für die Fahrt in die Türkei",
+  "hol_title_seo": "Ferien-Radar: Schulferien aller 16 Bundesländer",
+  "hol_period_title": "{period}: Termine aller 16 Bundesländer",
+  "hol_period_h1": "{period} – alle Bundesländer",
+  "r_title_seo": "Mit dem Auto in die Türkei: Routen, Vignetten und Maut {season}",
+  "b_title_seo": "Grenz-Wartezeiten live: {names}",
+  "b_cross_title": "{name}: Wartezeit live – gemeldet von Reisenden",
+  "c_title_seo": "Zoll & Koffer: Sucuk, Gold, Handy, Rakı – Türkei und zurück",
+  "tz_istanbul": "Ortszeit Istanbul",
+  "tz_belgrade": "Ortszeit Belgrad",
+  "hol_pressure_source": "Quelle für den Ferien-Druck"
 }

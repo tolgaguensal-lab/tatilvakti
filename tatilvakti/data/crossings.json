@@ -5,12 +5,15 @@
     "review_after": "2027-05-31",
     "note": {
       "de": "Wartezeiten stammen ausschließlich aus Meldungen von Reisenden in dieser App. Infos von Behörden und Automobilclubs sind pro Übergang verlinkt.",
-      "tr": "Bekleme süreleri yalnızca bu uygulamadaki yolcu bildirimlerinden gelir. Resmî kurumların ve otomobil kulüplerinin bilgilerine her kapı için bağlantı verilmiştir."
+      "tr": "Bekleme süreleri yalnızca bu uygulamada yolcuların yaptığı bildirimlerden gelir. Resmî kurumların ve otomobil kulüplerinin sayfalarına her sınır kapısı için bağlantı var."
     }
   },
   "sources": {
     "hu_police": {
-      "name": "Ungarische Polizei – Határinfo (Wartezeiten)",
+      "name": {
+        "de": "Ungarische Polizei – Határinfo (Wartezeiten)",
+        "tr": "Macaristan Polisi – Határinfo (bekleme süreleri)"
+      },
       "label": {
         "de": "Ungarn: Polizei (Határinfo)",
         "tr": "Macaristan: Polis (Határinfo)"
@@ -18,7 +21,10 @@
       "url": "https://www.police.hu/hu/hirek-es-informaciok/hatarinfo"
     },
     "amss": {
-      "name": "AMSS – Auto-moto savez Srbije",
+      "name": {
+        "de": "AMSS – Auto-moto savez Srbije",
+        "tr": "AMSS – Auto-moto savez Srbije (Sırbistan otomobil kulübü)"
+      },
       "label": {
         "de": "Serbien: Automobilclub AMSS",
         "tr": "Sırbistan: AMSS otomobil kulübü"
@@ -26,7 +32,10 @@
       "url": "https://www.amss.org.rs"
     },
     "bg_police": {
-      "name": "Bulgarische Grenzpolizei (ГДГП)",
+      "name": {
+        "de": "Bulgarische Grenzpolizei (ГДГП)",
+        "tr": "Bulgaristan Sınır Polisi (ГДГП)"
+      },
       "label": {
         "de": "Bulgarien: Grenzpolizei",
         "tr": "Bulgaristan: Sınır Polisi"
@@ -34,7 +43,10 @@
       "url": "https://www.mvr.bg/gdgp"
     },
     "tr_trakya": {
-      "name": "T.C. Ticaret Bakanlığı – Trakya Gümrük",
+      "name": {
+        "de": "T.C. Ticaret Bakanlığı – Trakya Gümrük",
+        "tr": "T.C. Ticaret Bakanlığı – Trakya Gümrük"
+      },
       "label": {
         "de": "Türkei: Zoll (Trakya Gümrük)",
         "tr": "Türkiye: Trakya Gümrük"
@@ -42,7 +54,10 @@
       "url": "https://trakya.ticaret.gov.tr"
     },
     "hak": {
-      "name": "HAK – Hrvatski autoklub",
+      "name": {
+        "de": "HAK – Hrvatski autoklub",
+        "tr": "HAK – Hrvatski autoklub (Hırvatistan otomobil kulübü)"
+      },
       "label": {
         "de": "Kroatien: Automobilclub HAK",
         "tr": "Hırvatistan: HAK otomobil kulübü"
@@ -74,7 +89,7 @@
       ],
       "note": {
         "de": "Wichtigster Übergang für Autos zwischen Bulgarien und der Türkei, bei Edirne. Kamerabilder der türkischen Seite gibt es nur saisonal im Sommer.",
-        "tr": "Bulgaristan ile Türkiye arasında otomobiller için en önemli kapı, Edirne yakınında. Türk tarafının kamera görüntüleri yalnızca yaz döneminde yayınlanır."
+        "tr": "Bulgaristan ile Türkiye arasında otomobiller için en önemli sınır kapısı, Edirne yakınında. Türk tarafının kamera görüntüleri yalnızca yaz döneminde yayınlanır."
       },
       "tz": "Europe/Istanbul"
     },
@@ -98,7 +113,7 @@
       ],
       "note": {
         "de": "Kleinerer Übergang durch das Strandscha-Gebirge Richtung Kırklareli. Kurvige Bergstraße.",
-        "tr": "Istranca Dağları üzerinden Kırklareli'ye giden küçük kapı. Virajlı dağ yolu."
+        "tr": "Istranca Dağları üzerinden Kırklareli'ye giden küçük sınır kapısı. Virajlı dağ yolu."
       },
       "tz": "Europe/Istanbul"
     },
@@ -198,7 +213,7 @@
       ],
       "note": {
         "de": "Autobahnübergang Ungarn → Serbien, im Sommer oft der Engpass. Ausweichmöglichkeiten: Ásotthalom und Tompa.",
-        "tr": "Macaristan → Sırbistan otoyol kapısı, yazın sık sık darboğaz. Alternatifler: Ásotthalom ve Tompa."
+        "tr": "Macaristan → Sırbistan otoyol sınır kapısı; yazın sık sık darboğaz oluyor. Alternatifler: Ásotthalom ve Tompa."
       },
       "tz": "Europe/Belgrade"
     },
@@ -221,7 +236,7 @@
       ],
       "note": {
         "de": "Straßenübergang westlich von Röszke. Laut ungarischer Polizei seit 01.05.2026 rund um die Uhr geöffnet.",
-        "tr": "Röszke'nin batısında kara yolu kapısı. Macar polisine göre 01.05.2026'dan beri 24 saat açık."
+        "tr": "Röszke'nin batısında kara yolu sınır kapısı. Macaristan polisine göre 01.05.2026'dan beri 24 saat açık."
       },
       "tz": "Europe/Belgrade"
     },
@@ -245,7 +260,7 @@
       ],
       "note": {
         "de": "Ausweichübergang Richtung Subotica.",
-        "tr": "Subotica yönünde alternatif kapı."
+        "tr": "Subotica yönünde alternatif sınır kapısı."
       },
       "tz": "Europe/Belgrade"
     },
@@ -272,7 +287,7 @@
       ],
       "note": {
         "de": "Autobahnübergang Kroatien → Serbien auf der Route über Zagreb.",
-        "tr": "Zagreb güzergâhında Hırvatistan → Sırbistan otoyol kapısı."
+        "tr": "Zagreb güzergâhında Hırvatistan → Sırbistan otoyol sınır kapısı."
       },
       "tz": "Europe/Belgrade"
     }

@@ -1,21 +1,27 @@
 {% extends "base.html" %}
 {% from "_macros.html" import icon, asof, ext, share with context %}
-{% block title %}{{ t("hol_title") }}: {{ period.label[lang] }} – {{ t("app_name") }}{% endblock %}
+{#- Eigene Seite je Zeitraum (/de/ferien/<slug>): Titel und h1 nach Suchbegriffen. /de/ferien zeigt
+    den laufenden oder nächsten Zeitraum unter dem allgemeinen Titel. #}
+{% block title %}{{ t("hol_period_title", period=period.label[lang]) if period_page else t("hol_title_seo") }} – {{ t("app_name") }}{% endblock %}
 {% block description %}{{ description }}{% endblock %}
 {% block main %}
 <header class="pagehead">
+  {%- if period_page %}
+  <p class="eyebrow">{{ t("hol_title") }}</p>
+  <h1>{{ icon("calendar") }}{{ t("hol_period_h1", period=period.label[lang]) | wbr }}</h1>
+  {%- else %}
   <h1>{{ icon("calendar") }}{{ t("hol_title") }}</h1>
+  {%- endif %}
   <p class="lead">{{ t("hol_lead") }}</p>
 </header>
 
 <nav class="chips" aria-label="{{ t('hol_period') }}">
   {%- for p in periods %}
-  <a class="chips__item{% if p.id == period.id %} is-active{% endif %}" href="{{ href('holidays', zeitraum=p.id) }}"{% if p.id == period.id %} aria-current="page"{% endif %}>{{ p.label[lang] }}</a>
+  <a class="chips__item{% if p.id == period.id %} is-active{% endif %}" href="{{ href('holidays', slug=p.slug[lang]) }}"{% if p.id == period.id %} aria-current="page"{% endif %}>{{ p.label[lang] }}</a>
   {%- endfor %}
 </nav>
 
-<form class="card inline-form" method="get" action="{{ href('holidays') }}" data-prefs>
-  <input type="hidden" name="zeitraum" value="{{ period.id }}">
+<form class="card inline-form" method="get" action="{{ href('holidays', slug=period.slug[lang]) }}" data-prefs>
   <label class="field">
     <span class="field__label">{{ t("hol_state") }}</span>
     <select name="land" data-pref="state">
@@ -60,7 +66,7 @@
       {%- endfor %}
     </div>
     <p class="hint">{{ t("hol_quiet_expl") }}</p>
-    {{ share(share_texts[code], abs_url(href('holidays', zeitraum=period.id, land=code))) }}
+    {{ share(share_texts[code], abs_url(href('holidays', slug=period.slug[lang], land=code))) }}
     {%- else %}
     <p>{{ t("hol_no_range", state=states[code].name) }}</p>
     {%- endif %}
@@ -139,7 +145,7 @@
     <div>
       <dt>{{ b.label[lang] }}</dt>
       <dd>{{ fmt_ranges([b.days]) }} · {{ t("hol_bayram_arife", date=fmt_date(b.arife, with_weekday=True, with_year=False)) }}</dd>
-      <dd class="facts__sub">{{ t("hol_bayram_states", states=names) }} · {{ t("source") }}: {{ ext(bayram_source.url, bayram_source.name) }}</dd>
+      <dd class="facts__sub">{{ t("hol_bayram_states", states=names) }} · {{ t("source") }}: {{ ext(bayram_source.url, bayram_source.name[lang]) }}</dd>
     </div>
     {%- endfor %}
   </dl>
@@ -162,6 +168,6 @@
 </details>
 
 {{ asof(radar_meta.as_of, radar_meta.sources, due=radar_due) }}
-<p class="asof">{{ t("source") }} {{ t("hol_pressure") }}: {{ ext(radar_meta.population_source.url, radar_meta.population_source.name) }}</p>
+<p class="asof">{{ t("hol_pressure_source") }}: {{ ext(radar_meta.population_source.url, radar_meta.population_source.name[lang]) }}</p>
 <p class="hint">{{ radar_meta.note[lang] }}</p>
 {% endblock %}

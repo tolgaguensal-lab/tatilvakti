@@ -8,8 +8,9 @@
   <meta name="theme-color" content="#0e6b6b" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#10161d" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
+  {#- hreflang nur mit Sprache, ohne Land: Türkischsprachige suchen vor allem in Deutschland #}
   {%- for l, url in alt_urls.items() %}
-  <link rel="alternate" hreflang="{{ 'de-DE' if l == 'de' else 'tr-TR' }}" href="{{ abs_url(url) }}">
+  <link rel="alternate" hreflang="{{ l }}" href="{{ abs_url(url) }}">
   {%- endfor %}
   {%- if alt_urls %}
   <link rel="alternate" hreflang="x-default" href="{{ abs_url(alt_urls['de']) }}">
@@ -48,7 +49,7 @@
     <span class="brand__name">tatil<span>vakti</span></span>
   </a>
   {%- if alt_urls %}
-  <a class="plate" href="{{ alt_urls[other_lang] }}" hreflang="{{ other_lang }}" lang="{{ other_lang }}" aria-label="{{ t('lang_switch_label') }}">
+  <a class="plate" href="{{ switch_urls[other_lang] }}" hreflang="{{ other_lang }}" lang="{{ other_lang }}" aria-label="{{ t('lang_switch_label') }}">
     <span class="plate__eu" aria-hidden="true">{{ "TR" if other_lang == "tr" else "D" }}</span>
     <span class="plate__txt">{{ t("lang_switch") }}</span>
   </a>

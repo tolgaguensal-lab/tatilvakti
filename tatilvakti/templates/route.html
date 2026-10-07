@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import icon, ext, status, asof, share with context %}
-{% block title %}{{ t("r_title") }} 2026/27 – {{ t("app_name") }}{% endblock %}
+{% block title %}{{ t("r_title_seo", season=season) }} – {{ t("app_name") }}{% endblock %}
 {% block description %}{{ t("r_lead") }}{% endblock %}
 {% block main %}
 <header class="pagehead">
@@ -60,14 +60,14 @@
       <span class="chip chip--sys">{{ t("r_system_" ~ ct.system) }}</span>
     </summary>
     <div class="country__body">
-      <p>{{ t("r_official_shop") }}: {{ ext(ct.shop.url, ct.shop.name) }}</p>
+      <p>{{ t("r_official_shop") }}: {{ ext(ct.shop.url, ct.shop.name[lang]) }}</p>
       {%- if ct.prices %}
       <h3 class="subhead">{{ t("r_prices") }} <span class="muted">({{ t("r_prices_until", date=fmt_date(ct.prices_valid_until | todate)) }})</span></h3>
       {%- if outdated %}<p class="due">{{ icon("alert", "icon--xs") }} {{ t("r_prices_outdated") }}</p>{% endif %}
       <table class="table table--prices{% if outdated %} is-outdated{% endif %}">
         <tbody>
           {%- for pr in ct.prices %}
-          <tr><th scope="row">{{ pr.label[lang] }}</th><td>{{ pr.value }}</td></tr>
+          <tr><th scope="row">{{ pr.label[lang] }}</th><td>{{ pr.value if pr.value is string else pr.value[lang] }}</td></tr>
           {%- endfor %}
         </tbody>
       </table>
@@ -75,9 +75,9 @@
       <p class="muted">{{ t("r_no_prices") }}</p>
       {%- endif %}
       <ul class="ticks">
-        {%- for n in ct.notes %}<li>{{ icon("info", "icon--xs") }}<span>{{ n[lang] }}{% if n.source %} <span class="src-inline">{{ t("source") }}: {{ ext(n.source.url, n.source.name) }}</span>{% endif %}</span></li>{% endfor %}
+        {%- for n in ct.notes %}<li>{{ icon("info", "icon--xs") }}<span>{{ n[lang] }}{% if n.source %} <span class="src-inline">{{ t("source") }}: {{ ext(n.source.url, n.source.name[lang]) }}</span>{% endif %}</span></li>{% endfor %}
       </ul>
-      <p class="rule__src">{{ t("source") }}: {{ ext(ct.source.url, ct.source.name) }}</p>
+      <p class="rule__src">{{ t("source") }}: {{ ext(ct.source.url, ct.source.name[lang]) }}</p>
     </div>
   </details>
   {%- endfor %}
@@ -90,7 +90,7 @@
     <li>
       <label><input type="checkbox" data-check="{{ doc.id }}"><span>{{ doc.text[lang] }}</span></label>
       {%- if doc.link %}{% set page, anchor = doc.link.split("#") %} <a href="{{ href(page) }}#{{ anchor }}">{{ t("r_doc_more") }}</a>{% endif %}
-      {%- if doc.source %} <span class="src-inline">{{ t("source") }}: {{ ext(doc.source.url, doc.source.name) }}</span>{% endif %}
+      {%- if doc.source %} <span class="src-inline">{{ t("source") }}: {{ ext(doc.source.url, doc.source.name[lang]) }}</span>{% endif %}
     </li>
     {%- endfor %}
   </ul>

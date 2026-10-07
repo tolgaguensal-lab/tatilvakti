@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import icon, dirs, ext, asof with context %}
-{% block title %}{{ t("b_title") }}: Kapıkule, Röszke, Gradina – {{ t("app_name") }}{% endblock %}
+{% block title %}{{ t("b_title_seo", names=main_names) }} – {{ t("app_name") }}{% endblock %}
 {% block description %}{{ t("b_lead") }}{% endblock %}
 {% block main %}
 <header class="pagehead">

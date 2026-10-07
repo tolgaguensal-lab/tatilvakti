@@ -7,6 +7,8 @@ const t = L.harness("layout_hint");
 const PAGES = [
   "/de/", "/de/ferien?land=NW", "/de/route", "/de/grenze", "/de/grenze/kapikule", "/de/zoll", "/de/info", "/de/offline",
   "/tr/", "/tr/tatil?land=BY", "/tr/guzergah", "/tr/sinir", "/tr/sinir/kapikule", "/tr/gumruk", "/tr/bilgi", "/tr/cevrimdisi",
+  // Zeiträume als eigene Seiten, mit den längsten Überschriften
+  "/de/ferien/pfingsten-2027?land=BW", "/tr/tatil/mayis-2027?land=BW", "/tr/tatil/yilbasi-2026-27",
 ];
 const IPHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) "
   + "Version/18.6 Mobile/15E148 Safari/604.1";

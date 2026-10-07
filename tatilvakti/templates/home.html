@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import icon, dirs, ext, cstatus with context %}
+{% block title %}{{ t("home_title_seo") }} – {{ t("app_name") }}{% endblock %}
 {% block main %}
 <section class="hero">
   <p class="eyebrow">{{ t("tagline") }}</p>

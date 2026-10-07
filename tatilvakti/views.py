@@ -9,6 +9,7 @@ from urllib.parse import quote, urlencode, urlsplit
 
 from flask import (Flask, Response, abort, current_app, g, jsonify, make_response, redirect,
                    render_template, request, url_for)
+from markupsafe import Markup, escape
 from werkzeug.exceptions import HTTPException, MethodNotAllowed, NotFound
 from werkzeug.routing import RequestRedirect
 
@@ -171,13 +172,33 @@ def home():
                            official=official_sources(main))
 
 
-def holidays():
+def holidays(slug: str | None = None):
+    """Ferien-Radar. /de/ferien zeigt den laufenden oder nächsten Zeitraum, /de/ferien/<slug>
+    (TR: /tr/tatil/<slug>) einen bestimmten – mit eigenem Titel und h1, kanonisch ohne ?land=.
+
+    Alte Links mit ?zeitraum=<id> und Slugs der anderen Sprache leiten dauerhaft (301) auf den
+    Pfad weiter; ?land= bleibt dabei erhalten.
+    """
     app = current_app
     today = today_berlin(app)
     radar = tv().radar
-    period = radar.by_id.get(request.args.get("zeitraum", "")) or radar.current_or_next_period(today) or radar.periods[-1]
     land = request.args.get("land", "").upper()
     land = land if land in radar.states else ""
+    keep = {"land": land} if land else {}
+    if slug is None:
+        target = radar.find_period(request.args.get("zeitraum", ""))
+        if target is not None:
+            return redirect(href("holidays", slug=target.slug[g.lang], **keep), code=301)
+        period = radar.current_or_next_period(today) or radar.periods[-1]
+    else:
+        period = radar.by_slug[g.lang].get(slug)
+        if period is None:
+            target = radar.find_period(slug)
+            if target is None:
+                abort(404)
+            return redirect(href("holidays", slug=target.slug[g.lang], **keep), code=301)
+        # Sprachwechsel, hreflang und Canonical: derselbe Zeitraum mit dem Slug der anderen Sprache
+        g.alt_params = {lang: {"slug": period.slug[lang]} for lang in LANGS}
     bayrams = radar.bayrams_in(period)
     chart = _holiday_chart(radar, period, today, bayrams)
     personal = {}
@@ -193,7 +214,7 @@ def holidays():
     # Link-Vorschau (z. B. WhatsApp): mit Bundesland dessen Ferien und ruhige Tage, sonst die Einleitung
     description = share_texts.get(land) or t("hol_lead")
     return render_template("holidays.html", page="holidays", period=period, periods=radar.periods,
-                           land=land, chart=chart, personal=personal, today=today,
+                           period_page=slug is not None, land=land, chart=chart, personal=personal, today=today,
                            all16=radar.all_states_windows(period), peak=radar.peak(period),
                            share_texts=share_texts, description=description, radar_meta=tv().content.meta("holidays"),
                            radar_due=tv().content.review_due("holidays", today), quiet_max=QUIET_MAX,
@@ -279,12 +300,20 @@ def _holiday_chart(radar, period, today, bayrams=()) -> dict:
             "months": months, "today_x": today_x, "all16": all16, "bayrams": bayram_bands}
 
 
+def season(as_of: str) -> str:
+    """Reisesaison eines Datenstands für den Seitentitel: ab September die Saison bis zum
+    nächsten Sommer („2026/27“), davor das laufende Jahr („2027“)."""
+    day = date.fromisoformat(as_of)
+    return f"{day.year}/{(day.year + 1) % 100:02d}" if day.month >= 9 else str(day.year)
+
+
 def route():
     content = tv().content
     ids = [c["id"] for c in content.crossings["crossings"]]
     statuses = B.statuses(_db(), ids, now_ts())
     return render_template("route.html", page="route", transit=content.transit, statuses=statuses,
                            crossings=content.crossing_by_id, today=today_berlin(current_app),
+                           season=season(content.meta("transit")["as_of"]),
                            share_text=t("r_share_text", n=len(content.transit["routes"])))
 
 
@@ -296,7 +325,8 @@ def borders():
     waves = tv().radar.waves(today_berlin(current_app))[:8]
     return render_template("borders.html", page="borders", crossings=crossings, statuses=statuses,
                            waves=waves, now=now, radar=tv().radar, crossings_meta=content.meta("crossings"),
-                           official=official_sources(crossings))
+                           official=official_sources(crossings),
+                           main_names=", ".join(c["short"] for c in crossings if c["main"]))
 
 
 def crossing(cid: str):
@@ -423,14 +453,14 @@ def manifest():
 # ------------------------------------------------------- PWA, SEO, Betrieb
 
 def offline_urls() -> list[str]:
-    """Alles, was der Service Worker vorab speichert – inkl. aller Ferien-Zeiträume."""
+    """Alles, was der Service Worker vorab speichert – inkl. aller Ferien-Zeiträume (als Pfad)."""
     content = tv().content
     urls = []
     for lang in LANGS:
         for page in PAGES:
             urls.append(url_for(f"{page}_{lang}"))
         for p in tv().radar.periods:
-            urls.append(url_for(f"holidays_{lang}", zeitraum=p.id))
+            urls.append(url_for(f"holidays_{lang}", slug=p.slug[lang]))
         for c in content.crossings["crossings"]:
             urls.append(url_for(f"crossing_{lang}", cid=c["id"]))
     return urls
@@ -531,17 +561,27 @@ def robots():
 
 
 def sitemap():
+    """Alle indexierbaren Seiten beider Sprachen, je mit hreflang-Alternativen und x-default.
+
+    Ein Eintrag ist eine Seite in allen Sprachen: {Sprache: Pfad}. Ferienzeiträume haben je
+    Sprache einen eigenen Slug, deshalb die Pfade je Sprache statt gemeinsamer Parameter.
+    """
+    content = tv().content
+    entries = [{lang: url_for(f"{p}_{lang}") for lang in LANGS} for p in PAGES if p != "offline"]
+    entries += [{lang: url_for(f"holidays_{lang}", slug=p.slug[lang]) for lang in LANGS} for p in tv().radar.periods]
+    entries += [{lang: url_for(f"crossing_{lang}", cid=c["id"]) for lang in LANGS}
+                for c in content.crossings["crossings"]]
+
+    def loc(path: str) -> str:  # str(): Markup würde beim Verketten den Rest escapen
+        return str(escape(abs_url(path)))
+
     lines = ['<?xml version="1.0" encoding="UTF-8"?>',
              '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">']
-    entries = [(p, {}) for p in PAGES if p != "offline"]
-    entries += [("crossing", {"cid": c["id"]}) for c in tv().content.crossings["crossings"]]
-    for page, params in entries:
+    for paths in entries:
+        alternates = [(lang, paths[lang]) for lang in LANGS] + [("x-default", paths[LANGS[0]])]
         for lang in LANGS:
-            lines.append("<url><loc>" + abs_url(url_for(f"{page}_{lang}", **params)) + "</loc>")
-            for alt in LANGS:
-                hreflang = "de-DE" if alt == "de" else "tr-TR"
-                lines.append(f'<xhtml:link rel="alternate" hreflang="{hreflang}" '
-                             f'href="{abs_url(url_for(f"{page}_{alt}", **params))}"/>')
+            lines.append(f"<url><loc>{loc(paths[lang])}</loc>")
+            lines += [f'<xhtml:link rel="alternate" hreflang="{code}" href="{loc(path)}"/>' for code, path in alternates]
             lines.append("</url>")
     lines.append("</urlset>")
     return Response("\n".join(lines), mimetype="application/xml")
@@ -652,6 +692,9 @@ def register(app: Flask) -> None:
             slug = SLUGS[page][lang]
             app.add_url_rule(f"/{lang}/{slug}", endpoint=f"{page}_{lang}", view_func=view,
                              defaults={"lang": lang})
+        # Ein Ferienzeitraum als eigene Seite, gleicher Endpunkt: href("holidays", slug=…) baut den Pfad
+        app.add_url_rule(f"/{lang}/{SLUGS['holidays'][lang]}/<slug>", endpoint=f"holidays_{lang}",
+                         view_func=holidays, defaults={"lang": lang})
         base = f"/{lang}/{SLUGS['borders'][lang]}"
         app.add_url_rule(f"{base}/<cid>", endpoint=f"crossing_{lang}", view_func=crossing, defaults={"lang": lang})
         app.add_url_rule(f"{base}/<cid>/report", endpoint=f"report_{lang}", view_func=report_form,
@@ -667,6 +710,12 @@ def register(app: Flask) -> None:
     @app.template_filter("todate")
     def todate(value):
         return value if isinstance(value, date) else date.fromisoformat(value)
+
+    @app.template_filter("wbr")
+    def wbr(value):
+        """Umbruchstelle nach jedem „/“: „Himmelfahrt-/Pfingstferien“ passt sonst als Überschrift
+        nicht auf 320 px. Der Text wird zuerst escaped, nur <wbr> ist Markup."""
+        return Markup("/<wbr>").join(escape(part) for part in str(value).split("/"))
 
     @app.url_value_preprocessor
     def pull_lang(_endpoint, values):
@@ -712,16 +761,21 @@ def register(app: Flask) -> None:
         endpoint = request.endpoint or ""
         page = endpoint.rsplit("_", 1)[0] if endpoint.endswith(tuple(f"_{l}" for l in LANGS)) else None
         other = "tr" if g.lang == "de" else "de"
-        alt_urls = {}
+        # alt_urls: dieselbe Seite je Sprache, ohne Query – für Canonical, hreflang und og:url
+        # (?land= ergibt keine eigene Seite). switch_urls: Sprachwechsel, behält ?land= bei.
+        alt_urls, switch_urls = {}, {}
         if page and page not in ("report", "manifest"):
             args = dict(request.view_args or {})
-            query = {k: v for k, v in request.args.items() if k in ("zeitraum", "land")}
+            params = g.get("alt_params") or {}  # z. B. Ferienzeitraum: Slug je Sprache
+            land = request.args.get("land", "").upper()
+            land = land if land in tv().radar.states else ""
             for lang in LANGS:
-                alt_urls[lang] = url_for(f"{page}_{lang}", **args) + (("?" + urlencode(query)) if query else "")
+                alt_urls[lang] = url_for(f"{page}_{lang}", **params.get(lang, args))
+                switch_urls[lang] = alt_urls[lang] + ("?" + urlencode({"land": land}) if land else "")
         tr = tv().tr
         return {
             "lang": g.lang, "other_lang": other, "t": t, "href": href, "asset": asset,
-            "alt_urls": alt_urls, "abs_url": abs_url, "ago": ago, "iso": iso, "in_days": in_days,
+            "alt_urls": alt_urls, "switch_urls": switch_urls, "abs_url": abs_url, "ago": ago, "iso": iso, "in_days": in_days,
             "fmt_date": lambda d, **kw: fmt_date(d, g.lang, tr, **kw),
             "fmt_range": lambda a, b: fmt_range(a, b, g.lang, tr),
             "fmt_pct": lambda share, digits=1: fmt_pct(share, g.lang, digits),

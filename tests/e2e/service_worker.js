@@ -4,15 +4,16 @@
 const L = require("./lib");
 
 const t = L.harness("service_worker");
-const OFFLINE_TITLE = { de: "Du bist offline", tr: "Çevrimdışısın" };
-// Stichproben aus der Precache-Liste: Start, Ferien (anderer Zeitraum), Grenze, Zoll, TR-Seiten
+const OFFLINE_TITLE = { de: "Du bist offline", tr: "İnternet bağlantın yok" };
+// Stichproben aus der Precache-Liste: Start, Ferien (Zeiträume als eigene Pfade), Grenze, Zoll, TR-Seiten
 const SAMPLES = [
   ["/de/", "Sıla yolu"],
-  ["/de/ferien?zeitraum=sommer-2028", "Ferien-Radar"],
+  ["/de/ferien/sommer-2028", "Sommerferien 2028"],
   ["/de/grenze/kapikule", "Kapıkule"],
   ["/de/zoll", "Zoll"],
   ["/tr/sinir/kapikule", "Kapıkule"],
   ["/tr/tatil", "Tatil radarı"],
+  ["/tr/tatil/yaz-2027", "2027 yaz tatili"],
 ];
 const isHtml = (path) => /^\/(de|tr)\//.test(path) && !path.endsWith(".webmanifest");
 

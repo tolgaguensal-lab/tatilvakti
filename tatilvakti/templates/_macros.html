@@ -53,7 +53,7 @@
   {{ icon("clock", "icon--xs") }}
   <span>{{ t("checked_on", date=fmt_date(date_str | todate)) }}</span>
   {%- if sources %}<span> · {{ t("sources") if sources|length > 1 else t("source") }}:
-    {% for s in sources %}{{ ext(s.url, s.name) }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}
+    {% for s in sources %}{{ ext(s.url, s.name[lang]) }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}
 </p>
 {%- if due %}<p class="due">{{ icon("alert", "icon--xs") }} {{ t("review_due") }}</p>{% endif %}
 {%- endmacro %}

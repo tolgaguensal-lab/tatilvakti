@@ -1,4 +1,5 @@
 """Seiten, API, PWA und Datenschutz-Garantien über HTTP."""
+import html as htmllib
 import json
 import re
 from datetime import datetime, timezone
@@ -44,13 +45,93 @@ def test_root_redirects_by_browser_language(client):
 
 
 def test_hreflang_and_language_switch_keep_the_page(client):
-    html = client.get("/de/ferien?zeitraum=sommer-2027&land=NW").get_data(as_text=True)
-    assert 'hreflang="tr-TR" href="https://tatilvakti.example/tr/tatil?zeitraum=sommer-2027&amp;land=NW"' in html
-    assert 'href="/tr/tatil?zeitraum=sommer-2027&amp;land=NW"' in html  # Nummernschild-Umschalter
+    html = client.get("/de/ferien/sommer-2027?land=NW").get_data(as_text=True)
+    # Canonical, hreflang und og:url ohne ?land= (keine 16 fast gleichen Seiten je Zeitraum)
+    assert '<link rel="canonical" href="https://tatilvakti.example/de/ferien/sommer-2027">' in html
+    assert '<link rel="alternate" hreflang="de" href="https://tatilvakti.example/de/ferien/sommer-2027">' in html
+    assert '<link rel="alternate" hreflang="tr" href="https://tatilvakti.example/tr/tatil/yaz-2027">' in html
+    assert '<link rel="alternate" hreflang="x-default" href="https://tatilvakti.example/de/ferien/sommer-2027">' in html
+    assert '<meta property="og:url" content="https://tatilvakti.example/de/ferien/sommer-2027">' in html
+    assert "de-DE" not in html.split("</head>")[0].replace('content="de_DE"', "") and "tr-TR" not in html
+    # Der Nummernschild-Umschalter behält das Bundesland
+    assert 'class="plate" href="/tr/tatil/yaz-2027?land=NW"' in html
+    tr = client.get("/tr/tatil/yaz-2027?land=nw").get_data(as_text=True)
+    assert '<link rel="canonical" href="https://tatilvakti.example/tr/tatil/yaz-2027">' in tr
+    assert 'class="plate" href="/de/ferien/sommer-2027?land=NW"' in tr
+    # Ungültiges Bundesland fällt weg, statt in Links weitergereicht zu werden
+    bad = client.get('/de/ferien/sommer-2027?land="]').get_data(as_text=True)
+    assert 'class="plate" href="/tr/tatil/yaz-2027"' in bad
+
+
+def _periods(app):
+    return app.extensions["tv"].radar.periods
+
+
+@pytest.mark.parametrize("lang, base", [("de", "/de/ferien"), ("tr", "/tr/tatil")])
+def test_every_period_has_its_own_page_with_title_and_h1(app, client, lang, base):
+    titles, h1s = set(), set()
+    for period in _periods(app):
+        resp = client.get(f"{base}/{period.slug[lang]}")
+        assert resp.status_code == 200
+        html = resp.get_data(as_text=True)
+        title = re.search(r"<title>(.*?)</title>", html).group(1)
+        h1 = re.sub(r"<[^>]+>", "", re.search(r"<h1>(.*?)</h1>", html, re.S).group(1)).strip()
+        assert period.label[lang] in title and period.label[lang] in h1, (title, h1)
+        assert f'aria-current="page">{period.label[lang]}</a>' in html  # Zeitraum-Chip aktiv
+        titles.add(title)
+        h1s.add(h1)
+    assert len(titles) == len(h1s) == len(_periods(app))
+
+
+def test_period_titles_follow_search_terms(client):
+    html = htmllib.unescape(client.get("/tr/tatil/yaz-2027").get_data(as_text=True))
+    assert "<title>Almanya okul tatilleri: 2027 yaz tatili, tüm eyaletler – tatilvakti</title>" in html
+    assert "Almanya'da 2027 yaz tatili – tüm eyaletler</h1>" in html
+    html = client.get("/de/ferien/sommer-2027").get_data(as_text=True)
+    assert "<title>Sommerferien 2027: Termine aller 16 Bundesländer – tatilvakti</title>" in html
+    assert "Sommerferien 2027 – alle Bundesländer</h1>" in html
+    kapikule = client.get("/tr/sinir/kapikule").get_data(as_text=True)
+    assert "<title>Kapıkule bekleme süresi – yolculardan canlı bildirim – tatilvakti</title>" in kapikule
+    # Die allgemeine Seite behält ihren Titel und zeigt den laufenden oder nächsten Zeitraum
+    plain = client.get("/de/ferien").get_data(as_text=True)
+    assert "<title>Ferien-Radar: Schulferien aller 16 Bundesländer – tatilvakti</title>" in plain
+    assert '<link rel="canonical" href="https://tatilvakti.example/de/ferien">' in plain
+
+
+@pytest.mark.parametrize("path, location", [
+    ("/de/ferien?zeitraum=sommer-2027", "/de/ferien/sommer-2027"),
+    ("/de/ferien?zeitraum=sommer-2027&land=NW", "/de/ferien/sommer-2027?land=NW"),
+    ("/de/ferien?land=nw&zeitraum=pfingsten-2027", "/de/ferien/pfingsten-2027?land=NW"),
+    ("/tr/tatil?zeitraum=sommer-2027&land=BY", "/tr/tatil/yaz-2027?land=BY"),
+    ("/tr/tatil?zeitraum=weihnachten-2026", "/tr/tatil/yilbasi-2026-27"),
+    ("/de/ferien?zeitraum=sommer-2027&land=XX", "/de/ferien/sommer-2027"),  # ungültiges Land fällt weg
+    # Slug der anderen Sprache oder alte id im Pfad: auf den Slug dieser Sprache
+    ("/tr/tatil/sommer-2027?land=NW", "/tr/tatil/yaz-2027?land=NW"),
+    ("/de/ferien/yaz-2027", "/de/ferien/sommer-2027"),
+])
+def test_old_period_links_redirect_permanently(client, path, location):
+    resp = client.get(path)
+    assert resp.status_code == 301
+    assert resp.headers["Location"] == location
+
+
+def test_unknown_period_is_not_found_and_unknown_query_shows_the_radar(client):
+    assert client.get("/de/ferien/sommer-1999").status_code == 404
+    assert client.get("/tr/tatil/yok").status_code == 404
+    resp = client.get("/de/ferien?zeitraum=sommer-1999")
+    assert resp.status_code == 200 and "Ferien-Radar</h1>" in resp.get_data(as_text=True)
+
+
+def test_internal_period_links_use_paths(client):
+    for path in ("/de/ferien", "/de/ferien/sommer-2027?land=NW", "/tr/tatil/yaz-2027?land=NW"):
+        html = client.get(path).get_data(as_text=True)
+        assert "zeitraum" not in html, path
+    html = client.get("/de/ferien/sommer-2027").get_data(as_text=True)
+    assert 'action="/de/ferien/sommer-2027"' in html  # Bundesland-Auswahl ohne JS bleibt im Zeitraum
 
 
 def test_holiday_page_personalises_server_side(client):
-    html = client.get("/de/ferien?zeitraum=sommer-2027&land=NW").get_data(as_text=True)
+    html = client.get("/de/ferien/sommer-2027?land=NW").get_data(as_text=True)
     assert "Deine Ferien in Nordrhein-Westfalen" in html
     assert "02.08.–06.08.2027" in html  # alle 16 Länder gleichzeitig
     assert re.search(r'data-per-state="NW">', html)  # sichtbar (ohne hidden)
@@ -165,7 +246,7 @@ def test_home_shows_next_real_holiday_start_during_gap(client, clock):
 
 
 def test_split_holidays_are_shown_as_separate_blocks(client):
-    html = client.get("/de/ferien?zeitraum=ostern-2027&land=BW").get_data(as_text=True)
+    html = client.get("/de/ferien/ostern-2027?land=BW").get_data(as_text=True)
     assert "Do 25.03.2027 + Di 30.03.2027 – Sa 03.04.2027" in html
     assert "6 Ferientage" in html
     assert "Frei inkl. Wochenenden und bundesweiter Feiertage: Do 25.03.2027 – So 04.04.2027" in html
@@ -184,7 +265,7 @@ def test_service_worker_precaches_all_pages(client):
     config = json.loads(body.split("self.TV_CONFIG = ", 1)[1].split(";\n", 1)[0])
     for path in ALL_PAGES:
         assert path in config["pages"]
-    assert "/de/ferien?zeitraum=sommer-2027" in config["pages"]
+    assert "/de/ferien/sommer-2027" in config["pages"]
     assert all("?v=" in a for a in config["assets"])
     for asset in config["assets"]:
         assert client.get(asset).status_code == 200
@@ -391,7 +472,24 @@ def test_outdated_data_is_flagged_not_hidden(client, clock):
     assert "vermutlich veraltet" in route
 
 
-def test_sitemap_lists_both_languages(client):
+def test_sitemap_lists_both_languages(app, client):
     xml = client.get("/sitemap.xml").get_data(as_text=True)
     assert "https://tatilvakti.example/tr/sinir/kapikule" in xml
-    assert 'hreflang="de-DE"' in xml
+    assert "de-DE" not in xml and "tr-TR" not in xml
+    urls = re.findall(r"<url>(.*?)</url>", xml.replace("\n", ""))
+    locs = [re.search(r"<loc>(.*?)</loc>", u).group(1) for u in urls]
+    assert len(locs) == len(set(locs))
+    # Alle Ferienzeiträume beider Sprachen, je mit de, tr und x-default
+    for period in _periods(app):
+        de = f"https://tatilvakti.example/de/ferien/{period.slug['de']}"
+        tr = f"https://tatilvakti.example/tr/tatil/{period.slug['tr']}"
+        for loc in (de, tr):
+            entry = urls[locs.index(loc)]
+            assert f'hreflang="de" href="{de}"' in entry and f'hreflang="tr" href="{tr}"' in entry
+            assert f'hreflang="x-default" href="{de}"' in entry
+    assert not any("offline" in loc or "cevrimdisi" in loc or "?" in loc for loc in locs)
+    # Jede Seite der Sitemap gibt es wirklich, und ihr Canonical ist genau diese URL
+    for loc in locs:
+        resp = client.get(loc.replace("https://tatilvakti.example", ""))
+        assert resp.status_code == 200, loc
+        assert f'<link rel="canonical" href="{loc}">' in resp.get_data(as_text=True), loc

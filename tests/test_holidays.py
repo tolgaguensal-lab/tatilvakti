@@ -212,7 +212,7 @@ def test_waves_and_quiet_days_use_the_same_blocks(radar):
 def test_radar_works_with_minimal_data_and_empty_lists():
     data = {
         "states": {"AA": {"population": 3}, "BB": {"population": 1}},
-        "periods": [{"id": "p", "kind": "x", "label": {"de": "P", "tr": "P"},
+        "periods": [{"id": "p", "kind": "x", "label": {"de": "P", "tr": "P"}, "slug": {"de": "p", "tr": "p"},
                      "ranges": {"AA": [["2027-05-18", "2027-05-21"]], "BB": []}}],
     }
     radar = HolidayRadar(data)
@@ -226,14 +226,14 @@ def test_radar_works_with_minimal_data_and_empty_lists():
 
 
 @pytest.mark.parametrize("path, text", [
-    ("/de/ferien?zeitraum=winter-2027&land=NW", "Nordrhein-Westfalen hat in diesem Zeitraum keine längeren Ferien."),
-    ("/de/ferien?zeitraum=pfingsten-2027&land=HE", "Hessen hat in diesem Zeitraum keine längeren Ferien."),
-    ("/tr/tatil?zeitraum=pfingsten-2027&land=HE", "Hessen bu dönemde uzun bir tatilde değil."),
-    ("/de/ferien?zeitraum=pfingsten-2027&land=BW", "Deine Ferien in Baden-Württemberg"),
+    ("/de/ferien/winter-2027?land=NW", "Nordrhein-Westfalen hat in diesem Zeitraum keine längeren Ferien."),
+    ("/de/ferien/pfingsten-2027?land=HE", "Hessen hat in diesem Zeitraum keine längeren Ferien."),
+    ("/tr/tatil/mayis-2027?land=HE", "Hessen bu dönemde uzun bir tatilde değil."),
+    ("/de/ferien/pfingsten-2027?land=BW", "Deine Ferien in Baden-Württemberg"),
     # NRW hat nur den 18.05. frei (mit Pfingstwochenende 4 Tage) – zu kurz fürs Radar, und das steht da
-    ("/de/ferien?zeitraum=pfingsten-2027&land=NW", "Kurze Ferien von höchstens einer Woche (mit Wochenende) führt das Radar nicht."),
-    ("/tr/tatil?zeitraum=pfingsten-2027&land=NW", "en fazla bir hafta süren kısa tatiller radarda yer almıyor"),
-    ("/de/ferien?zeitraum=winter-2027&land=BY", "Deine Ferien in Bayern"),
+    ("/de/ferien/pfingsten-2027?land=NW", "Kurze Ferien von höchstens einer Woche (mit Wochenende) führt das Radar nicht."),
+    ("/tr/tatil/mayis-2027?land=NW", "en fazla bir hafta süren kısa tatiller radarda yer almıyor"),
+    ("/de/ferien/winter-2027?land=BY", "Deine Ferien in Bayern"),
 ])
 def test_holiday_page_renders_states_with_and_without_holidays(client, path, text):
     resp = client.get(path)
@@ -289,7 +289,7 @@ def _staggered_radar():
     Echte Länderkürzel, damit die Seite sie beschriften kann; Daten und Einwohner sind erfunden."""
     return HolidayRadar({
         "states": {"NW": {"population": 1}, "BW": {"population": 1}, "BY": {"population": 1}},
-        "periods": [{"id": "p", "kind": "x", "label": {"de": "P", "tr": "P"}, "ranges": {
+        "periods": [{"id": "p", "kind": "x", "label": {"de": "P", "tr": "P"}, "slug": {"de": "p", "tr": "p"}, "ranges": {
             "NW": [["2027-06-05", "2027-06-20"]],   # Sa–So: frei 05.06.–20.06., Kandidaten je 8 Tage
             "BW": [["2027-06-08", "2027-07-02"]],   # Di: Welle 08.–10.06.
             "BY": [["2027-06-11", "2027-07-02"]],   # Fr: Welle 11.–13.06.
@@ -315,7 +315,7 @@ def test_quiet_threshold_is_inclusive_and_documented():
     assert QUIET_MAX == 0.25
     radar = HolidayRadar({
         "states": {"AA": {"population": 1}, "BB": {"population": 3}},
-        "periods": [{"id": "p", "kind": "x", "label": {"de": "P", "tr": "P"},
+        "periods": [{"id": "p", "kind": "x", "label": {"de": "P", "tr": "P"}, "slug": {"de": "p", "tr": "p"},
                      "ranges": {"AA": [["2027-06-05", "2027-06-13"]], "BB": []}}],
     })
     dep = radar.quiet_days(radar.by_id["p"], "AA")["departure"]  # 9 Tage → 4 Kandidaten
@@ -328,44 +328,44 @@ def test_no_quiet_day_is_rendered_in_both_languages(app, client, monkeypatch):
     synthetic = _staggered_radar()
     monkeypatch.setattr(radar, "quiet_days",
                         lambda period, state, count=3: synthetic.quiet_days(synthetic.by_id["p"], "NW", count))
-    de = client.get("/de/ferien?zeitraum=sommer-2027&land=NW").get_data(as_text=True)
+    de = client.get("/de/ferien/sommer-2027?land=NW").get_data(as_text=True)
     nw = de.split('data-per-state="NW">', 1)[1].split("</article>", 1)[0]
     assert f"Kein ruhiger Tag in diesem Zeitraum: Die Reisewelle liegt an jedem Tag über 25{NBSP}%." in nw
     assert "quiet__list--none" in nw and "Sa 05.06." in nw and _item(f"33,3{NBSP}%", "Ferienstart: NRW") in nw
-    tr = client.get("/tr/tatil?zeitraum=sommer-2027&land=NW").get_data(as_text=True)
+    tr = client.get("/tr/tatil/yaz-2027?land=NW").get_data(as_text=True)
     nw = tr.split('data-per-state="NW">', 1)[1].split("</article>", 1)[0]
-    assert "Bu dönemde sakin gün yok: tatil dalgası her gün %25 değerinin üzerinde." in nw
+    assert "Bu dönemde sakin gün yok: Tatil dalgası her gün %25 üzerinde." in nw
     assert _item("%33,3", "Tatil başlıyor: NRW") in nw
 
 
 # ------------------------------------------------ Darstellung im Ferien-Radar
 
 def test_holiday_page_shows_wave_days_with_context(client):
-    html = client.get("/de/ferien?zeitraum=sommer-2027&land=NW").get_data(as_text=True)
+    html = client.get("/de/ferien/sommer-2027?land=NW").get_data(as_text=True)
     nw = html.split('data-per-state="NW">', 1)[1].split("</article>", 1)[0]
     assert "Abreisetage mit der kleinsten Reisewelle" in nw and "Ruhigste" not in html
     dep = nw.split("<ol", 1)[1].split("</ol>", 1)[0]
     assert dep.index("Di 20.07.") < dep.index("Mi 21.07.") < dep.index("Do 22.07.")
     assert _item(f"0{NBSP}%", "kein Ferienstart") in dep and "Sa 17.07." not in dep
     assert "keine Stau-Messung" in nw
-    tr = client.get("/tr/tatil?zeitraum=sommer-2027&land=NW").get_data(as_text=True)
+    tr = client.get("/tr/tatil/yaz-2027?land=NW").get_data(as_text=True)
     nw = tr.split('data-per-state="NW">', 1)[1].split("</article>", 1)[0]
     assert "Tatil dalgasının en küçük olduğu gidiş günleri" in nw
     assert _item("%0", "tatili başlayan eyalet yok") in nw and "trafik ölçümü değildir" in nw
 
 
 def test_wave_context_names_states_or_counts_them(client):
-    html = client.get("/de/ferien?zeitraum=weihnachten-2026&land=BW").get_data(as_text=True)
+    html = client.get("/de/ferien/weihnachten-2026?land=BW").get_data(as_text=True)
     bw = html.split('data-per-state="BW">', 1)[1].split("</article>", 1)[0]
     assert _item(f"22,7{NBSP}%", "Ferienende in 8 Ländern") in bw  # Sa 02.01.: acht Länder fahren heim
-    html = client.get("/de/ferien?zeitraum=herbst-2026&land=BW").get_data(as_text=True)
+    html = client.get("/de/ferien/herbst-2026?land=BW").get_data(as_text=True)
     bw = html.split('data-per-state="BW">', 1)[1].split("</article>", 1)[0]
     assert _item(f"13,5{NBSP}%", "Ferienstart: BW") in bw
 
 
 def test_percentages_follow_the_language(client):
-    de = client.get("/de/ferien?zeitraum=sommer-2027").get_data(as_text=True)
-    tr = client.get("/tr/tatil?zeitraum=sommer-2027").get_data(as_text=True)
+    de = client.get("/de/ferien/sommer-2027").get_data(as_text=True)
+    tr = client.get("/tr/tatil/yaz-2027").get_data(as_text=True)
     assert f"<dd>100{NBSP}% · Mo 02.08.2027" in de and "<dd>%100 · Pzt 02.08.2027" in tr
     assert f"<span>100{NBSP}%</span>" in de and "<span>%0</span>" in tr  # Achse
     assert "100 %" not in tr and " %<" not in tr
@@ -388,10 +388,10 @@ def test_fmt_pct_without_decimals():
 
 
 def test_table_marks_states_without_holidays(client):
-    de = client.get("/de/ferien?zeitraum=pfingsten-2027").get_data(as_text=True)
+    de = client.get("/de/ferien/pfingsten-2027").get_data(as_text=True)
     row = de.split('<tr data-tl-state="HE"', 1)[1].split("</tr>", 1)[0]
     assert '<span aria-hidden="true">–</span><span class="sr-only">keine Ferien</span>' in row
-    tr = client.get("/tr/tatil?zeitraum=pfingsten-2027").get_data(as_text=True)
+    tr = client.get("/tr/tatil/mayis-2027").get_data(as_text=True)
     row = tr.split('<tr data-tl-state="HE"', 1)[1].split("</tr>", 1)[0]
     assert '<span class="sr-only">tatil yok</span>' in row
     row = de.split('<tr data-tl-state="BW"', 1)[1].split("</tr>", 1)[0]
@@ -410,7 +410,7 @@ def test_bayrams_are_linked_to_the_periods_they_fall_into(radar):
 
 
 def test_holiday_page_marks_kurban_bayrami_in_pentecost_2027(client):
-    html = client.get("/de/ferien?zeitraum=pfingsten-2027&land=BW").get_data(as_text=True)
+    html = client.get("/de/ferien/pfingsten-2027?land=BW").get_data(as_text=True)
     bw = html.split('data-per-state="BW">', 1)[1].split("</article>", 1)[0]
     assert ("Kurban Bayramı (Opferfest) fällt in deine freien Tage: Arife Sa 15.05., "
             "Bayram So 16.05.2027 – Mi 19.05.2027.") in bw
@@ -419,10 +419,10 @@ def test_holiday_page_marks_kurban_bayrami_in_pentecost_2027(client):
     assert 'class="tl__bayram"' in html and "sw--bayram" in html
     assert "Fällt in die freien Tage von: BY, BW, ST, HH" in html
     assert "https://namazvakitleri.diyanet.gov.tr/en-US/dini-gunler" in html
-    tr = client.get("/tr/tatil?zeitraum=pfingsten-2027&land=BW").get_data(as_text=True)
-    assert "Kurban Bayramı serbest günlerine denk geliyor: arife Cmt 15.05., bayram Paz 16.05.2027 – Çar 19.05.2027." in tr
-    assert "Serbest günlerine denk geldiği eyaletler: BY, BW, ST, HH" in tr
-    summer = client.get("/de/ferien?zeitraum=sommer-2027").get_data(as_text=True)
+    tr = client.get("/tr/tatil/mayis-2027?land=BW").get_data(as_text=True)
+    assert "Kurban Bayramı tatiline denk geliyor: arife Cmt 15.05., bayram Paz 16.05.2027 – Çar 19.05.2027." in tr
+    assert "Tatiline denk geldiği eyaletler: BY, BW, ST, HH" in tr
+    summer = client.get("/de/ferien/sommer-2027").get_data(as_text=True)
     assert "tl__bayram" not in summer and "Bayram" not in summer
 
 
