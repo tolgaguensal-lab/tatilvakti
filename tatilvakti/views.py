@@ -2,22 +2,29 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote, urlencode, urlsplit
 
 from flask import (Flask, Response, abort, current_app, g, jsonify, make_response, redirect,
                    render_template, request, url_for)
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, MethodNotAllowed, NotFound
+from werkzeug.routing import RequestRedirect
 
 from . import borders as B
 from . import today_berlin, utcnow
-from .content import DATASETS, is_due
+from .content import DATASETS, is_due, redirect_key
 from .db import check_salt_db
 from .holidays import QUIET_MAX
 from .i18n import LANGS, SLUGS, fmt_date, fmt_pct, fmt_range, negotiate
 
 PAGES = ("home", "holidays", "route", "borders", "customs", "info", "offline")
+# Präfix aller Caches von v2. Der Service Worker löscht beim Aktivieren alle anderen Caches des
+# Origins (auch die der Alt-App), der Kill-Switch für alte Worker löscht alle außer diesen.
+CACHE_PREFIX = "tv2-"
+# Pfade alter Service-Worker-Skripte (TV_LEGACY_SW_PATHS): absolut, Segmente ohne Sonderzeichen, .js
+LEGACY_SW_RE = re.compile(r"^(?:/[A-Za-z0-9._~@+-]+)+$")
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
        "connect-src 'self'; manifest-src 'self'; worker-src 'self'; font-src 'self'; "
        "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
@@ -113,7 +120,7 @@ def whatsapp_url(text: str, url: str) -> str:
 
 def _client_strings() -> dict:
     keys = ["ago_now", "ago_min", "ago_h", "ago_d", "b_no_reports", "b_no_reports_ever", "b_last_report", "b_reports_1",
-            "b_reports_n", "b_report_thanks", "b_report_queued", "b_report_ratelimited", "b_report_busy",
+            "b_reports_n", "b_report_thanks", "b_report_queued", "b_report_delivered", "b_report_ratelimited", "b_report_busy",
             "b_report_stale", "b_report_error", "b_level_ok", "b_level_mid", "b_level_bad", "b_level_none", "c_no_results"]
     keys += [f"b_bucket_{i}" for i in range(B.BUCKET_COUNT)]
     return {k: t(k) for k in keys}
@@ -400,13 +407,78 @@ def service_worker():
         "assets": [asset(p) for p in ("css/app.css", "js/app.js", "icons/favicon.svg",
                                       "icons/icon-192.png", "icons/icon-512.png")],
         "pages": offline_urls(),
+        # Pflichtseiten: ohne sie scheitert der Install, der bisherige Worker bleibt aktiv
+        "home": {lang: url_for(f"home_{lang}") for lang in LANGS},
         "offline": {lang: url_for(f"offline_{lang}") for lang in LANGS},
         "langs": list(LANGS),
+        "cachePrefix": CACHE_PREFIX,
     }
     body = "self.TV_CONFIG = " + json.dumps(config, ensure_ascii=False) + ";\n" + source
     resp = Response(body, mimetype="application/javascript")
     resp.headers["Cache-Control"] = "no-cache"
     return resp
+
+
+def legacy_service_worker():
+    """Kill-Switch unter dem Pfad eines alten Service Workers (TV_LEGACY_SW_PATHS).
+
+    Der Browser prüft registrierte Worker regelmäßig auf Updates und lädt dabei dieses Skript:
+    Es aktiviert sich sofort, löscht alle Caches außer denen von v2, meldet sich ab und lädt
+    offene Fenster neu. Ohne fetch-Handler gehen Anfragen bis dahin direkt ins Netz.
+    """
+    resp = Response(render_template("legacy_sw.js", cache_prefix=CACHE_PREFIX), mimetype="application/javascript")
+    resp.headers["Cache-Control"] = "no-store"
+    # Hatte der alte Worker per Header einen weiteren Scope als sein Verzeichnis, prüft der
+    # Browser das beim Update erneut – ohne diesen Header schlüge das Update fehl.
+    resp.headers["Service-Worker-Allowed"] = "/"
+    return resp
+
+
+def parse_legacy_sw_paths(value) -> list[str]:
+    """TV_LEGACY_SW_PATHS: kommagetrennt (Env) oder Liste (Tests); leere Einträge entfallen."""
+    items = value.split(",") if isinstance(value, str) else list(value or [])
+    return [str(p).strip() for p in items if str(p).strip()]
+
+
+def is_route(app: Flask, path: str) -> bool:
+    """Gehört der Pfad zu einer eigenen Route (auch nur für POST oder per Slash-Weiterleitung)?"""
+    adapter = app.url_map.bind("localhost")
+    try:
+        adapter.match(path, method="GET")
+    except (RequestRedirect, MethodNotAllowed):
+        return True
+    except NotFound:
+        return False
+    return True
+
+
+def legacy_sw_problems(app: Flask, paths: list[str]) -> list[str]:
+    problems, seen = [], set()
+    for path in paths:
+        where = f"TV_LEGACY_SW_PATHS: {path!r}"
+        if not path.startswith("/"):
+            problems.append(f"{where} muss mit / beginnen")
+        elif "?" in path or "#" in path:
+            problems.append(f"{where} ohne Query oder Fragment angeben, nur den Pfad")
+        elif not path.endswith(".js"):
+            problems.append(f"{where} muss auf .js enden")
+        elif not LEGACY_SW_RE.match(path) or any(seg in (".", "..") for seg in path.split("/")):
+            problems.append(f"{where} enthält unzulässige Zeichen (erlaubt: A–Z a–z 0–9 . _ ~ @ + - /)")
+        elif path in seen:
+            problems.append(f"{where} ist doppelt")
+        elif is_route(app, path):
+            problems.append(f"{where} kollidiert mit einer eigenen Route (z. B. /sw.js, /static/…)")
+        seen.add(path)
+    return problems
+
+
+def register_legacy_sw(app: Flask, paths: list[str]) -> None:
+    """Kill-Switch-Routen anlegen; erst nach allen eigenen Routen aufrufen (Kollisionsprüfung)."""
+    problems = legacy_sw_problems(app, paths)
+    if problems:
+        raise RuntimeError("Konfiguration fehlerhaft:\n" + "\n".join(problems))
+    for idx, path in enumerate(paths):
+        app.add_url_rule(path, endpoint=f"legacy_sw_{idx}", view_func=legacy_service_worker)
 
 
 def root():
@@ -521,6 +593,18 @@ def asset(path: str) -> str:
     return url_for("static", filename=path, v=tv().asset_hashes.get(path, "0"))
 
 
+def _legacy_url(entry: dict):
+    """Alte URL der Alt-App: dauerhaft weiterleiten (301) oder „gibt es nicht mehr“ (410)."""
+    if entry["code"] == 301:
+        return redirect(entry["to"], code=301)
+    if request.path.startswith("/api/"):
+        return {"error": "gone"}, 410
+    resp = make_response(render_template("error.html", page=None, code=410), 410)
+    if g.get("lang_negotiated"):  # Sprache aus Accept-Language: Caches dürfen DE und TR nicht mischen
+        resp.headers["Vary"] = "Accept-Language"
+    return resp
+
+
 # ------------------------------------------------------------- Registrierung
 
 def register(app: Flask) -> None:
@@ -554,8 +638,10 @@ def register(app: Flask) -> None:
 
     @app.before_request
     def default_lang():
+        g.lang_negotiated = False
         if "lang" not in g:
             first = request.path.strip("/").split("/", 1)[0]
+            g.lang_negotiated = first not in LANGS
             g.lang = first if first in LANGS else negotiate(request.headers.get("Accept-Language"))
 
     @app.before_request
@@ -638,6 +724,10 @@ def register(app: Flask) -> None:
 
     @app.errorhandler(404)
     def not_found(_exc):
+        # Alte URLs (data/redirects.json) greifen nur dort, wo sonst 404 käme
+        entry = tv().content.redirect_by_path.get(redirect_key(request.path))
+        if entry is not None:
+            return _legacy_url(entry)
         if request.path.startswith("/api/"):
             return {"error": "not_found"}, 404
         return render_template("error.html", page=None, code=404), 404

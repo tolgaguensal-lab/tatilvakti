@@ -10,6 +10,8 @@ import json
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Callable
+from urllib.parse import urlsplit
 
 from .holidays import Range, free_stretches
 from .i18n import LANGS, fold
@@ -26,6 +28,11 @@ TOLL_SYSTEMS = ("vignette", "evignette", "toll", "hgs")
 MIN_FREE_DAYS = 8
 # Bayram-Termine (Diyanet): Festtage je Art, der Arife-Tag liegt direkt davor
 BAYRAM_DAYS = {"ramazan": 3, "kurban": 4}
+# Alte URLs der Alt-App (data/redirects.json): dauerhaft weiterleiten oder „gibt es nicht mehr“
+REDIRECT_CODES = (301, 410)
+REDIRECT_FIELDS = {"from", "to", "code", "note"}
+# Namensräume von v2: Ein 404 dort ist eine echte Antwort, keine alte URL
+REDIRECT_RESERVED = ("/api/v1/", "/static/")
 
 
 @dataclass
@@ -35,12 +42,23 @@ class Content:
     transit: dict
     crossings: dict
     crossing_by_id: dict = field(default_factory=dict)
+    redirects: dict = field(default_factory=lambda: {"meta": {}, "redirects": []})
+    redirect_by_path: dict = field(default_factory=dict)  # redirect_key(from) → Eintrag
 
     def meta(self, name: str) -> dict:
         return getattr(self, name)["meta"]
 
     def review_due(self, name: str, today: date) -> bool:
         return is_due(self.meta(name).get("review_after"), today)
+
+    def set_redirects(self, data) -> None:
+        """Weiterleitungen übernehmen und nach Pfad indizieren (geprüft wird in validate)."""
+        self.redirects = data
+        entries = data.get("redirects") if isinstance(data, dict) else None
+        self.redirect_by_path = {}
+        for entry in entries if isinstance(entries, list) else []:
+            if isinstance(entry, dict) and isinstance(entry.get("from"), str):
+                self.redirect_by_path.setdefault(redirect_key(entry["from"]), entry)
 
 
 def is_due(review_after: str | None, today: date) -> bool:
@@ -54,6 +72,8 @@ def load_content(data_dir: Path = DATA_DIR) -> Content:
             raw[name] = json.load(fh)
     content = Content(**raw)
     content.crossing_by_id = {c["id"]: c for c in content.crossings["crossings"]}
+    with open(data_dir / "redirects.json", encoding="utf-8") as fh:
+        content.set_redirects(json.load(fh))
     # Suchindex für den Zoll-Check (diakritik-unabhängig, beide Sprachen)
     for item in content.customs["items"]:
         parts = [item["title"][l] for l in LANGS] + [item["rule"][l] for l in LANGS] + item.get("keywords", [])
@@ -62,6 +82,77 @@ def load_content(data_dir: Path = DATA_DIR) -> Content:
 
 
 # ---------------------------------------------------------------- Validierung
+
+def redirect_key(path: str) -> str:
+    """Vergleichsform eines Pfads für die Weiterleitungen: '/alt/' und '/alt' sind dieselbe URL."""
+    return path.rstrip("/") or "/"
+
+
+def _is_local_path(value, allow_query: bool) -> bool:
+    """Interner, relativer Pfad: beginnt mit genau einem /, keine Leer- oder Steuerzeichen.
+
+    '//host' wäre protokollrelativ (fremde Seite), '\\' werten manche Browser wie '/'.
+    """
+    if not isinstance(value, str) or not value.startswith("/") or value.startswith("//"):
+        return False
+    if "\\" in value or not value.isprintable() or any(ch.isspace() for ch in value):
+        return False
+    return allow_query or ("?" not in value and "#" not in value)
+
+
+def validate_redirects(data) -> list[str]:
+    """Aufbau von data/redirects.json. Die Prüfung gegen die Routen folgt nach deren Anlage
+    (redirect_route_problems), weil erst dann feststeht, welche Pfade v2 selbst beantwortet."""
+    if not isinstance(data, dict) or not isinstance(data.get("redirects"), list):
+        return ["redirects: Objekt mit meta und Liste redirects erwartet"]
+    problems: list[str] = []
+    _check_date((data.get("meta") or {}).get("as_of"), "redirects.meta.as_of", problems)
+    sources: dict[str, str] = {}
+    for idx, entry in enumerate(data["redirects"]):
+        if not isinstance(entry, dict):
+            problems.append(f"redirects[{idx}]: Objekt mit from, to und code erwartet")
+            continue
+        src, dst, code = entry.get("from"), entry.get("to"), entry.get("code")
+        where = f"redirects {src!r}" if isinstance(src, str) else f"redirects[{idx}]"
+        unknown = sorted(set(entry) - REDIRECT_FIELDS)
+        if unknown:
+            problems.append(f"{where}: unbekannte Felder {unknown} (erlaubt: from, to, code, note)")
+        if not _is_local_path(src, allow_query=False):
+            problems.append(f"{where}: from muss ein Pfad sein, der mit / beginnt (ohne Query, Fragment, Leerzeichen)")
+        elif redirect_key(src) == "/":
+            problems.append(f"{where}: / ist die Startseite von v2")
+        elif (src + "/").startswith(REDIRECT_RESERVED):
+            problems.append(f"{where}: {', '.join(REDIRECT_RESERVED)} gehören v2")
+        elif redirect_key(src) in sources:
+            problems.append(f"{where}: doppelt (auch {sources[redirect_key(src)]!r})")
+        else:
+            sources[redirect_key(src)] = src
+        if type(code) is not int or code not in REDIRECT_CODES:  # type(): True wäre sonst 1
+            problems.append(f"{where}: code muss 301 oder 410 sein, ist {code!r}")
+        elif code == 410 and dst is not None:
+            problems.append(f"{where}: 410 hat kein Ziel, to muss null sein")
+        elif code == 301 and not _is_local_path(dst, allow_query=True):
+            problems.append(f"{where}: to muss ein interner Pfad sein, z. B. /de/ferien (keine fremde Seite)")
+        if "note" in entry and not isinstance(entry["note"], str):
+            problems.append(f"{where}: note muss Text sein")
+    for entry in data["redirects"]:  # keine Ketten: ein Ziel ist nie selbst eine alte URL
+        if isinstance(entry, dict) and entry.get("code") == 301 and _is_local_path(entry.get("to"), True):
+            if redirect_key(urlsplit(entry["to"]).path) in sources:
+                problems.append(f"redirects {entry.get('from')!r}: Ziel {entry['to']!r} ist selbst eine alte URL (Kette)")
+    return problems
+
+
+def redirect_route_problems(data, is_route: Callable[[str], bool]) -> list[str]:
+    """Alte URLs dürfen keine eigene Route treffen (sie griffen nie), Ziele müssen eine sein."""
+    problems = []
+    for entry in data.get("redirects", []):
+        src, dst = entry["from"], entry.get("to")
+        if is_route(src) or (redirect_key(src) != src and is_route(redirect_key(src))):
+            problems.append(f"redirects {src!r}: ist eine eigene Route von v2, die Weiterleitung griffe nie")
+        if dst is not None and not is_route(urlsplit(dst).path):
+            problems.append(f"redirects {src!r}: Ziel {dst!r} ist keine Seite von v2")
+    return problems
+
 
 def _is_bilingual(value) -> bool:
     return isinstance(value, dict) and all(isinstance(value.get(l), str) and value[l].strip() for l in LANGS)
@@ -279,4 +370,6 @@ def validate(content: Content) -> list[str]:
                 problems.append(f"crossings.{cid}: unbekannte Quelle {ref}")
         if not crossing.get("tz"):
             problems.append(f"crossings.{cid}: Zeitzone fehlt")
+
+    problems += validate_redirects(content.redirects)
     return problems

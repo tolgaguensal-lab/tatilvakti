@@ -83,6 +83,7 @@
       state = sel.value;
       store.set("state", state);
       applyState(state);
+      showA2hs();
       if (window.history && window.history.replaceState && $(".tl")) {
         var url = new URL(window.location.href);
         if (state) url.searchParams.set("land", state); else url.searchParams.delete("land");
@@ -197,6 +198,12 @@
 
   // ---------------------------------------------------------- reports (+ offline queue)
   var MAX_AGE = 90 * 60;
+  var reportMsg = $("[data-report-msg]");
+  function say(kind, text) {
+    if (!reportMsg) return;
+    reportMsg.className = "flash flash--" + kind;
+    reportMsg.textContent = text;
+  }
   function postReport(item) {
     return fetch("/api/v1/borders/" + encodeURIComponent(item.cid) + "/reports", {
       method: "POST",
@@ -206,30 +213,38 @@
       return r.json().catch(function () { return {}; }).then(function (data) { return { status: r.status, data: data }; });
     });
   }
+  // Nachliefern: bei Netzfehler oder 5xx zurück in die Warteschlange, bei 4xx verwerfen
+  // (zu alt, Limit, ungültig – ein neuer Versuch ändert daran nichts)
+  var flushing = false;
   function flushQueue() {
     var queue = store.get("queue", []);
-    if (!queue.length || navigator.onLine === false) return;
+    if (flushing || !queue.length || navigator.onLine === false) return;
     var now = Math.floor(Date.now() / 1000);
     queue = queue.filter(function (q) { return now - q.observed_at < MAX_AGE; });
     store.set("queue", []);
-    queue.forEach(function (item) {
-      postReport(item).then(function (res) {
-        if (res.data && res.data.crossing) applyCrossing(res.data.crossing);
-      }).catch(function () {
-        var rest = store.get("queue", []); rest.push(item); store.set("queue", rest);
-      });
+    flushing = true;
+    var delivered = 0;
+    var requeue = function (item) { var rest = store.get("queue", []); rest.push(item); store.set("queue", rest); };
+    Promise.all(queue.map(function (item) {
+      return postReport(item).then(function (res) {
+        if (res.status === 201) {
+          delivered++;
+          if (res.data && res.data.crossing) applyCrossing(res.data.crossing);
+        } else if (res.status >= 500 || res.status === 0) {
+          requeue(item);
+        }
+      }, function () { requeue(item); });
+    })).then(function () {
+      flushing = false;
+      if (delivered) say("ok", S.b_report_delivered);
     });
   }
   window.addEventListener("online", flushQueue);
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) flushQueue(); });
+  setInterval(flushQueue, 60000);
   flushQueue();
 
   $$("form[data-report]").forEach(function (form) {
-    var msg = $("[data-report-msg]");
-    function say(kind, text) {
-      if (!msg) return;
-      msg.className = "flash flash--" + kind;
-      msg.textContent = text;
-    }
     form.addEventListener("submit", function (ev) {
       ev.preventDefault();
       var dir = form.querySelector('input[name="direction"]:checked');
@@ -307,6 +322,75 @@
       });
     });
   }
+
+  // ---------------------------------------------------------- Startbildschirm-Hinweis
+  // Nur außerhalb der installierten App, ab dem 2. Besuch oder nach Wahl des Bundeslandes.
+  // Chromium: eigener Button (beforeinstallprompt), iOS: Kurzanleitung über „Teilen“.
+  function isStandalone() {
+    var mm = window.matchMedia;
+    return navigator.standalone === true || !!(mm && ["standalone", "fullscreen", "minimal-ui"].some(function (m) {
+      return mm("(display-mode: " + m + ")").matches;
+    }));
+  }
+  // Nur so viel merken wie nötig: Zähler bis 2, Zeitpunkt des letzten Aufrufs (bleibt auf dem Gerät)
+  var VISIT_GAP_MS = 30 * 60 * 1000; // länger nichts geöffnet: neuer Besuch
+  var visits = store.get("visits", 0);
+  var newVisit = Date.now() - store.get("seen_at", 0) > VISIT_GAP_MS;
+  if (newVisit && visits < 2) { visits += 1; store.set("visits", visits); }
+  store.set("seen_at", Date.now());
+
+  var a2hs = $("[data-a2hs]");
+  var installEvent = null;
+  var isIos = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+  function a2hsWanted() {
+    return !!a2hs && !isStandalone() && !store.get("a2hs_off", false) && (visits >= 2 || !!store.get("state", ""));
+  }
+  function showA2hs() {
+    var ios = !installEvent && isIos;
+    if (!a2hsWanted() || !(installEvent || ios)) return;
+    $("[data-a2hs-install]", a2hs).hidden = !installEvent;
+    $("[data-a2hs-ios]", a2hs).hidden = !ios;
+    a2hs.hidden = false;
+    document.body.classList.add("has-a2hs");
+  }
+  function hideA2hs(remember) {
+    if (!a2hs) return;
+    a2hs.hidden = true;
+    document.body.classList.remove("has-a2hs");
+    if (remember) store.set("a2hs_off", true);
+  }
+  // Speicher dauerhaft machen – nur in der installierten App, dort ohne Rückfrage an den Nutzer
+  function persistStorage() {
+    var st = navigator.storage;
+    if (!st || !st.persist || !st.persisted) return;
+    st.persisted().then(function (done) { return done || st.persist(); }).catch(function () {});
+  }
+
+  window.addEventListener("beforeinstallprompt", function (ev) {
+    installEvent = ev;
+    // Chromes eigene Infoleiste nur unterdrücken, wenn stattdessen unsere Karte erscheint
+    if (a2hsWanted()) { ev.preventDefault(); showA2hs(); }
+  });
+  window.addEventListener("appinstalled", function () {
+    installEvent = null;
+    hideA2hs(true);
+    persistStorage();
+  });
+  if (a2hs) {
+    $("[data-a2hs-close]", a2hs).addEventListener("click", function () { hideA2hs(true); });
+    $("[data-a2hs-install]", a2hs).addEventListener("click", function () {
+      var ev = installEvent;
+      installEvent = null;
+      if (!ev) { hideA2hs(false); return; }
+      // Abgelehnt oder installiert: nicht noch einmal fragen
+      Promise.resolve().then(function () { return ev.prompt(); })
+        .then(function () { return ev.userChoice; })
+        .then(function () { hideA2hs(true); }, function () { hideA2hs(false); });
+    });
+    showA2hs();
+  }
+  if (isStandalone() && newVisit) persistStorage();
 
   // ---------------------------------------------------------- service worker
   if ("serviceWorker" in navigator && window.location.protocol !== "file:") {

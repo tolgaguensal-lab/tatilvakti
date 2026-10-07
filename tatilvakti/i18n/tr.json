@@ -206,7 +206,7 @@
   "i_review_after": "bir sonraki kontrol: {date}",
   "i_privacy": "Gizlilik",
   "i_privacy_p1": "tatilvakti üyelik olmadan çalışır ve çerez kullanmaz. Analiz aracı, reklam takibi, harici yazı tipi veya betik yoktur.",
-  "i_privacy_p2": "Ayarların (eyalet, yolculuk şekli) ve henüz gönderilmemiş bildirimler yalnızca tarayıcının hafızasında durur. Cihazından çıkmaz.",
+  "i_privacy_p2": "Ayarların (eyalet, yolculuk şekli, araç belgelerindeki işaretlerin), henüz gönderilmemiş bildirimlerin ve uygulamayı daha önce açıp açmadığın ya da ana ekran ipucunu kapatıp kapatmadığın yalnızca tarayıcının hafızasında durur. Cihazından çıkmaz.",
   "i_privacy_p3": "Bekleme süresi bildirdiğinde sınır kapısını, yönü, bekleme aralığını ve zamanı kaydederiz. Spama karşı IP adresinden (IPv6'da yalnızca ağ kısmından) her gün değişen gizli bir anahtarla kontrol değerleri oluştururuz. IP adresinin kendisini kaydetmeyiz. Kontrol değerleri en geç 48 saat sonra, günlük anahtar en geç 2 gün sonra silinir.",
   "i_privacy_p4": "Sayfaları sunmak için sunucu teknik olarak IP adresini işler (GVKY md. 6/1 f). Kurumlara, satış sitelerine veya WhatsApp'a giden bağlantılar kendi gizlilik kuralları olan başka sitelere götürür.",
   "i_imprint": "Künye",
@@ -230,5 +230,18 @@
   "hol_days_n": "{n} tatil günü",
   "hol_free": "Hafta sonları ve resmî tatillerle birlikte serbest: {dates}",
   "err_403_title": "İstek reddedildi",
-  "err_403_text": "Bildirimler yalnızca doğrudan tatilvakti üzerinden yapılabilir."
+  "err_403_text": "Bildirimler yalnızca doğrudan tatilvakti üzerinden yapılabilir.",
+  "err_410_title": "Bu sayfa artık yok",
+  "err_410_text": "tatilvakti'nin eski bir sürümüne aitti. Güncel her şeyi ana sayfada bulursun.",
+  "b_report_delivered": "İnternetsizken yaptığın bildirim şimdi ulaştı. Teşekkürler!",
+  "a2hs_title": "Sınırda internetsiz de açılır",
+  "a2hs_text": "Ana ekranına eklersen yolda tek dokunuşla açılır.",
+  "a2hs_install": "Ana ekrana ekle",
+  "a2hs_ios_share": "“Paylaş”a dokun (iOS 26 ve sonrası: önce “•••”)",
+  "a2hs_ios_add": "“Ana Ekrana Ekle”yi seç",
+  "a2hs_close": "İpucunu kapat",
+  "a2hs_more": "Neden?",
+  "i_offline": "İnternetsiz kullanım",
+  "i_offline_p1": "İlk ziyaretinde tatilvakti tüm sayfaları iki dilde cihazına kaydeder. İnternet yokken en son kaydedilen bilgileri görürsün, bekleme süreleri o zaman canlı değildir. İnternetsizken yaptığın bir bildirimi uygulama, tekrar internete bağlandığında ve uygulama açıkken gönderir – bildirim o zamana kadar 90 dakikadan eski değilse.",
+  "i_offline_p2": "iPhone ve iPad'de Safari, bir siteyi kullanmadığın 7 Safari kullanım gününden sonra o sitenin kaydettiği verileri siler. Buna çevrimdışı sayfalar, seçtiğin eyalet ve araç belgelerinde koyduğun işaretler de dahildir. Ana ekrana eklenen uygulamalarda yalnızca uygulamayı kullandığın günler sayılır, bu yüzden Safari onların verilerini silmez. tatilvakti'yi yolculuktan önce ana ekranına ekle: “Paylaş” (iOS 26 ve sonrasında “•••” menüsünde) → “Ana Ekrana Ekle”."
 }

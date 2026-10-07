@@ -454,6 +454,9 @@ body:not(.mode-plane) .only-plane { display: none; }
 .country { padding: 0; }
 .country__sum { display: flex; align-items: center; gap: 10px; padding: 14px 16px; cursor: pointer; list-style: none; min-height: 56px; }
 .country__sum::-webkit-details-marker { display: none; }
+/* Lange Maut-Bezeichnung (TR, 320 px) rutscht in die nächste Zeile statt über den Rand */
+.country__sum { flex-wrap: wrap; }
+.country__sum .chip { margin-left: auto; }
 .country__code { display: grid; place-items: center; min-width: 38px; height: 28px; border: 2px solid var(--ink); border-radius: 6px; font-weight: 800; font-size: .8rem; background: #fff; color: #111; }
 .country__name { flex: 1; font-weight: 800; }
 .country[open] .country__sum { border-bottom: 1px solid var(--line); }
@@ -473,6 +476,27 @@ body:not(.mode-plane) .only-plane { display: none; }
 .prose p { max-width: 65ch; }
 address { font-style: normal; margin-bottom: 10px; }
 
+/* ---------- Hinweis „Auf den Startbildschirm“ (fest über der Tabbar, kein Layout-Sprung) ---------- */
+.a2hs {
+  position: fixed; z-index: 25; left: 8px; right: 8px; max-width: 560px; margin: 0 auto;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 8px);
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 12px 4px 12px 12px; border-radius: var(--radius-s);
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow);
+}
+.a2hs__mark { flex: none; margin-top: 2px; }
+.a2hs__body { flex: 1; min-width: 0; }
+.a2hs__title { font: 800 1rem/1.25 var(--font-display); margin: 0 0 2px; }
+.a2hs__text { font-size: .88rem; color: var(--ink-2); margin: 0 0 8px; }
+.a2hs__text:last-child { margin-bottom: 0; }
+.a2hs__steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: .88rem; font-weight: 600; }
+.a2hs__steps li { display: flex; gap: 6px; align-items: flex-start; }
+.a2hs__steps .icon { color: var(--brand); margin-top: 1px; }
+.a2hs__close { flex: none; display: grid; place-items: center; width: 44px; height: 44px; margin-top: -10px; border: 0; border-radius: 10px; background: transparent; color: var(--ink-2); cursor: pointer; }
+@media (max-width: 359px) { .a2hs__mark { display: none; } }
+/* Platz am Seitenende, damit die Karte nichts dauerhaft verdeckt */
+body.has-a2hs { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 230px); }
+
 /* ---------- Footer, Tabbar ---------- */
 .footer { max-width: 760px; margin: 10px auto 0; padding: 8px 16px 20px; color: var(--ink-2); font-size: .85rem; text-align: center; }
 .footer p { margin: 0 0 4px; }
@@ -491,6 +515,8 @@ address { font-style: normal; margin-bottom: 10px; }
 @media (min-width: 900px) {
   .tabbar { left: 50%; transform: translateX(-50%); width: 560px; bottom: 14px; border: 1px solid var(--line); border-radius: 20px; height: var(--tabbar-h); padding-bottom: 0; }
   body { padding-bottom: calc(var(--tabbar-h) + 32px); }
+  .a2hs { bottom: calc(var(--tabbar-h) + 26px); }
+  body.has-a2hs { padding-bottom: calc(var(--tabbar-h) + 220px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -498,7 +524,7 @@ address { font-style: normal; margin-bottom: 10px; }
 }
 
 @media print {
-  .tabbar, .topbar, .offline-banner, .btn, .toolbar { display: none !important; }
+  .tabbar, .topbar, .offline-banner, .btn, .toolbar, .a2hs { display: none !important; }
   body { padding: 0; background: #fff; }
   .card { box-shadow: none; break-inside: avoid; }
 }

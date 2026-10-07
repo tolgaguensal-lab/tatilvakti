@@ -206,7 +206,7 @@
   "i_review_after": "nächste Prüfung bis {date}",
   "i_privacy": "Datenschutz",
   "i_privacy_p1": "tatilvakti funktioniert ohne Konto und setzt keine Cookies. Es gibt keine Analyse-Tools, keine Werbe-Tracker und keine externen Schriften oder Skripte.",
-  "i_privacy_p2": "Deine Einstellungen (Bundesland, Reiseart) und noch nicht gesendete Meldungen liegen nur im Speicher deines Browsers. Sie verlassen dein Gerät nicht.",
+  "i_privacy_p2": "Deine Einstellungen (Bundesland, Reiseart, Häkchen bei den Papieren), noch nicht gesendete Meldungen und ob du die App schon einmal geöffnet oder den Hinweis zum Startbildschirm geschlossen hast, liegen nur im Speicher deines Browsers. Sie verlassen dein Gerät nicht.",
   "i_privacy_p3": "Wenn du eine Wartezeit meldest, speichern wir Grenzübergang, Richtung, Wartezeit-Bereich und Zeitpunkt. Gegen Spam bilden wir aus deiner IP-Adresse (bei IPv6 nur aus dem Netzanteil) mit einem täglich wechselnden Geheimschlüssel Prüfwerte. Die IP-Adresse selbst speichern wir nicht. Die Prüfwerte werden nach spätestens 48 Stunden gelöscht, der Tagesschlüssel nach spätestens 2 Tagen.",
   "i_privacy_p4": "Zum Ausliefern der Seiten verarbeitet der Server technisch notwendig deine IP-Adresse (Art. 6 Abs. 1 lit. f DSGVO). Links zu Behörden, Shops oder WhatsApp führen auf fremde Seiten mit eigenen Datenschutzregeln.",
   "i_imprint": "Impressum",
@@ -230,5 +230,18 @@
   "hol_days_n": "{n} Ferientage",
   "hol_free": "Frei inkl. Wochenenden und bundesweiter Feiertage: {dates}",
   "err_403_title": "Anfrage abgelehnt",
-  "err_403_text": "Meldungen gehen nur direkt über tatilvakti."
+  "err_403_text": "Meldungen gehen nur direkt über tatilvakti.",
+  "err_410_title": "Diese Seite gibt es nicht mehr",
+  "err_410_text": "Sie stammte aus einer früheren Version von tatilvakti. Alles Aktuelle findest du auf der Startseite.",
+  "b_report_delivered": "Deine Meldung ohne Netz ist jetzt angekommen. Danke!",
+  "a2hs_title": "Öffnet an der Grenze auch ohne Netz",
+  "a2hs_text": "Auf dem Startbildschirm ist die App unterwegs mit einem Tipp da.",
+  "a2hs_install": "Zum Startbildschirm hinzufügen",
+  "a2hs_ios_share": "Auf „Teilen“ tippen (ab iOS 26: erst „•••“)",
+  "a2hs_ios_add": "„Zum Home-Bildschirm“ wählen",
+  "a2hs_close": "Hinweis schließen",
+  "a2hs_more": "Warum?",
+  "i_offline": "Offline nutzen",
+  "i_offline_p1": "Beim ersten Besuch speichert tatilvakti alle Seiten in beiden Sprachen auf deinem Gerät. Ohne Netz siehst du den zuletzt gespeicherten Stand, Wartezeiten sind dann nicht live. Eine Meldung ohne Netz schickt die App nach, sobald du wieder online bist und die App offen ist – sofern die Meldung dann höchstens 90 Minuten alt ist.",
+  "i_offline_p2": "Auf iPhone und iPad löscht Safari die gespeicherten Daten einer Website nach 7 Tagen Safari-Nutzung, an denen du die Website nicht benutzt hast. Dazu gehören die Offline-Seiten, dein Bundesland und deine Häkchen bei den Papieren. Für Apps auf dem Home-Bildschirm zählen nur die Tage, an denen du die App benutzt, ihre Daten löscht Safari deshalb nicht. Leg tatilvakti vor der Reise auf den Home-Bildschirm: „Teilen“ (ab iOS 26 unter „•••“) → „Zum Home-Bildschirm“."
 }
