@@ -354,7 +354,11 @@ body:not(.mode-plane) .only-plane { display: none; }
 @media (min-width: 520px) { .quiet { grid-template-columns: 1fr 1fr; } }
 .quiet__col h3 { font-size: .9rem; color: var(--ink-2); margin-bottom: 6px; }
 .quiet__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.quiet__list li { display: flex; justify-content: space-between; gap: 8px; padding: 8px 12px; border-radius: 10px; background: var(--brand-soft); }
+.quiet__list li { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; padding: 8px 12px; border-radius: 10px; background: var(--brand-soft); }
+.quiet__pct { font-weight: 700; white-space: nowrap; }
+.quiet__why { grid-column: 1 / -1; font-size: .82rem; color: var(--ink-2); }
+.quiet__none { font-size: .88rem; font-weight: 600; margin-bottom: 6px; }
+.quiet__list--none li { background: var(--accent-soft); }
 
 .tl { display: grid; grid-template-columns: 48px 1fr; margin: 6px 0 4px; column-gap: 6px; }
 .tl__months { grid-column: 2; display: block; overflow: visible; }
@@ -378,11 +382,15 @@ body:not(.mode-plane) .only-plane { display: none; }
 .sw--area { background: color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 3px; }
 .sw--all16 { background: color-mix(in srgb, var(--accent) 15%, transparent); border: 1px solid var(--accent); border-radius: 3px; }
 .sw--you { background: var(--accent); border-radius: 3px; }
+/* Bayram-Band ohne color-mix(), damit es auch auf älteren Browsern sichtbar bleibt */
+.tl__bayram { fill: var(--mid); fill-opacity: .22; }
+.sw--bayram { background: var(--mid); opacity: .35; border-radius: 3px; }
 
 .facts { display: grid; gap: 10px; margin: 14px 0 8px; }
 .facts div { padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
 .facts dt { font-size: .8rem; font-weight: 700; color: var(--ink-2); }
 .facts dd { margin: 0; font-weight: 700; }
+.facts .facts__sub { font-weight: 400; font-size: .85rem; color: var(--ink-2); margin-top: 2px; }
 
 .table { width: 100%; border-collapse: collapse; font-size: .92rem; }
 .table th, .table td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }

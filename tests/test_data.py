@@ -213,3 +213,50 @@ def test_language_negotiation():
     assert negotiate("en-US,en;q=0.9") == "de"
     assert negotiate(None) == "de"
     assert set(LANGS) == {"de", "tr"}
+
+
+# ------------------------------------------------ Bayram-Termine und Blockgrenzen
+
+def _bayram(content, bid):
+    return next(b for b in content.holidays["bayrams"]["items"] if b["id"] == bid)
+
+
+@pytest.mark.parametrize("field, value, message", [
+    ("arife", "2027-05-14", "Arife muss der Tag vor dem ersten Festtag sein"),
+    ("end", "2027-05-18", "kurban dauert 4 Tage, nicht 3"),
+    ("kind", "sheker", "unbekannte Art 'sheker'"),
+    ("start", "2027-02-30", "brauchen ein gültiges Datum"),
+    ("label", {"de": "Opferfest", "tr": ""}, "label: nicht zweisprachig"),
+])
+def test_validation_checks_bayram_dates(field, value, message):
+    content = load_content()
+    _bayram(content, "kurban-2027")[field] = value
+    assert any(message in p for p in validate(content)), validate(content)
+
+
+def test_validation_requires_bayram_source_and_check_date():
+    content = load_content()
+    content.holidays["bayrams"]["source"] = {"name": "Diyanet", "url": "http://diyanet.gov.tr"}
+    content.holidays["bayrams"]["as_of"] = "bald"
+    problems = validate(content)
+    assert any("holidays.bayrams.source: Quelle braucht https-URL" in p for p in problems)
+    assert any("holidays.bayrams.as_of: ungültiges Datum" in p for p in problems)
+    del content.holidays["bayrams"]
+    assert validate(content) == []  # Bayram-Marker sind optional
+
+
+def test_ramazan_bayrami_lasts_three_days_kurban_four():
+    content = load_content()
+    ramazan, kurban = _bayram(content, "ramazan-2027"), _bayram(content, "kurban-2027")
+    assert (ramazan["arife"], ramazan["start"], ramazan["end"]) == ("2027-03-08", "2027-03-09", "2027-03-11")
+    assert (kurban["arife"], kurban["start"], kurban["end"]) == ("2027-05-15", "2027-05-16", "2027-05-19")
+
+
+def test_validation_rejects_blocks_that_touch_across_periods():
+    """Zwei Zeiträume, ein Urlaub: Die Reisewelle zählte sonst einen zweiten Ferienstart."""
+    content = load_content()
+    # Hamburg: Pfingsten frei bis Mo 17.05.; ein angeblicher Block ab Di 18.05. schlösse direkt an
+    _period(content, "sommer-2027")["ranges"]["HH"] = [["2027-05-18", "2027-05-28"]]
+    problems = validate(content)
+    assert any("sommer-2027.HH: freier Block 2027-05-15–2027-05-30 schließt an pfingsten-2027 an" in p
+               for p in problems), problems

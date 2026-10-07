@@ -93,7 +93,7 @@
       <span class="waves__date">{{ fmt_date(w.date, with_weekday=True, with_year=False) }}</span>
       <span class="waves__kind">{{ icon("arrow", "icon--xs" ~ (" icon--flip" if w.kind == "end" else "")) }}{{ t("b_wave_start") if w.kind == "start" else t("b_wave_end") }}</span>
       <span class="waves__states">{% for s in w.states %}{{ radar.states[s].short }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
-      <span class="waves__share">{{ fmt_pct(w.share) }} %</span>
+      <span class="waves__share">{{ fmt_pct(w.share) }}</span>
     </li>
     {%- endfor %}
   </ul>

@@ -14,6 +14,7 @@ from . import borders as B
 from . import today_berlin, utcnow
 from .content import DATASETS, is_due
 from .db import check_salt_db
+from .holidays import QUIET_MAX
 from .i18n import LANGS, SLUGS, fmt_date, fmt_pct, fmt_range, negotiate
 
 PAGES = ("home", "holidays", "route", "borders", "customs", "info", "offline")
@@ -148,7 +149,8 @@ def holidays():
     period = radar.by_id.get(request.args.get("zeitraum", "")) or radar.current_or_next_period(today) or radar.periods[-1]
     land = request.args.get("land", "").upper()
     land = land if land in radar.states else ""
-    chart = _holiday_chart(radar, period, today)
+    bayrams = radar.bayrams_in(period)
+    chart = _holiday_chart(radar, period, today, bayrams)
     personal = {}
     for code in radar.states:
         ranges = period.ranges.get(code)
@@ -156,7 +158,8 @@ def holidays():
             stretches = period.stretches(code)
             personal[code] = {"ranges": ranges, "days": period.holiday_days(code), "free": stretches,
                               "free_differs": [(r.start, r.end) for r in stretches] != [(r.start, r.end) for r in ranges],
-                              "quiet": radar.quiet_days(period, code)}
+                              "quiet": radar.quiet_days(period, code),
+                              "bayrams": [b for b, states in bayrams if code in states]}
     share_urls, share_texts = {}, {}
     for code, info in personal.items():
         text = t("hol_share_text", period=f"{period.label[g.lang]} {radar.states[code]['short']}",
@@ -167,10 +170,26 @@ def holidays():
                            land=land, chart=chart, personal=personal, today=today,
                            all16=radar.all_states_windows(period), peak=radar.peak(period),
                            share_urls=share_urls, share_texts=share_texts, radar_meta=tv().content.meta("holidays"),
-                           radar_due=tv().content.review_due("holidays", today))
+                           radar_due=tv().content.review_due("holidays", today), quiet_max=QUIET_MAX,
+                           wave_note=_wave_note, bayram_source=_bayram_source(),
+                           bayram_facts=[(b, ", ".join(radar.states[s]["short"] for s in states)) for b, states in bayrams])
 
 
-def _holiday_chart(radar, period, today) -> dict:
+def _wave_note(wave, kind: str) -> str:
+    """Einordnung eines Reisetags: in welchen Ländern die Ferien gerade beginnen bzw. gleich enden."""
+    prefix = "hol_wave_dep" if kind == "departure" else "hol_wave_ret"
+    if not wave.states:
+        return t(f"{prefix}_none")
+    if len(wave.states) > 3:
+        return t(f"{prefix}_many", n=len(wave.states))
+    return t(f"{prefix}_states", states=", ".join(tv().radar.states[s]["short"] for s in wave.states))
+
+
+def _bayram_source() -> dict | None:
+    return (tv().content.holidays.get("bayrams") or {}).get("source")
+
+
+def _holiday_chart(radar, period, today, bayrams=()) -> dict:
     """Geometrie der Zeitleiste. x in Prozent (lesbar auf jeder Breite), y in px.
 
     Keine Inline-Styles, nur SVG-Attribute – so bleibt die CSP ohne 'unsafe-inline'.
@@ -205,11 +224,18 @@ def _holiday_chart(radar, period, today) -> dict:
         months.insert(0, {"x": 0, "label": tv().tr.t(g.lang, "month_short")[first.month - 1], "edge": True})
 
     today_x = pct(today) + day_pct / 2 if first <= today <= last else None
-    all16 = [{"x": pct(w.start), "w": round(pct(w.end) - pct(w.start) + day_pct, 3),
-              "i": (w.start - first).days, "n": (w.end - w.start).days + 1}
-             for w in radar.all_states_windows(period)]
+
+    def band(start, end) -> dict:
+        start, end = max(start, first), min(end, last)
+        return {"x": pct(start), "w": round(pct(end) - pct(start) + day_pct, 3),
+                "i": (start - first).days, "n": (end - start).days + 1}
+
+    all16 = [band(w.start, w.end) for w in radar.all_states_windows(period)]
+    # Bayram-Festtage als Band (ohne Arife; den nennt der Text darunter)
+    bayram_bands = [band(b.days.start, b.days.end) for b, _states in bayrams
+                    if b.days.start <= last and b.days.end >= first]
     return {"area": area, "ndays": ndays, "rows": rows, "row_h": row_h, "height": len(rows) * row_h,
-            "months": months, "today_x": today_x, "all16": all16}
+            "months": months, "today_x": today_x, "all16": all16, "bayrams": bayram_bands}
 
 
 def route():
@@ -574,7 +600,8 @@ def register(app: Flask) -> None:
             "lang": g.lang, "other_lang": other, "t": t, "href": href, "asset": asset,
             "alt_urls": alt_urls, "abs_url": abs_url, "ago": ago, "iso": iso, "in_days": in_days,
             "fmt_date": lambda d, **kw: fmt_date(d, g.lang, tr, **kw),
-            "fmt_range": lambda a, b: fmt_range(a, b, g.lang, tr), "fmt_pct": fmt_pct,
+            "fmt_range": lambda a, b: fmt_range(a, b, g.lang, tr),
+            "fmt_pct": lambda share, digits=1: fmt_pct(share, g.lang, digits),
             "plural": lambda key, n, **kw: tr.plural(g.lang, key, n, **kw),
             "status_text": status_text, "bucket_label": bucket_label, "bucket_count": B.BUCKET_COUNT,
             "client_strings": _client_strings, "build_id": tv().build_id,

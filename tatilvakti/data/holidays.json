@@ -32,6 +32,16 @@
     "SH": {"name": "Schleswig-Holstein", "short": "SH", "population": 2959517},
     "TH": {"name": "Thüringen", "short": "TH", "population": 2100277}
   },
+  "bayrams": {
+    "as_of": "2026-10-07",
+    "source": {"name": "Diyanet İşleri Başkanlığı – Dini Günler", "url": "https://namazvakitleri.diyanet.gov.tr/en-US/dini-gunler"},
+    "items": [
+      {"id": "ramazan-2027", "kind": "ramazan", "label": {"de": "Ramazan Bayramı (Zuckerfest)", "tr": "Ramazan Bayramı"},
+       "arife": "2027-03-08", "start": "2027-03-09", "end": "2027-03-11"},
+      {"id": "kurban-2027", "kind": "kurban", "label": {"de": "Kurban Bayramı (Opferfest)", "tr": "Kurban Bayramı"},
+       "arife": "2027-05-15", "start": "2027-05-16", "end": "2027-05-19"}
+    ]
+  },
   "periods": [
     {
       "id": "herbst-2026",

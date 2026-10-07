@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from .holidays import Range, free_stretches
@@ -19,11 +19,13 @@ DATASETS = ("holidays", "customs", "transit", "crossings")
 CUSTOMS_STATUSES = ("ok", "limit", "declare", "no")
 TOLL_SYSTEMS = ("vignette", "evignette", "toll", "hgs")
 # Kürzeste freie Zeit am Stück (Ferien plus angrenzende Wochenenden und bundesweite Feiertage),
-# die das Ferien-Radar führt. quiet_days() wählt Abreise- und Rückreisetage aus je 7 Tagen am
-# Anfang und am Ende; bei kürzeren Blöcken wären beide Listen gleich, und waves() meldete
-# Ferienbeginn und -ende am selben Tag. Kurze Ferien (Brückentage, zwei Tage Winterferien)
-# bleiben deshalb draußen, bis die Ferienlogik sie eigens behandelt.
+# die das Ferien-Radar führt. Kurze Ferien (Brückentage, zwei Tage Winterferien) bleiben draußen:
+# Für eine Reise in die Türkei reichen sie selten, und als eigene Blöcke erzeugten sie
+# Reisewellen, die es Richtung Türkei so nicht gibt (z. B. Freitag nach Himmelfahrt in 8 Ländern).
+# Der Hinweis in holidays.json (meta.note) sagt das den Nutzern.
 MIN_FREE_DAYS = 8
+# Bayram-Termine (Diyanet): Festtage je Art, der Arife-Tag liegt direkt davor
+BAYRAM_DAYS = {"ramazan": 3, "kurban": 4}
 
 
 @dataclass
@@ -84,6 +86,37 @@ def _check_source(src, where, problems):
     _check_url(src.get("url"), where, problems)
 
 
+def _validate_bayrams(bayrams, problems) -> None:
+    """Bayram-Termine: optional, aber wenn vorhanden mit Quelle, Prüfdatum und stimmigen Tagen."""
+    if bayrams is None:
+        return
+    if not isinstance(bayrams, dict):
+        problems.append("holidays.bayrams: Objekt mit as_of, source und items erwartet")
+        return
+    _check_date(bayrams.get("as_of"), "holidays.bayrams.as_of", problems)
+    _check_source(bayrams.get("source"), "holidays.bayrams.source", problems)
+    seen = set()
+    for item in bayrams.get("items", []):
+        bid = item.get("id")
+        if bid in seen:
+            problems.append(f"holidays.bayrams: doppelte id {bid}")
+        seen.add(bid)
+        kind = item.get("kind")
+        if kind not in BAYRAM_DAYS:
+            problems.append(f"holidays.bayrams.{bid}: unbekannte Art {kind!r}")
+        if not _is_bilingual(item.get("label")):
+            problems.append(f"holidays.bayrams.{bid}.label: nicht zweisprachig")
+        try:
+            arife, start, end = (date.fromisoformat(item[key]) for key in ("arife", "start", "end"))
+        except (KeyError, TypeError, ValueError):
+            problems.append(f"holidays.bayrams.{bid}: Arife, Beginn und Ende brauchen ein gültiges Datum")
+            continue
+        if start - arife != timedelta(days=1):
+            problems.append(f"holidays.bayrams.{bid}: Arife muss der Tag vor dem ersten Festtag sein")
+        if kind in BAYRAM_DAYS and (end - start).days + 1 != BAYRAM_DAYS[kind]:
+            problems.append(f"holidays.bayrams.{bid}: {kind} dauert {BAYRAM_DAYS[kind]} Tage, nicht {(end - start).days + 1}")
+
+
 def validate(content: Content) -> list[str]:
     """Liefert eine Liste von Problemen (leer = alles in Ordnung)."""
     problems: list[str] = []
@@ -105,6 +138,7 @@ def validate(content: Content) -> list[str]:
         _check_url(src.get("url"), "holidays.meta.sources", problems)
     seen_ids = set()
     taken: dict[str, list[tuple[date, date, str]]] = {}  # Land → belegte Ferientage (alle Zeiträume)
+    blocks: dict[str, list[tuple[Range, str]]] = {}      # Land → freie Blöcke (alle Zeiträume)
     for period in content.holidays["periods"]:
         pid = period["id"]
         if pid in seen_ids:
@@ -140,11 +174,21 @@ def validate(content: Content) -> list[str]:
                 taken[state].append((s, e, pid))
                 valid.append(Range(s, e))
             for stretch in free_stretches(valid):
+                blocks.setdefault(state, []).append((stretch, pid))
                 if stretch.days < MIN_FREE_DAYS:
                     problems.append(
                         f"holidays.{pid}.{state}: nur {stretch.days} freie Tage am Stück "
                         f"({stretch.start}–{stretch.end}); kurze Ferien unter {MIN_FREE_DAYS} Tagen führt das Radar nicht"
                     )
+    # Freie Blöcke eines Landes aus zwei Zeiträumen dürfen sich nicht berühren: Reisewellen und
+    # Ferien-Wellen zählten sonst einen Ferienbeginn mitten in den Ferien.
+    for state, items in blocks.items():
+        items.sort(key=lambda item: item[0].start)
+        for (a, pa), (b, pb) in zip(items, items[1:]):
+            if pa != pb and b.start <= a.end + timedelta(days=1):
+                problems.append(f"holidays.{pb}.{state}: freier Block {b.start}–{b.end} schließt an {pa} an "
+                                f"({a.start}–{a.end}); als ein Zeitraum erfassen")
+    _validate_bayrams(content.holidays.get("bayrams"), problems)
 
     # Zoll
     sources = content.customs["sources"]

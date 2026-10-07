@@ -39,15 +39,22 @@
     {%- if info.free_differs %}
     <p class="muted">{{ t("hol_free", dates=fmt_ranges(info.free)) }}</p>
     {%- endif %}
+    {%- for b in info.bayrams %}
+    <p class="note">{{ icon("calendar", "icon--s") }}<span>{{ t("hol_bayram_yours", name=b.label[lang], arife=fmt_date(b.arife, with_weekday=True, with_year=False), dates=fmt_ranges([b.days])) }}</span></p>
+    {%- endfor %}
     <div class="quiet">
       {%- for kind, label in [("departure", "hol_quiet_departure"), ("return", "hol_quiet_return")] %}
+      {%- set pick = info.quiet[kind] %}
       <div class="quiet__col">
         <h3>{{ t(label) }}</h3>
-        <ul class="quiet__list">
-          {%- for day, share in info.quiet[kind] %}
-          <li><strong>{{ fmt_date(day, with_weekday=True, with_year=False) }}</strong><span class="muted">{{ t("hol_share_pct", pct=fmt_pct(share)) }}</span></li>
+        {%- if not pick.calm %}
+        <p class="quiet__none">{{ t("hol_quiet_none", pct=fmt_pct(quiet_max, 0)) }}</p>
+        {%- endif %}
+        <ol class="quiet__list{% if not pick.calm %} quiet__list--none{% endif %}">
+          {%- for w in pick.days %}
+          <li><strong>{{ fmt_date(w.day, with_weekday=True, with_year=False) }}</strong><span class="quiet__pct">{{ fmt_pct(w.share) }}</span><span class="quiet__why">{{ wave_note(w, kind) }}</span></li>
           {%- endfor %}
-        </ul>
+        </ol>
       </div>
       {%- endfor %}
     </div>
@@ -70,10 +77,13 @@
       {%- endfor %}
     </svg>
 
-    <div class="tl__axis" aria-hidden="true"><span>100 %</span><span>{{ t("hol_pressure") }}</span><span>0 %</span></div>
+    <div class="tl__axis" aria-hidden="true"><span>{{ fmt_pct(1) }}</span><span>{{ t("hol_pressure") }}</span><span>{{ fmt_pct(0) }}</span></div>
     <svg class="tl__area" viewBox="0 0 {{ chart.ndays }} 100" preserveAspectRatio="none" aria-hidden="true">
       {%- for w in chart.all16 %}
       <rect class="tl__all16" x="{{ w.i }}" y="0" width="{{ w.n }}" height="100"></rect>
+      {%- endfor %}
+      {%- for w in chart.bayrams %}
+      <rect class="tl__bayram" x="{{ w.i }}" y="0" width="{{ w.n }}" height="100"></rect>
       {%- endfor %}
       <path class="tl__fill" d="{{ chart.area }}"></path>
     </svg>
@@ -90,6 +100,9 @@
       {%- for w in chart.all16 %}
       <rect class="tl__all16" x="{{ w.x }}%" y="0" width="{{ w.w }}%" height="100%"></rect>
       {%- endfor %}
+      {%- for w in chart.bayrams %}
+      <rect class="tl__bayram" x="{{ w.x }}%" y="0" width="{{ w.w }}%" height="100%"></rect>
+      {%- endfor %}
       {%- for r in chart.rows %}
       <g class="tl__row{% if land == r.code %} is-you{% endif %}" data-tl-state="{{ r.code }}">
         <rect class="tl__rowbg" x="0" y="{{ r.y + 1 }}" width="100%" height="{{ chart.row_h - 2 }}" rx="5"></rect>
@@ -105,6 +118,7 @@
     <figcaption class="tl__legend">
       <span><i class="sw sw--area"></i>{{ t("hol_pressure") }}</span>
       {%- if chart.all16 %}<span><i class="sw sw--all16"></i>{{ t("hol_all16") }}</span>{% endif %}
+      {%- if chart.bayrams %}<span><i class="sw sw--bayram"></i>{{ t("hol_legend_bayram") }}</span>{% endif %}
       <span><i class="sw sw--you"></i>{{ t("hol_legend_you") }}</span>
     </figcaption>
   </figure>
@@ -112,12 +126,19 @@
   <dl class="facts">
     <div>
       <dt>{{ t("hol_peak") }}</dt>
-      <dd>{{ fmt_pct(peak[1]) }} % · {{ fmt_date(peak[0], with_weekday=True) }} · {{ t("hol_states_n", n=peak[2]) }}</dd>
+      <dd>{{ fmt_pct(peak[1]) }} · {{ fmt_date(peak[0], with_weekday=True) }} · {{ t("hol_states_n", n=peak[2]) }}</dd>
     </div>
     <div>
       <dt>{{ t("hol_all16") }}</dt>
       <dd>{% if all16 %}{% for w in all16 %}{{ fmt_range(w.start, w.end) }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}{{ t("hol_all16_none") }}{% endif %}</dd>
     </div>
+    {%- for b, names in bayram_facts %}
+    <div>
+      <dt>{{ b.label[lang] }}</dt>
+      <dd>{{ fmt_ranges([b.days]) }} · {{ t("hol_bayram_arife", date=fmt_date(b.arife, with_weekday=True, with_year=False)) }}</dd>
+      <dd class="facts__sub">{{ t("hol_bayram_states", states=names) }} · {{ t("source") }}: {{ ext(bayram_source.url, bayram_source.name) }}</dd>
+    </div>
+    {%- endfor %}
   </dl>
   <p class="hint">{{ t("hol_pressure_expl") }} {{ t("hol_no_price_promise") }}</p>
 </section>
@@ -130,7 +151,7 @@
       {%- for r in chart.rows %}
       <tr data-tl-state="{{ r.code }}"{% if land == r.code %} class="is-you"{% endif %}>
         <th scope="row">{{ r.name }}</th>
-        <td>{% for rg in period.ranges[r.code] %}{{ fmt_range(rg.start, rg.end) }}{% if not loop.last %} + {% endif %}{% endfor %}</td>
+        <td>{% for rg in period.ranges[r.code] %}{{ fmt_range(rg.start, rg.end) }}{% if not loop.last %} + {% endif %}{% else %}<span aria-hidden="true">–</span><span class="sr-only">{{ t("hol_table_none") }}</span>{% endfor %}</td>
       </tr>
       {%- endfor %}
     </tbody>
