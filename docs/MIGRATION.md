@@ -67,7 +67,7 @@ Jeder Punkt beantwortet eine Frage, die sich aus dem Code von v2 allein nicht kl
 
 ### 1.5 Infrastruktur
 
-- [ ] **Pangolin:** Wo läuft es (eigene Hardware, VPS-Anbieter oder Pangolin Cloud) und in welcher Version? Ist für die Ressource das HTTPS-Request-Log aktiv, mit welcher Aufbewahrung? Ist im Traefik von Pangolin ein `accessLog` aktiv?
+- [ ] **Pangolin:** Wo läuft es (eigene Hardware, VPS-Anbieter oder Pangolin Cloud) und in welcher Version? Welche Aufbewahrung ist in den Organisationseinstellungen für die HTTPS-Request-Logs eingestellt? Ist im Traefik von Pangolin ein `accessLog` aktiv?
 - [ ] **VM „Hermes“:** Bei welchem Anbieter läuft sie?
 - [ ] **Auftragsverarbeitung:** Gibt es einen AVV (Art. 28 DSGVO) mit diesen Anbietern?
 
@@ -112,9 +112,10 @@ Pro Punkt eintragen: Entscheidung, Datum, erledigt.
 
 ### 2.6 Pangolin-Logs und Auftragsverarbeitung
 
-Das HTTPS-Request-Log von Pangolin speichert laut [Pangolin-Doku](https://docs.pangolin.net/manage/analytics/request) pro Anfrage Zeit, Client-IP, Standort, User-Agent und URL, ab Werk 7 Tage. Eine Meldung geht an `/api/v1/borders/<übergang>/reports`. Das Log verknüpft also IP, Grenzübergang und Uhrzeit.
+Das HTTPS-Request-Log von Pangolin speichert laut [Pangolin-Doku](https://docs.pangolin.net/manage/analytics/request) pro Anfrage Zeit, Client-IP, Standort, User-Agent und URL, ab Werk 7 Tage. Die Aufbewahrung ist dort eine Einstellung der Organisation, nicht der einzelnen Ressource. Eine Meldung geht an `/api/v1/borders/<übergang>/reports`. Das Log verknüpft also IP, Grenzübergang und Uhrzeit.
 
-- [ ] Request-Log für die Ressource abschalten oder die Aufbewahrung kürzen (z. B. 1–7 Tage). Den Wert notieren. Laut [Issue #2061](https://github.com/fosrl/pangolin/issues/2061) griffen Aufbewahrungseinstellungen bis Version 1.22 nicht, ggf. aktualisieren.
+- [ ] In den Organisationseinstellungen von Pangolin die Aufbewahrung der HTTPS-Request-Logs abschalten oder kürzen (z. B. 1–7 Tage). Den Wert notieren.
+- [ ] Prüfen, ob die Einstellung wirkt: Bei abgeschalteter Aufbewahrung darf nach einer Testanfrage kein neuer Eintrag im Request-Log erscheinen, sonst keiner, der älter als die Frist ist. Pangolin hatte hier Fehler: In Version 1.13.0 erschienen Request-Logs trotz abgeschalteter Aufbewahrung ([Issue #2061](https://github.com/fosrl/pangolin/issues/2061), geschlossen). Version 1.22.0 behebt laut [Release Notes](https://github.com/fosrl/pangolin/releases/tag/1.22.0) einen Fehler, durch den die Aufbewahrung der Access-Logs ein falsches Feld der Organisationseinstellungen las. Deshalb eine aktuelle Version einsetzen.
 - [ ] Traefik-`accessLog` in der Pangolin-Konfiguration prüfen: abschalten oder die Client-IP weglassen. Dazu unter `fields.names` sowohl `ClientHost` als auch `ClientAddr` auf `drop` setzen und Header nicht loggen (`fields.headers.defaultMode: drop`, der Traefik-Standard; [Traefik-Doku](https://doc.traefik.io/traefik/v3.1/observability/access-logs/)).
 - [ ] AVV mit dem VPS-Anbieter bzw. Pangolin Cloud abschließen oder abrufen. Bei Anbietern außerhalb der EU die Drittlandübermittlung prüfen.
 - [ ] Ergebnis (Empfänger, Log-Frist) in die Datenschutzhinweise von v2 übernehmen. Bleibt ein IP-Log bestehen, muss der Satz „Die IP-Adresse selbst speichern wir nicht“ in v2 auf die App-Datenbank eingeschränkt werden.
@@ -287,7 +288,7 @@ sudo /opt/tatilvakti-v2/current/scripts/rollback.sh            # voriges Release
 sudo /opt/tatilvakti-v2/current/scripts/rollback.sh --list     # verfügbare Releases
 ```
 
-`deploy.sh` rollt selbst zurück, wenn ein neues Release nach dem Neustart `/healthz` nicht mit der erwarteten Build-ID beantwortet.
+`deploy.sh` rollt selbst zurück, wenn ein neues Release nach dem Neustart `/healthz` nicht mit der erwarteten Build-ID beantwortet, und startet das alte Release wieder. `rollback.sh` startet den Dienst auch dann neu, wenn systemd ihn nach mehreren Fehlstarts aufgegeben hat (`failed`, start-limit-hit). Einen bewusst gestoppten Dienst startet es nur mit `--start`.
 
 ### 7.2 Zurück zur Alt-App
 
@@ -343,4 +344,4 @@ Neue Ziele in v2: `/de/` · `/de/ferien` · `/de/route` · `/de/grenze` · `/de/
 | Weiterleitungstabelle (Anhang A) | |
 | Ergebnis der Generalprobe (4.4) | |
 | Weiterlaufende Dienste für die Datenschutzhinweise (2.1–2.6) | |
-| Pangolin: Request-Log an/aus, Aufbewahrung, Hoster, AVV | |
+| Pangolin: Version, Aufbewahrung der Request-Logs (Organisation), Hoster, AVV | |

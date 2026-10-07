@@ -12,6 +12,7 @@ SERVICE_USER=${TV_RELEASE_USER:-$APP}
 ENV_FILE=${TV_RELEASE_ENV_FILE:-/etc/$APP.env}
 DB=${TV_RELEASE_DB:-/var/lib/$APP/tatilvakti.db}
 HEALTH_URL=${TV_RELEASE_HEALTH_URL:-http://127.0.0.1:3096/healthz}
+HEALTH_TRIES=${TV_RELEASE_HEALTH_TRIES:-30}  # Sekunden Wartezeit auf /healthz nach einem Neustart
 
 log() { printf '%s  %s\n' "$(date '+%H:%M:%S')" "$*"; }
 die() { printf 'FEHLER: %s\n' "$*" >&2; exit 1; }
@@ -36,8 +37,26 @@ link_target() {  # $1 = Linkname in BASE; leer, wenn es ihn nicht gibt
     readlink "$BASE/$1" 2>/dev/null || true
 }
 
-service_active() {
-    systemctl is-active --quiet "$SERVICE" 2>/dev/null
+# Nur ein deploy.sh/rollback.sh zur Zeit: beide setzen current/previous und räumen releases/ auf.
+# Die Sperre gilt bis zum Ende des Skripts (fd 9 bleibt offen).
+take_lock() {
+    [ -d "$BASE" ] || die "$BASE fehlt"
+    exec 9>"$BASE/.lock"
+    flock -n 9 || die "deploy.sh oder rollback.sh läuft bereits (Sperre $BASE/.lock)"
+}
+
+# Zustand laut systemd: active, activating, reloading, deactivating, inactive, failed …
+service_state() {
+    systemctl is-active "$SERVICE" 2>/dev/null || true
+}
+
+# Soll der Dienst laufen? Ja, wenn er läuft, gerade (neu) startet oder abgestürzt ist, auch nach
+# zu vielen Fehlstarts (failed/start-limit-hit). 'inactive' heißt: bewusst gestoppt oder nie gestartet.
+service_wanted() {
+    case $(service_state) in
+        active|activating|reloading|failed) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 # Preflight eines Releases als Dienstbenutzer. Gibt die Ausgabe weiter und setzt PREFLIGHT_BUILD.
@@ -56,11 +75,13 @@ run_preflight() {  # $1 = Release-Verzeichnis, weitere Argumente gehen an prefli
     return 1
 }
 
-# Wartet bis zu 30 s, bis /healthz mit HTTP 200 antwortet und (falls angegeben) die erwartete
-# Build-ID meldet. HTTP 503 heißt: Die App läuft, erreicht aber ihre Datenbank nicht.
+# Wartet bis zu HEALTH_TRIES Sekunden, bis /healthz mit HTTP 200 und db=true antwortet und (falls
+# angegeben) die erwartete Build-ID meldet. HTTP 503 heißt: Die App läuft, erreicht aber ihre
+# Datenbank nicht. Eine unbrauchbare Schlüssel-DB (salt_db=false) gibt nur eine WARNUNG: Die Seiten
+# laufen, aber jede Meldung scheitert, und die Ursache liegt oft außerhalb des Releases (/run).
 wait_healthy() {  # $1 = erwartete Build-ID oder leer
-    local expected=${1:-} _
-    for _ in $(seq 1 30); do
+    local expected=${1:-} i
+    for i in $(seq 1 "$HEALTH_TRIES"); do
         if python3 - "$HEALTH_URL" "$expected" <<'PY'
 import json
 import sys
@@ -72,25 +93,55 @@ try:
         data = json.load(resp)
 except Exception:
     sys.exit(1)
-if expected and data.get("build") != expected:
+if data.get("db") is not True or (expected and data.get("build") != expected):
     sys.exit(1)
 print(f"/healthz: status={data.get('status')} build={data.get('build')} "
       f"attention={data.get('attention', [])}")
+if data.get("salt_db") is False:
+    print("WARNUNG: Schlüssel-DB (TV_SALT_DB_PATH) nicht nutzbar, jede Meldung scheitert. "
+          "Ursache: journalctl -u tatilvakti-v2 -n 50", file=sys.stderr)
 PY
         then
             return 0
         fi
-        sleep 1
+        [ "$i" -ge "$HEALTH_TRIES" ] || sleep 1
     done
     return 1
 }
 
-# Dienst neu starten, falls er läuft, und auf einen gesunden Start warten.
-restart_if_active() {  # $1 = erwartete Build-ID oder leer
-    if ! service_active; then
-        log "$SERVICE läuft nicht, kein Neustart. Starten: systemctl enable --now $SERVICE"
+# Dienst (neu) starten und auf einen gesunden Start warten. Vorher reset-failed: Nach zu vielen
+# Fehlstarts (StartLimitBurst in der Unit) lehnt systemd sonst jeden weiteren Start ab, auch den
+# eines heilen Releases, bis das Intervall abgelaufen ist.
+restart_service() {  # $1 = erwartete Build-ID oder leer
+    log "Neustart $SERVICE"
+    systemctl reset-failed "$SERVICE" 2>/dev/null || true
+    systemctl restart "$SERVICE" && wait_healthy "${1:-}"
+}
+
+# current auf ein neues Release umschalten (previous zeigt dann auf das bisherige) und den Dienst
+# neu starten, falls er laufen soll. Startet das neue Release nicht sauber, geht es automatisch
+# zurück auf das bisherige, und das Skript endet mit Fehler.
+activate_release() {  # $1 = releases/<name>, $2 = erwartete Build-ID
+    local new=$1 build=$2 prev old_prev wanted=0
+    prev=$(link_target current)
+    old_prev=$(link_target previous)
+    # Vor dem Umschalten festhalten: Nach einem Fehlstart des neuen Releases steht der Dienst auf
+    # 'activating' (Neustart-Takt) oder 'failed' (start-limit-hit) und sagt das nicht mehr.
+    if service_wanted; then wanted=1; fi
+    set_link "$new" current
+    [ -z "$prev" ] || set_link "$prev" previous
+    log "current → $new (vorher: ${prev:-keins}), Build $build"
+    if [ "$wanted" = 0 ]; then
+        log "$SERVICE läuft nicht ($(service_state)), kein Neustart. Starten: systemctl enable --now $SERVICE"
         return 0
     fi
-    log "Neustart $SERVICE"
-    systemctl restart "$SERVICE" && wait_healthy "${1:-}"
+    restart_service "$build" && return 0
+
+    log "Das neue Release startet nicht sauber. Details: journalctl -u $SERVICE -n 50"
+    [ -n "$prev" ] || die "Kein vorheriges Release für einen automatischen Rollback vorhanden."
+    set_link "$prev" current
+    if [ -n "$old_prev" ]; then set_link "$old_prev" previous; else rm -f "$BASE/previous"; fi
+    log "Automatisch zurück auf $prev"
+    restart_service "" || die "Auch $prev startet nicht. Notfall: docs/MIGRATION.md → Rollback"
+    die "Deploy zurückgerollt. Das fehlerhafte Release bleibt zur Analyse unter $BASE/$new"
 }

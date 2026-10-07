@@ -121,15 +121,23 @@ def test_preflight_checks_all_pages(tmp_path, monkeypatch, capsys):
 
 
 def make_db(path: Path) -> None:
-    """Haupt-DB im Schema der App, im WAL-Modus, mit Prüfwerten (und alten Schlüsseln, falls vorhanden)."""
+    """Haupt-DB im Schema der App, im WAL-Modus, mit Prüfwerten (und alten Schlüsseln, falls vorhanden).
+
+    Fehlt die Spalte net (Anschluss-Prüfwert) im Schema dieses Stands, kommt sie dazu: Das Backup
+    muss sie in jedem Fall leeren.
+    """
     from tatilvakti.db import connect, init_db
     init_db(str(path))
     conn = connect(str(path))
     try:
+        if "net" not in {r[1] for r in conn.execute("PRAGMA table_info(reports)")}:
+            conn.execute("ALTER TABLE reports ADD COLUMN net TEXT")
         now = int(datetime(2026, 10, 6, 10, tzinfo=timezone.utc).timestamp())
         conn.executemany(
-            "INSERT INTO reports (crossing, direction, bucket, observed_at, created_at, client) VALUES (?, ?, ?, ?, ?, ?)",
-            [("kapikule", "to_tr", 1, now - i, now - i, f"pruefwert-geheim-{i:04d}") for i in range(20)])
+            "INSERT INTO reports (crossing, direction, bucket, observed_at, created_at, client, net) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [("kapikule", "to_tr", 1, now - i, now - i, f"pruefwert-geheim-{i:04d}", f"netz-geheim-{i:04d}")
+             for i in range(20)])
         if conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'salts'").fetchone():
             conn.execute("INSERT INTO salts (day, salt) VALUES ('2026-10-06', ?)", (b"schluessel-geheim",))
     finally:
@@ -143,8 +151,9 @@ def test_backup_is_complete_and_scrubbed(tmp_path):
     # Offene Verbindung mit ungecheckpointeten Schreibvorgängen: diese Zeilen stehen nur im -wal
     live = sqlite3.connect(str(db))
     live.execute("PRAGMA wal_autocheckpoint=0")
-    live.executemany("INSERT INTO reports (crossing, direction, bucket, observed_at, created_at, client) "
-                     "VALUES ('kapikule', 'to_de', 2, 1, 1, ?)", [(f"pruefwert-wal-{i}",) for i in range(30)])
+    live.executemany("INSERT INTO reports (crossing, direction, bucket, observed_at, created_at, client, net) "
+                     "VALUES ('kapikule', 'to_de', 2, 1, 1, ?, ?)",
+                     [(f"pruefwert-wal-{i}", f"netz-wal-{i}") for i in range(30)])
     live.commit()
     try:
         now = datetime(2026, 10, 7, 3, 40, tzinfo=timezone.utc)
@@ -153,23 +162,77 @@ def test_backup_is_complete_and_scrubbed(tmp_path):
         live.close()
 
     assert target.name == "tatilvakti-20261007T034000Z.db"
-    assert info["reports"] == 50 and info["with_client"] == 0 and info["salts"] == 0
+    assert info == {"reports": 50, "unknown": []}
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
     assert not Path(str(target) + "-wal").exists()
     raw = target.read_bytes()
-    assert b"pruefwert" not in raw and b"schluessel-geheim" not in raw  # auch nicht im freien Speicher
+    # Weder Prüfwerte (IP und Anschluss) noch Schlüssel, auch nicht im freien Speicher
+    assert b"pruefwert" not in raw and b"netz-" not in raw and b"schluessel-geheim" not in raw
     copy = sqlite3.connect(str(target))
     try:
         assert copy.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+        assert copy.execute("SELECT COUNT(*), COUNT(client), COUNT(net), COUNT(observed_at) "
+                            "FROM reports").fetchone() == (50, 0, 0, 50)
     finally:
         copy.close()
     # Das Original bleibt unverändert
     orig = sqlite3.connect(str(db))
     try:
-        assert orig.execute("SELECT COUNT(*) FROM reports WHERE client IS NOT NULL").fetchone()[0] == 50
+        assert orig.execute("SELECT COUNT(client), COUNT(net) FROM reports").fetchone() == (50, 50)
     finally:
         orig.close()
     assert bk.main(["--verify", str(target)]) == 0
+
+
+def test_backup_knows_the_app_schema(tmp_path):
+    """Jede Tabelle und jede Spalte von reports im Schema der App ist in backup.py eingeordnet:
+    als Inhalt der Sicherung oder als bewusst geleerter Prüfwert/Schlüssel. Schlägt dieser Test
+    fehl, hat sich das Schema geändert: KEEP_TABLES/REPORT_COLUMNS bzw. HASH_COLUMNS/SECRET_TABLES
+    in scripts/backup.py ergänzen."""
+    bk = load_script("backup")
+    from tatilvakti.db import init_db
+    db = tmp_path / "schema.db"
+    init_db(str(db))
+    conn = sqlite3.connect(str(db))
+    try:
+        tables = set(bk._tables_to_check(conn))
+        columns = bk._columns(conn, "reports")
+    finally:
+        conn.close()
+    assert tables <= set(bk.KEEP_TABLES) | set(bk.SECRET_TABLES)
+    assert columns <= set(bk.REPORT_COLUMNS) | set(bk.HASH_COLUMNS)
+    assert set(bk.REPORT_COLUMNS) <= columns
+
+
+def test_backup_clears_unknown_and_verify_rejects_leftovers(tmp_path, capsys):
+    bk = load_script("backup")
+    db = tmp_path / "tatilvakti.db"
+    make_db(db)
+    conn = sqlite3.connect(str(db))
+    conn.execute("ALTER TABLE reports ADD COLUMN neu TEXT")
+    conn.execute("UPDATE reports SET neu = 'unbekannt-geheim'")
+    conn.execute("CREATE TABLE extra (x TEXT)")
+    conn.execute("INSERT INTO extra VALUES ('tabelle-geheim')")
+    conn.commit()
+    conn.close()
+
+    assert bk.main(["--db", str(db), "--dest", str(tmp_path / "backups")]) == 0
+    assert "WARNUNG: unbekannte Tabellen/Spalten in der Kopie geleert: extra, reports.neu" in capsys.readouterr().err
+    target = next((tmp_path / "backups").glob("tatilvakti-*.db"))
+    raw = target.read_bytes()
+    assert b"unbekannt-geheim" not in raw and b"tabelle-geheim" not in raw
+
+    # Eine Sicherung mit Restwerten (z. B. von einem älteren backup.py) fällt bei --verify durch
+    old = tmp_path / "alt.db"
+    src, dst = sqlite3.connect(str(db)), sqlite3.connect(str(old))
+    try:
+        src.backup(dst)
+    finally:
+        src.close()
+        dst.close()
+    assert bk.main(["--verify", str(old)]) == 1
+    err = capsys.readouterr().err
+    assert "reports.net" in err and "reports.client" in err and "extra" in err
 
 
 def test_backup_prune_keeps_newest(tmp_path):
@@ -192,3 +255,157 @@ def test_owner_check_refuses_foreign_db(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "geteuid", lambda: db.stat().st_uid + 1)
     with pytest.raises(PermissionError):
         bk.check_owner(db)
+
+
+# ------------------------------------------------- deploy.sh/rollback.sh mit systemctl-Attrappe
+
+SYSTEMCTL_STUB = r"""#!/usr/bin/env bash
+# systemctl-Attrappe: Zustand in $STUB/state, Start-Sperre (start-limit-hit) in $STUB/limit,
+# /healthz als Datei $STUB/healthz.json (urllib liest file://-URLs), jeder Aufruf in $STUB/calls.
+echo "$*" >>"$STUB/calls"
+state=$(cat "$STUB/state" 2>/dev/null || echo inactive)
+case $1 in
+    is-active)
+        [ "$2" = --quiet ] || echo "$state"
+        [ "$state" = active ] ;;
+    reset-failed)
+        rm -f "$STUB/limit"
+        [ "$state" != failed ] || echo inactive >"$STUB/state" ;;
+    restart)
+        if [ -e "$STUB/limit" ]; then echo "Start request repeated too quickly." >&2; exit 1; fi
+        rm -f "$STUB/healthz.json"
+        rel=$(readlink -f "$TV_RELEASE_BASE/current")
+        if [ -e "$rel/BROKEN" ]; then
+            # Wie gunicorn mit Type=notify: Der Master meldet READY, die Worker scheitern beim Booten,
+            # systemd startet bis StartLimitBurst neu und gibt dann auf (failed, start-limit-hit)
+            echo failed >"$STUB/state"
+            touch "$STUB/limit"
+        else
+            echo active >"$STUB/state"
+            printf '{"status": "ok", "db": true, "build": "%s"}' "$(cat "$rel/BUILD")" >"$STUB/healthz.json"
+        fi ;;
+    *) echo "unerwartet: $*" >&2; exit 1 ;;
+esac
+"""
+
+
+class Releases:
+    """Testaufbau: /opt/tatilvakti-v2 mit den Releases r1 und r2 unter tmp_path, systemctl-Attrappe."""
+
+    def __init__(self, tmp_path: Path):
+        self.base = tmp_path / "opt"
+        self.stub = tmp_path / "stub"
+        for name in ("r1", "r2"):
+            rel = self.base / "releases" / name
+            (rel / ".venv" / "bin").mkdir(parents=True)
+            gunicorn = rel / ".venv" / "bin" / "gunicorn"
+            gunicorn.write_text("#!/bin/sh\n")
+            gunicorn.chmod(0o755)
+            (rel / "BUILD").write_text(f"build-{name}")
+        (self.stub / "bin").mkdir(parents=True)
+        systemctl = self.stub / "bin" / "systemctl"
+        systemctl.write_text(SYSTEMCTL_STUB)
+        systemctl.chmod(0o755)
+        self.env = {**os.environ, "PATH": f"{self.stub / 'bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+                    "STUB": str(self.stub), "TV_RELEASE_BASE": str(self.base),
+                    "TV_RELEASE_HEALTH_URL": (self.stub / "healthz.json").as_uri(),
+                    "TV_RELEASE_HEALTH_TRIES": "1"}
+
+    def setup(self, current: str, previous: str | None, state: str, limit: bool = False) -> None:
+        os.symlink(f"releases/{current}", self.base / "current")
+        if previous:
+            os.symlink(f"releases/{previous}", self.base / "previous")
+        (self.stub / "state").write_text(state)
+        if limit:
+            (self.stub / "limit").touch()
+
+    def link(self, name: str) -> str | None:
+        path = self.base / name
+        return os.readlink(path) if path.is_symlink() else None
+
+    def state(self) -> str:
+        return (self.stub / "state").read_text().strip()
+
+    def calls(self) -> list[str]:
+        path = self.stub / "calls"
+        return [c.split()[0] for c in path.read_text().splitlines()] if path.exists() else []
+
+    def build(self) -> str | None:
+        import json
+        path = self.stub / "healthz.json"
+        return json.loads(path.read_text())["build"] if path.exists() else None
+
+    def bash(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["bash", *args], env=self.env, capture_output=True, text=True, timeout=60)
+
+    def activate(self, release: str, build: str) -> subprocess.CompletedProcess:
+        """Schritt 4/5 von deploy.sh (activate_release aus release-lib.sh)."""
+        return self.bash("-c", '. "$1" && activate_release "$2" "$3"', "_",
+                         str(SCRIPTS / "release-lib.sh"), f"releases/{release}", build)
+
+    def rollback(self, *args: str) -> subprocess.CompletedProcess:
+        return self.bash(str(SCRIPTS / "rollback.sh"), *args)
+
+
+@pytest.fixture
+def releases(tmp_path):
+    if not (shutil.which("bash") and shutil.which("flock")):
+        pytest.skip("bash oder flock fehlt")
+    return Releases(tmp_path)
+
+
+def test_deploy_rolls_back_and_restarts_after_start_limit(releases):
+    """Bootet das neue Release nicht, steht die Unit nach den Neustartversuchen auf 'failed'
+    (start-limit-hit). Der automatische Rollback muss das alte Release trotzdem wieder starten."""
+    releases.setup("r1", None, "active")
+    (releases.base / "releases" / "r2" / "BROKEN").touch()
+    res = releases.activate("r2", "build-r2")
+    assert res.returncode == 1 and "Deploy zurückgerollt" in res.stderr, res.stdout + res.stderr
+    assert releases.link("current") == "releases/r1" and releases.link("previous") is None
+    assert releases.state() == "active" and releases.build() == "build-r1"
+    assert releases.calls() == ["is-active", "reset-failed", "restart", "reset-failed", "restart"]
+
+
+def test_deploy_activates_and_checks_build(releases):
+    releases.setup("r1", None, "active")
+    res = releases.activate("r2", "build-r2")
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert releases.link("current") == "releases/r2" and releases.link("previous") == "releases/r1"
+    assert releases.build() == "build-r2" and "/healthz: status=ok build=build-r2" in res.stdout
+
+
+def test_deploy_leaves_stopped_service_stopped(releases):
+    releases.setup("r1", None, "inactive")
+    res = releases.activate("r2", "build-r2")
+    assert res.returncode == 0 and "kein Neustart" in res.stdout
+    assert releases.link("current") == "releases/r2" and "restart" not in releases.calls()
+
+
+def test_rollback_restarts_failed_service(releases):
+    """Typischer Fall: Das aktive Release ist abgestürzt (failed nach start-limit-hit)."""
+    releases.setup("r2", "r1", "failed", limit=True)
+    (releases.base / "releases" / "r2" / "BROKEN").touch()
+    res = releases.rollback("--no-preflight")
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert releases.link("current") == "releases/r1" and releases.link("previous") == "releases/r2"
+    assert releases.state() == "active" and releases.build() == "build-r1"
+
+
+def test_rollback_starts_stopped_service_only_with_start(releases):
+    releases.setup("r2", "r1", "inactive")
+    res = releases.rollback("--no-preflight")
+    assert res.returncode == 0 and "kein Neustart" in res.stdout
+    assert releases.link("current") == "releases/r1" and "restart" not in releases.calls()
+    res = releases.rollback("--no-preflight", "--start")
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert releases.link("current") == "releases/r2" and releases.build() == "build-r2"
+
+
+def test_rollback_refuses_while_locked(releases):
+    import fcntl
+    releases.setup("r2", "r1", "active")
+    with open(releases.base / ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        res = releases.rollback("--no-preflight")
+    assert res.returncode == 1 and "läuft bereits" in res.stderr
+    assert releases.link("current") == "releases/r2" and releases.calls() == []

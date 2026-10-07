@@ -8,10 +8,12 @@
 # 3. Preflight als Dienstbenutzer: Konfiguration, create_app gegen eine DB-Kopie, alle Seiten
 #    und die Precache-Liste, pytest (in einem Wegwerf-venv; das Laufzeit-venv bleibt ohne pytest)
 # 4. erst dann: Symlink current atomar umschalten, previous zeigt auf das bisherige Release
-# 5. läuft der Dienst: Neustart, /healthz muss die neue Build-ID melden, sonst automatisch zurück
+# 5. soll der Dienst laufen (aktiv, startet gerade oder abgestürzt): reset-failed und Neustart,
+#    /healthz muss die neue Build-ID melden, sonst automatisch zurück und Neustart des alten Releases
 # 6. alte Releases aufräumen (die neuesten --keep bleiben, Standard 5, current/previous immer)
 #
-# Scheitert ein Schritt vor 4, ändert sich am laufenden Dienst nichts.
+# Scheitert ein Schritt vor 4, ändert sich am laufenden Dienst nichts. Gleichzeitige Läufe von
+# deploy.sh und rollback.sh verhindert eine Sperre (/opt/tatilvakti-v2/.lock).
 set -euo pipefail
 umask 022
 
@@ -27,7 +29,7 @@ while [ $# -gt 0 ]; do
         --rev) REV=${2:?--rev braucht einen Wert}; shift 2 ;;
         --no-tests) TESTS=0; shift ;;
         --keep) KEEP=${2:?--keep braucht einen Wert}; shift 2 ;;
-        -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
         *) die "unbekannte Option: $1 (siehe --help)" ;;
     esac
 done
@@ -51,6 +53,7 @@ id "$SERVICE_USER" >/dev/null 2>&1 || die "Dienstbenutzer $SERVICE_USER fehlt (R
 NAME=$(date -u +%Y%m%dT%H%M%SZ)-${COMMIT:0:10}
 REL=$BASE/releases/$NAME
 install -d -m 0755 "$BASE" "$BASE/releases"
+take_lock
 [ ! -e "$REL" ] || die "$REL existiert bereits"
 
 WORK=$(mktemp -d)
@@ -91,24 +94,9 @@ PREFLIGHT_BUILD=
 run_preflight "$REL" "${PREFLIGHT_ARGS[@]}" || die "Preflight fehlgeschlagen, nichts umgeschaltet."
 [ -n "$PREFLIGHT_BUILD" ] || die "Preflight lieferte keine Build-ID"
 
-PREV=$(link_target current)
-OLD_PREV=$(link_target previous)
-set_link "releases/$NAME" current
-[ -z "$PREV" ] || set_link "$PREV" previous
+# Ab hier bleibt das Release stehen, auch wenn es zurückgerollt wird (zur Analyse)
 ACTIVATED=1
-log "current → releases/$NAME (vorher: ${PREV:-keins}), Build $PREFLIGHT_BUILD"
-
-if ! restart_if_active "$PREFLIGHT_BUILD"; then
-    log "Das neue Release startet nicht sauber. Details: journalctl -u $SERVICE -n 50"
-    if [ -z "$PREV" ]; then
-        die "Kein vorheriges Release für einen automatischen Rollback vorhanden."
-    fi
-    set_link "$PREV" current
-    if [ -n "$OLD_PREV" ]; then set_link "$OLD_PREV" previous; else rm -f "$BASE/previous"; fi
-    log "Automatisch zurück auf $PREV"
-    restart_if_active "" || die "Auch $PREV startet nicht. Notfall: docs/MIGRATION.md → Rollback"
-    die "Deploy zurückgerollt. Das fehlerhafte Release bleibt zur Analyse unter $REL"
-fi
+activate_release "releases/$NAME" "$PREFLIGHT_BUILD"
 
 # Aufräumen: die neuesten KEEP Releases behalten, current und previous nie löschen
 CUR=$(link_target current)

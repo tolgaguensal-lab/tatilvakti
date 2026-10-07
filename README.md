@@ -114,7 +114,7 @@ cd /opt/tatilvakti-v2/src && sudo git pull
 sudo scripts/deploy.sh                    # Optionen: --rev <tag|commit>, --no-tests, --keep <n>
 ```
 
-`deploy.sh` baut ein neues Release aus dem eingecheckten Stand (`git archive`), installiert die Pakete nur mit passenden Hashes und startet dann den **Preflight** (`scripts/preflight.py`) als Dienstbenutzer. Der Preflight prüft die Konfiguration, ruft `create_app()` gegen eine Kopie der Produktions-DB auf, lädt alle Seiten und die Offline-Liste des Service Workers und lässt `pytest` laufen. Erst danach schaltet `deploy.sh` den Symlink `current` um und startet den Dienst neu. Meldet `/healthz` danach nicht die neue Build-ID, geht es automatisch auf das vorige Release zurück. Ein kaputter Datenstand erreicht so nie die laufende Seite.
+`deploy.sh` baut ein neues Release aus dem eingecheckten Stand (`git archive`), installiert die Pakete nur mit passenden Hashes und startet dann den **Preflight** (`scripts/preflight.py`) als Dienstbenutzer. Der Preflight prüft die Konfiguration, ruft `create_app()` gegen eine Kopie der Produktions-DB auf, lädt alle Seiten und die Offline-Liste des Service Workers und lässt `pytest` laufen. Erst danach schaltet `deploy.sh` den Symlink `current` um und startet den Dienst neu. Meldet `/healthz` danach nicht die neue Build-ID, geht es automatisch auf das vorige Release zurück, und `deploy.sh` startet dieses neu. Das klappt auch, wenn systemd den Dienst nach mehreren Fehlstarts schon aufgegeben hat (`failed`, start-limit-hit): Vor jedem Neustart läuft `systemctl reset-failed`. Ein kaputter Datenstand erreicht so nie die laufende Seite. Meldet `/healthz` `salt_db: false`, gibt `deploy.sh` eine WARNUNG aus: Die Seiten laufen, aber Meldungen scheitern.
 
 Geänderte Units in `deploy/` übernimmt `deploy.sh` nicht selbst, es weist nur darauf hin. Dann die Dateien erneut nach `/etc/systemd/system/` kopieren, `sudo systemctl daemon-reload` ausführen und die betroffenen Units neu starten.
 
@@ -125,6 +125,8 @@ sudo /opt/tatilvakti-v2/current/scripts/rollback.sh            # zurück auf das
 sudo /opt/tatilvakti-v2/current/scripts/rollback.sh --list     # Releases anzeigen
 sudo /opt/tatilvakti-v2/current/scripts/rollback.sh <release>  # ein bestimmtes Release
 ```
+
+`rollback.sh` startet den Dienst neu, wenn er läuft, gerade startet oder abgestürzt ist (`failed`). Einen bewusst gestoppten Dienst startet es nur mit `--start`. `deploy.sh` und `rollback.sh` laufen nie gleichzeitig (Sperre `/opt/tatilvakti-v2/.lock`).
 
 Zurück zur Alt-App: [docs/MIGRATION.md → Rollback](docs/MIGRATION.md#7-rollback).
 
@@ -159,7 +161,7 @@ sudo /opt/tatilvakti-v2/current/scripts/tv-flask.sh purge-reports --crossing kap
 
 - Ziel `127.0.0.1:3096` auf Hermes. HTTPS ist Pflicht, sonst funktioniert der Service Worker nicht, HTTP leitet auf HTTPS um.
 - Host weitergeben (`X-Forwarded-Host`): Der CSRF-Schutz vergleicht `Origin` mit dem Host bzw. `TV_BASE_URL`.
-- **Kompression einschalten.** Sie spart rund 79 % der Offline-Daten, die jedes Gerät nach einem Deploy lädt (laut Audit-Messung rund 1,2 MB → 0,26 MB). Weder die App noch gunicorn komprimieren, und Pangolin ist ab Werk aus ([Diskussion #3158](https://github.com/orgs/fosrl/discussions/3158)). Neuere Pangolin-Versionen haben dafür einen Schalter pro Ressource ([PR #3579](https://github.com/fosrl/pangolin/pull/3579)). Sonst die Traefik-Middleware [`compress`](https://doc.traefik.io/traefik/middlewares/http/compress/) verwenden, z. B. für den ganzen Entrypoint:
+- **Kompression einschalten.** Sie spart rund 79 % der Offline-Daten, die jedes Gerät nach einem Deploy lädt (laut Audit-Messung rund 1,2 MB → 0,26 MB). Weder die App noch gunicorn komprimieren, und Pangolin komprimiert ab Werk nicht ([Diskussion #3158](https://github.com/orgs/fosrl/discussions/3158)). Ein Schalter pro Ressource ist bisher nur vorgeschlagen ([PR #3579](https://github.com/fosrl/pangolin/pull/3579): Entwurf, nicht gemergt, Stand Oktober 2026). Deshalb die Traefik-Middleware [`compress`](https://doc.traefik.io/traefik/middlewares/http/compress/) verwenden, z. B. für den ganzen Entrypoint:
 
   ```yaml
   # traefik_config.yml (statisch): wirkt für alle Ressourcen dieses Entrypoints
@@ -185,7 +187,7 @@ sudo /opt/tatilvakti-v2/current/scripts/tv-flask.sh purge-reports --crossing kap
 
 ### Backup und Restore
 
-- `tatilvakti-v2-backup.timer` sichert nachts um 03:40 Ortszeit per SQLite-Online-Backup nach `/var/lib/tatilvakti-v2/backups/tatilvakti-<UTC-Zeit>.db`. Ein `cp` der Datei würde im WAL-Modus die jüngsten Meldungen verlieren. In der Kopie sind die Prüfwerte geleert, die Tagesschlüssel liegen in einer eigenen Datei und werden nie gesichert. Eine Sicherung enthält damit nur Übergang, Richtung, Wartezeit-Bereich und Zeitpunkte. Sofort sichern: `sudo systemctl start tatilvakti-v2-backup.service`.
+- `tatilvakti-v2-backup.timer` sichert nachts um 03:40 Ortszeit per SQLite-Online-Backup nach `/var/lib/tatilvakti-v2/backups/tatilvakti-<UTC-Zeit>.db`. Ein `cp` der Datei würde im WAL-Modus die jüngsten Meldungen verlieren. Die Kopie behält von jeder Meldung nur Übergang, Richtung, Wartezeit-Bereich und Zeitpunkte. Alles andere wird geleert: die Prüfwerte (`client`, `net`) und auch Spalten oder Tabellen, die `backup.py` nicht kennt (dann mit WARNUNG im Journal). Die Tagesschlüssel liegen in einer eigenen Datei und werden nie gesichert. Sofort sichern: `sudo systemctl start tatilvakti-v2-backup.service`.
 - **Aufbewahrung:** lokal 14 Tage (`--keep-days` in der Unit). Zusätzlich eine Kopie außerhalb des Hosts, z. B. 30 Tage. Dafür nur `backups/` kopieren, nie die laufende DB samt `-wal`/`-shm` und nie `/run/tatilvakti-v2`.
 - **Restore** (einmal testen):
 
@@ -193,12 +195,15 @@ sudo /opt/tatilvakti-v2/current/scripts/tv-flask.sh purge-reports --crossing kap
   B=/var/lib/tatilvakti-v2/backups/tatilvakti-<zeit>.db
   sudo -u tatilvakti-v2 /opt/tatilvakti-v2/current/.venv/bin/python \
        /opt/tatilvakti-v2/current/scripts/backup.py --verify "$B"
-  sudo systemctl stop tatilvakti-v2
+  # Dienst und Timer anhalten: Die Wartung (alle 5 Min.) legte sonst in der Lücke eine leere DB an
+  sudo systemctl stop tatilvakti-v2-maintenance.timer tatilvakti-v2-backup.timer
+  sudo systemctl stop tatilvakti-v2-maintenance.service tatilvakti-v2-backup.service tatilvakti-v2.service
   # bisherige tatilvakti.db samt -wal/-shm beiseitelegen, nach erfolgreichem Restore löschen
   sudo install -m 0600 -o tatilvakti-v2 -g tatilvakti-v2 "$B" /var/lib/tatilvakti-v2/tatilvakti.db
-  sudo systemctl start tatilvakti-v2
+  sudo systemctl start tatilvakti-v2.service tatilvakti-v2-maintenance.timer tatilvakti-v2-backup.timer
   ```
 
+- Neue Tabellen oder Spalten im Schema (`tatilvakti/db.py`) muss `scripts/backup.py` kennen: als Inhalt (`KEEP_TABLES`, `REPORT_COLUMNS`) oder als Prüfwert bzw. Schlüssel (`HASH_COLUMNS`, `SECRET_TABLES`). Sonst schlägt `tests/test_scripts.py` fehl und damit auch der Preflight von `deploy.sh`.
 - `backup.py` und `preflight.py` öffnen die Produktions-DB nur als deren Eigentümer. Als root angelegte `-wal`/`-shm`-Dateien könnte der Dienst sonst nicht mehr beschreiben.
 
 ## Datenpflege

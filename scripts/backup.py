@@ -5,9 +5,11 @@ Warum kein `cp`: Im WAL-Modus stehen die jüngsten Meldungen oft noch in der -wa
 Dateikopie der .db verliert sie. Die Backup-API liest einen konsistenten Stand, auch während
 gunicorn schreibt.
 
-Datensparsamkeit: In der KOPIE werden die Prüfwerte (reports.client) geleert und eine evtl.
-vorhandene Tabelle salts (ältere Versionen) geleert, danach per VACUUM aus den freien Seiten
-entfernt. Die eigene Salts-Datei (TV_SALT_DB_PATH) wird nie gelesen. Das Original bleibt unverändert.
+Datensparsamkeit: Die KOPIE behält nur, was ausdrücklich erlaubt ist (KEEP_TABLES, REPORT_COLUMNS):
+von jeder Meldung Übergang, Richtung, Wartezeit-Bereich und Zeitpunkte. Alles andere wird geleert,
+also die Prüfwerte (reports.client, reports.net), eine evtl. vorhandene Tabelle salts (ältere
+Versionen) und Unbekanntes, danach per VACUUM aus den freien Seiten entfernt. Die eigene
+Salts-Datei (TV_SALT_DB_PATH) wird nie gelesen. Das Original bleibt unverändert.
 
     python scripts/backup.py --db /var/lib/tatilvakti-v2/tatilvakti.db \
         --dest /var/lib/tatilvakti-v2/backups --keep-days 14
@@ -34,44 +36,89 @@ from pathlib import Path
 NAME_RE = re.compile(r"^tatilvakti-(\d{8}T\d{6}Z)\.db$")
 TMP_RE = re.compile(r"^\.tatilvakti-\d{8}T\d{6}Z\.db\.tmp$")
 
+# Was eine Sicherung behalten darf. Alles andere wird in der Kopie geleert, auch Unbekanntes (etwa
+# nach einem Rollback auf ein Release, das neuere Spalten noch nicht kennt); davor warnt main().
+# test_backup_knows_the_app_schema hält die Listen mit dem Schema der App (tatilvakti/db.py) gleich.
+KEEP_TABLES = ("reports", "kv")
+REPORT_COLUMNS = ("id", "crossing", "direction", "bucket", "observed_at", "created_at")
+# Bekannt und bewusst geleert: Prüfwerte gegen Spam (HMAC von IP bzw. Anschluss mit dem
+# Tagesschlüssel) und die Tagesschlüssel selbst (ältere Versionen hatten sie in der Haupt-DB)
+HASH_COLUMNS = ("client", "net")
+SECRET_TABLES = ("salts",)
+
 
 def _tables(conn: sqlite3.Connection) -> set[str]:
     return {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
 
+def _q(name: str) -> str:
+    """Bezeichner für SQL quoten (Namen stammen aus der Datei selbst, nicht vom Benutzer)."""
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _tables_to_check(conn: sqlite3.Connection) -> list[str]:
+    # Interne Tabellen von SQLite (sqlite_sequence, sqlite_stat1 …) enthalten keine Inhalte
+    return sorted(t for t in _tables(conn) if not t.startswith("sqlite_"))
+
+
 def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
-    return {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+    return {r[1] for r in conn.execute(f"PRAGMA table_info({_q(table)})")}
 
 
-def scrub(conn: sqlite3.Connection) -> None:
-    """Prüfwerte und Tagesschlüssel aus der Kopie entfernen, auch aus den freien Seiten."""
-    tables = _tables(conn)
-    if "reports" in tables and "client" in _columns(conn, "reports"):
-        conn.execute("UPDATE reports SET client = NULL WHERE client IS NOT NULL")
-    if "salts" in tables:
-        conn.execute("DELETE FROM salts")
+def _extra_columns(conn: sqlite3.Connection) -> list[str]:
+    """Spalten von reports, die eine Sicherung nicht enthalten darf (Prüfwerte, Unbekanntes)."""
+    return sorted(_columns(conn, "reports") - set(REPORT_COLUMNS))
+
+
+def scrub(conn: sqlite3.Connection) -> list[str]:
+    """Prüfwerte und Tagesschlüssel aus der Kopie entfernen, auch aus den freien Seiten.
+
+    Leert alles außer KEEP_TABLES und REPORT_COLUMNS. Gibt die dabei geleerten UNBEKANNTEN Tabellen
+    und Spalten zurück (weder Inhalt noch bekannter Prüfwert/Schlüssel), damit main() warnt.
+    """
+    unknown = []
+    for table in _tables_to_check(conn):
+        if table not in KEEP_TABLES:
+            if table not in SECRET_TABLES:
+                unknown.append(table)
+            conn.execute(f"DELETE FROM {_q(table)}")
+        elif table == "reports":
+            for col in _extra_columns(conn):
+                if col not in HASH_COLUMNS:
+                    unknown.append(f"reports.{col}")
+                try:
+                    conn.execute(f"UPDATE reports SET {_q(col)} = NULL WHERE {_q(col)} IS NOT NULL")
+                except sqlite3.IntegrityError as exc:  # NOT NULL: lässt sich nicht leeren
+                    raise RuntimeError(f"reports.{col} lässt sich nicht leeren ({exc}). In scripts/backup.py "
+                                       "als Inhalt (REPORT_COLUMNS) oder Prüfwert (HASH_COLUMNS) eintragen.") from exc
     conn.commit()
     conn.execute("VACUUM")
+    return unknown
 
 
 def verify(path: Path) -> dict:
-    """Prüft eine Sicherung: Integrität, keine Prüfwerte, keine Schlüssel. Gibt Zählwerte zurück."""
+    """Prüft eine Sicherung: Integrität, keine Prüfwerte, keine Schlüssel, nichts Unbekanntes.
+
+    Gibt die Zahl der Meldungen zurück. Bricht ab, sobald außerhalb von KEEP_TABLES bzw.
+    REPORT_COLUMNS noch ein Wert steht.
+    """
     conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
     try:
         result = conn.execute("PRAGMA integrity_check").fetchone()[0]
         if result != "ok":
             raise RuntimeError(f"integrity_check: {result}")
-        tables = _tables(conn)
-        info = {"reports": 0, "with_client": 0, "salts": 0}
-        if "reports" in tables:
-            info["reports"] = conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0]
-            if "client" in _columns(conn, "reports"):
-                info["with_client"] = conn.execute(
-                    "SELECT COUNT(*) FROM reports WHERE client IS NOT NULL").fetchone()[0]
-        if "salts" in tables:
-            info["salts"] = conn.execute("SELECT COUNT(*) FROM salts").fetchone()[0]
-        if info["with_client"] or info["salts"]:
-            raise RuntimeError(f"Sicherung enthält noch Prüfwerte/Schlüssel: {info}")
+        info, leftover = {"reports": 0}, {}
+        for table in _tables_to_check(conn):
+            if table not in KEEP_TABLES:
+                leftover[table] = conn.execute(f"SELECT COUNT(*) FROM {_q(table)}").fetchone()[0]
+            elif table == "reports":
+                info["reports"] = conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0]
+                for col in _extra_columns(conn):
+                    leftover[f"reports.{col}"] = conn.execute(
+                        f"SELECT COUNT(*) FROM reports WHERE {_q(col)} IS NOT NULL").fetchone()[0]
+        leftover = {name: n for name, n in leftover.items() if n}
+        if leftover:
+            raise RuntimeError(f"Sicherung enthält noch Prüfwerte/Schlüssel (Anzahl Werte): {leftover}")
         return info
     finally:
         conn.close()
@@ -86,7 +133,11 @@ def check_owner(db: Path) -> None:
 
 
 def backup(db: Path, dest: Path, now: datetime) -> tuple[Path, dict]:
-    """Sichert db nach dest, bereinigt und prüft die Kopie. Gibt Pfad und Zählwerte zurück."""
+    """Sichert db nach dest, bereinigt und prüft die Kopie.
+
+    Gibt den Pfad zurück und die Zählwerte aus verify(), dazu unter "unknown" die Tabellen und
+    Spalten, die scrub() geleert hat, obwohl sie dieses Skript nicht kennt.
+    """
     if not db.is_file():
         raise FileNotFoundError(f"Datenbank fehlt: {db}")
     dest.mkdir(parents=True, exist_ok=True)
@@ -101,13 +152,14 @@ def backup(db: Path, dest: Path, now: datetime) -> tuple[Path, dict]:
                 src.backup(dst)
                 # Eigenständige Datei ohne -wal/-shm: ein Restore besteht aus genau einer Datei
                 dst.execute("PRAGMA journal_mode=DELETE")
-                scrub(dst)
+                unknown = scrub(dst)
             finally:
                 dst.close()
         finally:
             src.close()
         os.chmod(tmp, 0o600)
         info = verify(tmp)
+        info["unknown"] = unknown
         os.replace(tmp, target)
     except BaseException:
         tmp.unlink(missing_ok=True)
@@ -160,6 +212,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.db.exists():
             check_owner(args.db)
         target, info = backup(args.db, args.dest, now)
+        if info["unknown"]:
+            print(f"WARNUNG: unbekannte Tabellen/Spalten in der Kopie geleert: {', '.join(info['unknown'])}. "
+                  "scripts/backup.py prüfen (KEEP_TABLES, REPORT_COLUMNS, HASH_COLUMNS).", file=sys.stderr)
         removed = prune(args.dest, args.keep_days, now, keep=target)
         print(f"ok {target} reports={info['reports']} bytes={target.stat().st_size} "
               f"removed={len(removed)} dauer={time.monotonic() - started:.1f}s")
