@@ -201,6 +201,15 @@ p { margin: 0 0 .75em; }
 .btn--block { width: 100%; }
 .btn:active { transform: translateY(1px); }
 .cta { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; text-decoration: none; margin-top: 4px; min-height: 44px; }
+/* Teilen: WhatsApp-Link und (nur mit navigator.share) Knopf fürs Teilen-Menü des Geräts */
+.share { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.share .btn { margin-top: 0; }
+.share--inline { gap: 0 18px; margin-top: 4px; }
+.share__link {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0; border: 0; background: none;
+  color: var(--brand); font: 700 .88rem/1.2 var(--font); text-decoration: none; cursor: pointer;
+}
+.share__link--wa { color: var(--ok); }
 .cta--accent { color: var(--accent); }
 .cta-row { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; }
 
@@ -287,6 +296,21 @@ body:not(.mode-plane) .only-plane { display: none; }
 .mini-borders li { border-top: 1px solid var(--line); padding-top: 10px; }
 .mini-borders li:first-child { border-top: 0; padding-top: 0; }
 .mini-borders__name { font-weight: 700; text-decoration: none; display: inline-block; margin-bottom: 4px; }
+/* Wartezeit melden: Auswahl der Übergänge (app.js stellt den zuletzt gemeldeten nach vorn) */
+.picker__title { font-size: 1rem; margin: 16px 0 8px; }
+.picker { list-style: none; margin: 0 0 4px; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.picker__btn {
+  display: grid; align-content: center; gap: 2px; min-height: 64px; height: 100%; padding: 10px 12px;
+  border: 2px solid var(--brand); border-radius: 14px; background: var(--brand-soft); color: var(--ink); text-decoration: none;
+}
+.picker__btn:hover { border-color: var(--accent); }
+.picker__name { font: 800 1.05rem/1.2 var(--font-display); overflow-wrap: anywhere; }
+.picker__sub { font-size: .78rem; line-height: 1.25; color: var(--ink-2); }
+.picker__last { font-size: .75rem; font-weight: 700; color: var(--accent); }
+.srcline { font-size: .82rem; color: var(--ink-2); margin: 8px 0 0; }
+/* Im Fließtext umbrechen wie Text, das Symbol bleibt am Ende des Namens */
+.srcline .ext { display: inline; }
+
 .mini-rules { list-style: none; padding: 0; margin: 0 0 6px; display: grid; gap: 8px; }
 .mini-rules li { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 .mini-rules a { font-weight: 600; text-decoration: none; color: var(--ink); }
@@ -310,6 +334,22 @@ body:not(.mode-plane) .only-plane { display: none; }
 .status--compact .status__dot { margin-top: 0; width: 10px; height: 10px; }
 .status--compact .status__meta { font-size: .75rem; }
 .status--compact.status--none .status__main { font-weight: 600; color: var(--ink-2); }
+
+/* Leerzustand: Übergang ohne aktuelle Meldung (.dirs.is-empty) zeigt eine Zeile statt zweier grauer
+   Chips, eine Liste ganz ohne Meldung (.live.is-empty) nur Namen und einen Hinweis. app.js schaltet
+   is-empty nach jeder Aktualisierung um; ohne JS gilt der Stand vom Server. */
+.dirs { display: grid; gap: 6px; }
+.dirs.is-empty .dirrow { display: none; }
+.dirs__empty { margin: 0; font-size: .85rem; color: var(--ink-2); }
+.dirs:not(.is-empty) .dirs__empty { display: none; }
+.live.is-empty .live__rows { display: none; }
+.live:not(.is-empty) .live__empty { display: none; }
+.live__empty {
+  display: flex; gap: 10px; align-items: flex-start; margin: 0 0 12px; padding: 10px 12px;
+  border-radius: var(--radius-s); background: var(--none-soft); font-size: .92rem;
+}
+.live__empty .icon { color: var(--ink-2); margin-top: 2px; }
+.live.is-empty .crossing__head { padding-bottom: 14px; }
 
 /* ---------- Grenzen ---------- */
 .map-card { padding-bottom: 8px; }
@@ -480,7 +520,7 @@ html.has-toolbar .toolbar ~ [id], html.has-toolbar .toolbar ~ * [id] { scroll-ma
 .route-card__borders { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
 .route-card__borders li { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: center; }
 .route-card__borders li > a { font-weight: 800; }
-.route-card__borders .status { grid-column: 1 / -1; }
+.route-card__borders .live__rows { grid-column: 1 / -1; }
 .proscons { display: grid; gap: 4px 16px; }
 @media (min-width: 560px) { .proscons { grid-template-columns: 1fr 1fr; } }
 .proscons h3 { font-size: .9rem; color: var(--ink-2); margin: 6px 0 4px; }
@@ -512,6 +552,9 @@ html.has-toolbar .toolbar ~ [id], html.has-toolbar .toolbar ~ * [id] { scroll-ma
 .links { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .links--big a { display: flex; gap: 10px; align-items: center; min-height: 48px; font-weight: 700; text-decoration: none; }
 .prose p { max-width: 65ch; }
+.prose h3 { margin-top: 1.2em; }
+.bullets { max-width: 65ch; margin: 0 0 .75em; padding-left: 1.2em; }
+.bullets li { margin-bottom: 4px; }
 address { font-style: normal; margin-bottom: 10px; }
 
 /* ---------- Hinweis „Auf den Startbildschirm“ (fest über der Tabbar, kein Layout-Sprung) ---------- */
@@ -562,7 +605,7 @@ body.has-a2hs { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-botto
 }
 
 @media print {
-  .tabbar, .topbar, .offline-banner, .btn, .toolbar, .a2hs { display: none !important; }
+  .tabbar, .topbar, .offline-banner, .btn, .toolbar, .a2hs, .share { display: none !important; }
   body { padding: 0; background: #fff; }
   .card { box-shadow: none; break-inside: avoid; }
 }

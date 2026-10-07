@@ -15,6 +15,23 @@
   <link rel="alternate" hreflang="x-default" href="{{ abs_url(alt_urls['de']) }}">
   <link rel="canonical" href="{{ abs_url(alt_urls[lang]) }}">
   {%- endif %}
+  {#- Link-Vorschau (WhatsApp, Telegram, X …): Titel und Beschreibung wie oben, Bild je Sprache #}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ t('app_name') }}">
+  <meta property="og:title" content="{{ self.title() }}">
+  <meta property="og:description" content="{{ self.description() }}">
+  {%- if alt_urls %}
+  <meta property="og:url" content="{{ abs_url(alt_urls[lang]) }}">
+  {%- endif %}
+  <meta property="og:image" content="{{ abs_url(asset('og/og-' ~ lang ~ '.png')) }}">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="{{ t('og_image_alt') }}">
+  <meta property="og:locale" content="{{ 'de_DE' if lang == 'de' else 'tr_TR' }}">
+  <meta property="og:locale:alternate" content="{{ 'tr_TR' if lang == 'de' else 'de_DE' }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image:alt" content="{{ t('og_image_alt') }}">
   <link rel="manifest" href="{{ href('manifest') }}">
   <link rel="icon" href="{{ asset('icons/favicon.svg') }}" type="image/svg+xml">
   <link rel="apple-touch-icon" href="{{ asset('icons/icon-180.png') }}">

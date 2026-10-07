@@ -13,7 +13,7 @@ from werkzeug.exceptions import HTTPException, MethodNotAllowed, NotFound
 from werkzeug.routing import RequestRedirect
 
 from . import borders as B
-from . import today_berlin, utcnow
+from . import operator_imprint, today_berlin, utcnow
 from .content import DATASETS, is_due, redirect_key
 from .db import check_salt_db
 from .holidays import QUIET_MAX
@@ -115,7 +115,26 @@ def fmt_ranges(ranges, with_weekday: bool = True) -> str:
 
 
 def whatsapp_url(text: str, url: str) -> str:
+    """Direkt zu WhatsApp (wa.me), Text und Link in einer Nachricht; ohne Tracking-Parameter."""
     return "https://wa.me/?text=" + quote(f"{text} {url}")
+
+
+def is_live(st: dict, dirs=B.DIRECTIONS) -> bool:
+    """Hat der Übergang in einer der Richtungen eine Meldung aus dem aktuellen Fenster?"""
+    return any(st[d]["state"] == "live" for d in dirs)
+
+
+def any_live(statuses: dict, cids, dirs=B.DIRECTIONS) -> bool:
+    return any(is_live(statuses[cid], dirs) for cid in cids)
+
+
+def official_sources(crossings) -> list[dict]:
+    """Infos von Behörden und Automobilclubs für diese Übergänge, ohne Doppelte.
+
+    Reihenfolge wie in crossings.json (sources), damit die Datenpflege sie bestimmt.
+    """
+    used = {ref for c in crossings for ref in c["official"]}
+    return [src for key, src in tv().content.crossings["sources"].items() if key in used]
 
 
 def _client_strings() -> dict:
@@ -142,11 +161,14 @@ def home():
     running = radar.running_period(today)
     running_now = len(radar.states_on_holiday(today)) if running else 0
     upcoming = radar.next_start(today)
-    main = [c for c in content.crossings["crossings"] if c["main"]]
+    crossings = content.crossings["crossings"]
+    main = [c for c in crossings if c["main"]]
     statuses = B.statuses(_db(), [c["id"] for c in main], now_ts())
     featured = [i for i in content.customs["items"] if i.get("featured")]
     return render_template("home.html", page="home", today=today, next_by_state=next_by_state,
-                           running=running, running_now=running_now, upcoming=upcoming, main_crossings=main, statuses=statuses, featured=featured)
+                           running=running, running_now=running_now, upcoming=upcoming, main_crossings=main,
+                           statuses=statuses, featured=featured, crossings=crossings,
+                           official=official_sources(main))
 
 
 def holidays():
@@ -167,19 +189,31 @@ def holidays():
                               "free_differs": [(r.start, r.end) for r in stretches] != [(r.start, r.end) for r in ranges],
                               "quiet": radar.quiet_days(period, code),
                               "bayrams": [b for b, states in bayrams if code in states]}
-    share_urls, share_texts = {}, {}
-    for code, info in personal.items():
-        text = t("hol_share_text", period=f"{period.label[g.lang]} {radar.states[code]['short']}",
-                 dates=fmt_ranges(info["ranges"], with_weekday=False))
-        share_texts[code] = text
-        share_urls[code] = whatsapp_url(text, abs_url(href("holidays", zeitraum=period.id, land=code)))
+    share_texts = {code: _holiday_share_text(radar, period, code, info) for code, info in personal.items()}
+    # Link-Vorschau (z. B. WhatsApp): mit Bundesland dessen Ferien und ruhige Tage, sonst die Einleitung
+    description = share_texts.get(land) or t("hol_lead")
     return render_template("holidays.html", page="holidays", period=period, periods=radar.periods,
                            land=land, chart=chart, personal=personal, today=today,
                            all16=radar.all_states_windows(period), peak=radar.peak(period),
-                           share_urls=share_urls, share_texts=share_texts, radar_meta=tv().content.meta("holidays"),
+                           share_texts=share_texts, description=description, radar_meta=tv().content.meta("holidays"),
                            radar_due=tv().content.review_due("holidays", today), quiet_max=QUIET_MAX,
                            wave_note=_wave_note, bayram_source=_bayram_source(),
                            bayram_facts=[(b, ", ".join(radar.states[s]["short"] for s in states)) for b, states in bayrams])
+
+
+def _holiday_share_text(radar, period, code: str, info: dict) -> str:
+    """„Nordrhein-Westfalen, Sommerferien 2027: 19.07.–31.08.2027 · Tage mit der kleinsten
+    Reisewelle – Abreise: Di 20.07., …; Rückreise: …“. Voller Ländername, Schulferien wie amtlich
+    festgelegt, die empfohlenen Tage (wie auf der Seite) in einer Nachricht nach Datum sortiert."""
+    tr = tv().tr
+
+    def days(kind: str) -> str:
+        return ", ".join(fmt_date(w.day, g.lang, tr, with_weekday=True, with_year=False)
+                         for w in sorted(info["quiet"][kind].days, key=lambda w: w.day))
+
+    dates = " + ".join(fmt_range(r.start, r.end, g.lang, tr) for r in info["ranges"])
+    return t("hol_share_text", state=radar.states[code]["name"], period=period.label[g.lang], dates=dates,
+             dep=days("departure"), ret=days("return"))
 
 
 def _wave_note(wave, kind: str) -> str:
@@ -250,7 +284,8 @@ def route():
     ids = [c["id"] for c in content.crossings["crossings"]]
     statuses = B.statuses(_db(), ids, now_ts())
     return render_template("route.html", page="route", transit=content.transit, statuses=statuses,
-                           crossings=content.crossing_by_id, today=today_berlin(current_app))
+                           crossings=content.crossing_by_id, today=today_berlin(current_app),
+                           share_text=t("r_share_text", n=len(content.transit["routes"])))
 
 
 def borders():
@@ -260,7 +295,8 @@ def borders():
     statuses = B.statuses(_db(), [c["id"] for c in crossings], now)
     waves = tv().radar.waves(today_berlin(current_app))[:8]
     return render_template("borders.html", page="borders", crossings=crossings, statuses=statuses,
-                           waves=waves, now=now, radar=tv().radar, crossings_meta=content.meta("crossings"))
+                           waves=waves, now=now, radar=tv().radar, crossings_meta=content.meta("crossings"),
+                           official=official_sources(crossings))
 
 
 def crossing(cid: str):
@@ -273,12 +309,13 @@ def crossing(cid: str):
     statuses = B.statuses(db, [cid], now)[cid]
     patterns = {d: B.hourly_pattern(db, cid, d, c["tz"], now) for d in B.DIRECTIONS}
     routes = [r for r in content.transit["routes"] if cid in r["controls"]]
-    def short(st):
-        if st["state"] == "live":
-            return f"{bucket_label(st['bucket'])} ({ago(st['last_at'], now)})"
-        return t("b_level_none")
-    share_text = t("b_share_both", name=c["short"], to_tr=short(statuses["to_tr"]), to_de=short(statuses["to_de"]))
-    share_url = whatsapp_url(share_text, abs_url(href("crossing", cid=cid)))
+    # Nur Richtungen mit aktueller Meldung; ohne jede Meldung ein Aufruf statt „keine Daten“
+    parts = [f"{t('b_dir_' + d)}: {bucket_label(statuses[d]['bucket'])} ({ago(statuses[d]['last_at'], now)})"
+             for d in B.DIRECTIONS if statuses[d]["state"] == "live"]
+    if parts:
+        share_text = t("b_share_live", name=c["short"], parts=", ".join(parts))
+    else:
+        share_text = t("b_share_call", at=c["name_loc"][g.lang])
     flash = None
     if request.args.get("gemeldet"):
         flash = ("ok", t("b_report_thanks"))
@@ -287,7 +324,7 @@ def crossing(cid: str):
                "stale": "b_report_stale"}.get(request.args["fehler"], "b_report_error")
         flash = ("error", t(key))
     return render_template("crossing.html", page="crossing", c=c, statuses=statuses, patterns=patterns,
-                           routes=routes, share_text=share_text, share_url=share_url, flash=flash, now=now,
+                           routes=routes, share_text=share_text, flash=flash, now=now,
                            sources=content.crossings["sources"], countries=content.transit["countries"])
 
 
@@ -341,10 +378,10 @@ def info():
         meta = content.meta(name)
         datasets.append({"name": name, "meta": meta, "due": is_due(meta.get("review_after"), today)})
     reports_24h = B.count_since(_db(), now_ts() - 86400)
-    cfg = current_app.config
-    operator = {k: cfg[f"TV_OPERATOR_{k.upper()}"] for k in ("name", "address", "email")}
+    # Fristen im Datenschutztext kommen aus dem Code, damit Text und Löschung nie auseinanderlaufen
     return render_template("info.html", page="info", datasets=datasets, reports_24h=reports_24h,
-                           operator=operator, content=content)
+                           operator=operator_imprint(current_app.config), content=content,
+                           hash_ttl_h=B.CLIENT_HASH_TTL_H, retention_days=B.RETENTION_DAYS)
 
 
 def offline():
@@ -555,7 +592,7 @@ def healthz():
                                    salt_error)
     runtime["salt_db_failed"] = salt_error is not None
     due, next_review = due_items(content, today)
-    imprint_ok = all(str(cfg[f"TV_OPERATOR_{k}"]).strip() for k in ("NAME", "ADDRESS", "EMAIL"))
+    imprint_ok = operator_imprint(cfg) is not None  # dieselbe Prüfung wie Info-Seite und Start-Warnung
     forwarded_ignored = runtime["forwarded_ignored"]
     # Wartung läuft im before_request alle 10 Min.; deutlich älter heißt: Schreiben schlägt fehl
     maintenance_overdue = maintenance_at is None or now - maintenance_at > 3 * B.MAINTENANCE_EVERY_S
@@ -692,6 +729,7 @@ def register(app: Flask) -> None:
             "status_text": status_text, "bucket_label": bucket_label, "bucket_count": B.BUCKET_COUNT,
             "client_strings": _client_strings, "build_id": tv().build_id,
             "states": tv().radar.states, "is_due": is_due, "cname": cname, "fmt_ranges": fmt_ranges,
+            "wa_url": whatsapp_url, "is_live": is_live, "any_live": any_live, "window_h": B.WINDOW_MIN // 60,
         }
 
     @app.after_request

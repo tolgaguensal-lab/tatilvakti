@@ -4,29 +4,49 @@
     "as_of": "2026-10-06",
     "review_after": "2027-05-31",
     "note": {
-      "de": "Wartezeiten stammen ausschließlich aus Meldungen von Reisenden in dieser App. Offizielle Live-Quellen sind pro Übergang verlinkt.",
-      "tr": "Bekleme süreleri yalnızca bu uygulamadaki yolcu bildirimlerinden gelir. Resmi canlı kaynaklar her kapı için bağlantı olarak verilmiştir."
+      "de": "Wartezeiten stammen ausschließlich aus Meldungen von Reisenden in dieser App. Infos von Behörden und Automobilclubs sind pro Übergang verlinkt.",
+      "tr": "Bekleme süreleri yalnızca bu uygulamadaki yolcu bildirimlerinden gelir. Resmî kurumların ve otomobil kulüplerinin bilgilerine her kapı için bağlantı verilmiştir."
     }
   },
   "sources": {
     "hu_police": {
       "name": "Ungarische Polizei – Határinfo (Wartezeiten)",
+      "label": {
+        "de": "Ungarn: Polizei (Határinfo)",
+        "tr": "Macaristan: Polis (Határinfo)"
+      },
       "url": "https://www.police.hu/hu/hirek-es-informaciok/hatarinfo"
     },
     "amss": {
       "name": "AMSS – Auto-moto savez Srbije",
+      "label": {
+        "de": "Serbien: Automobilclub AMSS",
+        "tr": "Sırbistan: AMSS otomobil kulübü"
+      },
       "url": "https://www.amss.org.rs"
     },
     "bg_police": {
       "name": "Bulgarische Grenzpolizei (ГДГП)",
+      "label": {
+        "de": "Bulgarien: Grenzpolizei",
+        "tr": "Bulgaristan: Sınır Polisi"
+      },
       "url": "https://www.mvr.bg/gdgp"
     },
     "tr_trakya": {
       "name": "T.C. Ticaret Bakanlığı – Trakya Gümrük",
+      "label": {
+        "de": "Türkei: Zoll (Trakya Gümrük)",
+        "tr": "Türkiye: Trakya Gümrük"
+      },
       "url": "https://trakya.ticaret.gov.tr"
     },
     "hak": {
       "name": "HAK – Hrvatski autoklub",
+      "label": {
+        "de": "Kroatien: Automobilclub HAK",
+        "tr": "Hırvatistan: HAK otomobil kulübü"
+      },
       "url": "https://www.hak.hr"
     }
   },
@@ -35,6 +55,10 @@
       "id": "kapikule",
       "name": "Kapıkule – Kapitan Andreevo",
       "short": "Kapıkule",
+      "name_loc": {
+        "de": "in Kapıkule",
+        "tr": "Kapıkule'de"
+      },
       "countries": [
         "BG",
         "TR"
@@ -58,6 +82,10 @@
       "id": "derekoy",
       "name": "Dereköy – Malko Tarnovo",
       "short": "Dereköy",
+      "name_loc": {
+        "de": "in Dereköy",
+        "tr": "Dereköy'de"
+      },
       "countries": [
         "BG",
         "TR"
@@ -78,6 +106,10 @@
       "id": "ipsala",
       "name": "İpsala – Kipoi",
       "short": "İpsala",
+      "name_loc": {
+        "de": "in İpsala",
+        "tr": "İpsala'da"
+      },
       "countries": [
         "GR",
         "TR"
@@ -97,6 +129,10 @@
       "id": "pazarkule",
       "name": "Pazarkule – Kastanies",
       "short": "Pazarkule",
+      "name_loc": {
+        "de": "in Pazarkule",
+        "tr": "Pazarkule'de"
+      },
       "countries": [
         "GR",
         "TR"
@@ -116,6 +152,10 @@
       "id": "gradina",
       "name": "Gradina – Kalotina",
       "short": "Gradina",
+      "name_loc": {
+        "de": "in Gradina",
+        "tr": "Gradina'da"
+      },
       "countries": [
         "RS",
         "BG"
@@ -139,6 +179,10 @@
       "id": "horgos",
       "name": "Röszke – Horgoš",
       "short": "Röszke",
+      "name_loc": {
+        "de": "in Röszke",
+        "tr": "Röszke'de"
+      },
       "countries": [
         "HU",
         "RS"
@@ -162,6 +206,10 @@
       "id": "asotthalom",
       "name": "Ásotthalom – Bački Vinogradi",
       "short": "Ásotthalom",
+      "name_loc": {
+        "de": "in Ásotthalom",
+        "tr": "Ásotthalom'da"
+      },
       "countries": [
         "HU",
         "RS"
@@ -181,6 +229,10 @@
       "id": "kelebija",
       "name": "Tompa – Kelebija",
       "short": "Tompa",
+      "name_loc": {
+        "de": "in Tompa",
+        "tr": "Tompa'da"
+      },
       "countries": [
         "HU",
         "RS"
@@ -201,6 +253,10 @@
       "id": "batrovci",
       "name": "Bajakovo – Batrovci",
       "short": "Batrovci",
+      "name_loc": {
+        "de": "in Batrovci",
+        "tr": "Batrovci'de"
+      },
       "countries": [
         "HR",
         "RS"

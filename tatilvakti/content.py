@@ -33,6 +33,8 @@ REDIRECT_CODES = (301, 410)
 REDIRECT_FIELDS = {"from", "to", "code", "note"}
 # Namensräume von v2: Ein 404 dort ist eine echte Antwort, keine alte URL
 REDIRECT_RESERVED = ("/api/v1/", "/static/")
+# Türkische Lokativ-Endungen (in Kapıkule = Kapıkule'de)
+TR_LOCATIVE = ("da", "de", "ta", "te")
 
 
 @dataclass
@@ -208,6 +210,25 @@ def _validate_bayrams(bayrams, problems) -> None:
             problems.append(f"holidays.bayrams.{bid}: {kind} dauert {BAYRAM_DAYS[kind]} Tage, nicht {(end - start).days + 1}")
 
 
+def _name_loc_problems(crossing: dict) -> list[str]:
+    """Ortsangabe des Übergangs für Sätze wie „Wie lange hast du in Kapıkule gewartet?“ bzw.
+    „Kapıkule'de ne kadar bekledin?“: DE mit dem Kurznamen, TR Kurzname + Apostroph + Lokativ.
+
+    Die Endung hängt an Vokalharmonie und Auslaut (Kapıkule'de, İpsala'da, nach stimmlosem
+    Konsonanten -te/-ta) und wird deshalb gepflegt statt erzeugt; geprüft wird nur die Form.
+    """
+    cid, short, loc = crossing.get("id"), crossing.get("short"), crossing.get("name_loc")
+    if not _is_bilingual(loc):
+        return [f"crossings.{cid}.name_loc: nicht zweisprachig"]
+    problems = []
+    if not isinstance(short, str) or short not in loc["de"]:
+        problems.append(f"crossings.{cid}.name_loc.de: muss den Kurznamen {short!r} enthalten")
+    suffix = loc["tr"][len(short) + 1:] if isinstance(short, str) and loc["tr"].startswith(short + "'") else None
+    if suffix not in TR_LOCATIVE:
+        problems.append(f"crossings.{cid}.name_loc.tr: {short}'da/'de/'ta/'te erwartet, ist {loc['tr']!r}")
+    return problems
+
+
 def validate(content: Content) -> list[str]:
     """Liefert eine Liste von Problemen (leer = alles in Ordnung)."""
     problems: list[str] = []
@@ -359,12 +380,16 @@ def validate(content: Content) -> list[str]:
     csources = content.crossings["sources"]
     for key, src in csources.items():
         _check_url(src.get("url"), f"crossings.sources.{key}", problems)
+        # Kurzbezeichnung mit Land für Startseite und Übersicht (der Name ist teils nur deutsch)
+        if not _is_bilingual(src.get("label")):
+            problems.append(f"crossings.sources.{key}.label: nicht zweisprachig")
     for crossing in content.crossings["crossings"]:
         cid = crossing["id"]
         if len(crossing.get("countries", [])) != 2:
             problems.append(f"crossings.{cid}: braucht genau 2 Länder")
         if not _is_bilingual(crossing.get("note")):
             problems.append(f"crossings.{cid}.note: nicht zweisprachig")
+        problems += _name_loc_problems(crossing)
         for ref in crossing.get("official", []):
             if ref not in csources:
                 problems.append(f"crossings.{cid}: unbekannte Quelle {ref}")

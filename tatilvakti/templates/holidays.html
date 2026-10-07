@@ -1,6 +1,7 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, asof, ext with context %}
+{% from "_macros.html" import icon, asof, ext, share with context %}
 {% block title %}{{ t("hol_title") }}: {{ period.label[lang] }} – {{ t("app_name") }}{% endblock %}
+{% block description %}{{ description }}{% endblock %}
 {% block main %}
 <header class="pagehead">
   <h1>{{ icon("calendar") }}{{ t("hol_title") }}</h1>
@@ -59,7 +60,7 @@
       {%- endfor %}
     </div>
     <p class="hint">{{ t("hol_quiet_expl") }}</p>
-    <a class="btn btn--wa" href="{{ share_urls[code] }}" target="_blank" rel="noopener noreferrer" data-share data-share-text="{{ share_texts[code] }}" data-share-url="{{ abs_url(href('holidays', zeitraum=period.id, land=code)) }}">{{ icon("chat", "icon--s") }}{{ t("share_whatsapp") }}</a>
+    {{ share(share_texts[code], abs_url(href('holidays', zeitraum=period.id, land=code))) }}
     {%- else %}
     <p>{{ t("hol_no_range", state=states[code].name) }}</p>
     {%- endif %}

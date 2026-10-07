@@ -1,6 +1,7 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, ext, status, asof with context %}
+{% from "_macros.html" import icon, ext, status, asof, share with context %}
 {% block title %}{{ t("r_title") }} 2026/27 – {{ t("app_name") }}{% endblock %}
+{% block description %}{{ t("r_lead") }}{% endblock %}
 {% block main %}
 <header class="pagehead">
   <h1>{{ icon("route") }}{{ t("r_title") }}</h1>
@@ -20,16 +21,20 @@
       {%- endfor %}
     </ol>
     <p class="route-card__controls"><strong>{{ plural("r_controls", r.controls|length) }}</strong></p>
-    <ul class="route-card__borders">
-      {%- for cid in r.controls %}
-      {%- set c = crossings[cid] %}
-      <li>
-        <a href="{{ href('crossing', cid=cid) }}">{{ c.short }}</a>
-        <span class="muted">{{ cname(c.countries[0]) }} → {{ cname(c.countries[1]) }}</span>
-        {{ status(statuses[cid].to_tr, cid, "to_tr", compact=True) }}
-      </li>
-      {%- endfor %}
-    </ul>
+    {#- Ohne aktuelle Meldung an allen Übergängen der Route eine Zeile statt grauer Chips (app.js: data-live) #}
+    <div class="live{% if not any_live(statuses, r.controls, ["to_tr"]) %} is-empty{% endif %}" data-live>
+      <ul class="route-card__borders">
+        {%- for cid in r.controls %}
+        {%- set c = crossings[cid] %}
+        <li>
+          <a href="{{ href('crossing', cid=cid) }}">{{ c.short }}</a>
+          <span class="muted">{{ cname(c.countries[0]) }} → {{ cname(c.countries[1]) }}</span>
+          <div class="live__rows{% if not is_live(statuses[cid], ["to_tr"]) %} is-empty{% endif %}" data-dirs>{{ status(statuses[cid].to_tr, cid, "to_tr", compact=True) }}</div>
+        </li>
+        {%- endfor %}
+      </ul>
+      <p class="live__empty">{{ icon("info", "icon--s") }}<span>{{ t("b_dir_to_tr") }}: {{ t("b_empty_2h", h=window_h) }}</span></p>
+    </div>
     <div class="proscons">
       <div><h3>{{ t("r_pros") }}</h3><ul class="ticks">{% for p in r.pros %}<li>{{ icon("check", "icon--xs") }}<span>{{ p[lang] }}</span></li>{% endfor %}</ul></div>
       <div><h3>{{ t("r_cons") }}</h3><ul class="ticks ticks--cons">{% for p in r.cons %}<li>{{ icon("alert", "icon--xs") }}<span>{{ p[lang] }}</span></li>{% endfor %}</ul></div>
@@ -41,6 +46,7 @@
     <p>{{ t("r_plane_text") }}</p>
     <p class="cta-row"><a class="cta" href="{{ href('holidays') }}" data-state-link>{{ t("hol_title") }}{{ icon("chevron", "icon--s") }}</a> <a class="cta" href="{{ href('customs') }}">{{ t("c_title") }}{{ icon("chevron", "icon--s") }}</a></p>
   </article>
+  {{ share(share_text, abs_url(href("route"))) }}
 </section>
 
 <section aria-labelledby="countries-title">

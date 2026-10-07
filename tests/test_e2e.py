@@ -1,5 +1,5 @@
 """Browser-Tests (Node-Playwright) für Service Worker, Offline-Warteschlange, Layout, Kill-Switch,
-ältere Browser, präparierte Links und die Sticky-Toolbar.
+ältere Browser, präparierte Links, die Sticky-Toolbar sowie Kaltstart, Melden und Teilen.
 
 Laufen nur mit TV_E2E=1, sonst werden sie übersprungen (CI ohne Browser bleibt grün). Playwright
 muss für Node auffindbar sein (NODE_PATH oder PLAYWRIGHT_MODULE), zum Beispiel:
@@ -66,7 +66,7 @@ def node():
 
 def test_scripts_are_found():
     assert {"service_worker.js", "report_queue.js", "layout_hint.js", "kill_switch.js",
-            "old_browsers.js", "bad_params.js", "toolbar_layout.js"} <= set(SCRIPTS)
+            "old_browsers.js", "bad_params.js", "toolbar_layout.js", "share_report.js"} <= set(SCRIPTS)
 
 
 @pytest.mark.parametrize("script", SCRIPTS)

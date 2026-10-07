@@ -111,13 +111,36 @@
   });
 
   // ---------------------------------------------------------- share
-  $$("[data-share]").forEach(function (a) {
-    a.addEventListener("click", function (ev) {
-      if (!navigator.share) return; // fall back to the WhatsApp link
-      ev.preventDefault();
-      navigator.share({ text: a.getAttribute("data-share-text"), url: a.getAttribute("data-share-url") }).catch(function () {});
+  // WhatsApp-Knopf ist ein normaler wa.me-Link. Das Teilen-Menü des Geräts bekommt einen eigenen
+  // Knopf, sichtbar nur, wo es navigator.share gibt (Abbrechen durch den Nutzer ist kein Fehler).
+  if (navigator.share) {
+    $$("[data-share]").forEach(function (btn) {
+      btn.hidden = false;
+      btn.addEventListener("click", function () {
+        navigator.share({ text: btn.getAttribute("data-share-text"), url: btn.getAttribute("data-share-url") }).catch(function () {});
+      });
     });
-  });
+  }
+
+  // ---------------------------------------------------------- letzte Meldung (Übergang, Richtung)
+  // Nur Übergang und Richtung der letzten Meldung: Die Startseite zeigt diesen Übergang zuerst,
+  // das Formular schlägt die Richtung vor. Werte aus dem Speicher nur in bekannter Form übernehmen.
+  var DIRECTIONS = ["to_tr", "to_de"];
+  var lastReport = (function () {
+    var v = store.get("report_pref", null) || {};
+    return {
+      cid: typeof v.cid === "string" && /^[a-z0-9-]{1,40}$/.test(v.cid) ? v.cid : "",
+      direction: DIRECTIONS.indexOf(v.direction) !== -1 ? v.direction : ""
+    };
+  })();
+  var picker = $("[data-picker]");
+  var picked = lastReport.cid && picker && $('[data-pick="' + q(lastReport.cid) + '"]', picker);
+  if (picked) {
+    picked.hidden = false;
+    picker.insertBefore(picked, picker.firstChild);
+    var lastLabel = $(".picker__last", picked);
+    if (lastLabel) lastLabel.hidden = false;
+  }
 
   // ---------------------------------------------------------- checklist
   var checks = store.get("checks", {});
@@ -137,6 +160,7 @@
   function renderStatus(box, st) {
     var compact = box.classList.contains("status--compact");
     box.className = "status status--" + st.level + (compact ? " status--compact" : "");
+    box.setAttribute("data-live", st.state === "live" ? "1" : "0");
     var body = $(".status__body", box);
     body.textContent = "";
     var main = st.state === "live" ? S["b_bucket_" + st.bucket]
@@ -180,11 +204,20 @@
       $$('[data-node][data-cid="' + q(c.id) + '"]').forEach(function (node) { node.setAttribute("data-l-" + dir, st.level); });
     });
   }
+  // Leerzustand nachziehen: Übergang ohne aktuelle Meldung (data-dirs) bzw. ganze Liste (data-live)
+  function updateEmpty() {
+    $$("[data-dirs]").forEach(function (box) {
+      box.classList.toggle("is-empty", !$('[data-status][data-live="1"]', box));
+    });
+    $$("[data-live]").forEach(function (list) {
+      list.classList.toggle("is-empty", !$("[data-dirs]:not(.is-empty)", list));
+    });
+  }
   function refreshBorders() {
     if (!$("[data-status]") || document.hidden || navigator.onLine === false) return;
     fetch("/api/v1/borders", { headers: { Accept: "application/json" } })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) { if (data && data.crossings) data.crossings.forEach(applyCrossing); })
+      .then(function (data) { if (data && data.crossings) { data.crossings.forEach(applyCrossing); updateEmpty(); } })
       .catch(function () {});
   }
   if ($("[data-status]")) {
@@ -241,7 +274,7 @@
       return postReport(item).then(function (res) {
         if (res.status === 201) {
           delivered++;
-          if (res.data && res.data.crossing) applyCrossing(res.data.crossing);
+          if (res.data && res.data.crossing) { applyCrossing(res.data.crossing); updateEmpty(); }
         } else if (res.status >= 500 || res.status === 0) {
           requeue(item);
         }
@@ -257,6 +290,10 @@
   flushQueue();
 
   $$("form[data-report]").forEach(function (form) {
+    // Richtung der letzten Meldung vorschlagen, sonst nichts vorbelegen. Hat der Browser eine Auswahl
+    // wiederhergestellt (Zurück-Taste), bleibt sie.
+    var lastDir = lastReport.direction && form.querySelector('input[name="direction"][value="' + q(lastReport.direction) + '"]');
+    if (lastDir && !form.querySelector('input[name="direction"]:checked')) lastDir.checked = true;
     form.addEventListener("submit", function (ev) {
       ev.preventDefault();
       var dir = form.querySelector('input[name="direction"]:checked');
@@ -265,6 +302,8 @@
       if (!dir || !bucket) { form.reportValidity && form.reportValidity(); return; }
       if (hp && hp.value) { say("ok", S.b_report_thanks); return; }
       var item = { cid: form.getAttribute("data-cid"), direction: dir.value, bucket: parseInt(bucket.value, 10), observed_at: Math.floor(Date.now() / 1000) };
+      lastReport = { cid: item.cid, direction: item.direction };
+      store.set("report_pref", lastReport);
       var button = form.querySelector('button[type="submit"]');
       if (button) button.disabled = true;
       function done() { if (button) button.disabled = false; }
@@ -278,7 +317,7 @@
         if (res.status === 201) {
           say("ok", S.b_report_thanks);
           bucket.checked = false;
-          if (res.data && res.data.crossing) applyCrossing(res.data.crossing);
+          if (res.data && res.data.crossing) { applyCrossing(res.data.crossing); updateEmpty(); }
         } else if (res.status === 429) {
           // crossing_busy: the crossing-wide cap is full – affects everyone, not just this client
           say("error", res.data && res.data.detail === "crossing_busy" ? S.b_report_busy : S.b_report_ratelimited);
