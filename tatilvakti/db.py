@@ -24,12 +24,14 @@ CREATE TABLE IF NOT EXISTS reports (
     bucket      INTEGER NOT NULL CHECK (bucket BETWEEN 0 AND 5),
     observed_at INTEGER NOT NULL,   -- Unix-Sekunden (UTC): wann die Wartezeit erlebt wurde
     created_at  INTEGER NOT NULL,   -- Unix-Sekunden (UTC): wann die Meldung ankam
-    client      TEXT                -- Tages-Prüfwert gegen Spam, wird nach 48 h gelöscht
+    client      TEXT,               -- Tages-Prüfwert gegen Spam (IPv4 bzw. IPv6-/64), nach 48 h gelöscht
+    net         TEXT                -- dasselbe für den Anschluss (IPv4 bzw. IPv6-/56), nur zusammen mit client
 );
 CREATE INDEX IF NOT EXISTS idx_reports_lookup ON reports (crossing, direction, observed_at);
 -- Nur Meldungen mit Prüfwert (letzte 48 h): Spam-Limits und Wartung lesen nie den Altbestand
 DROP INDEX IF EXISTS idx_reports_client;
 CREATE INDEX IF NOT EXISTS idx_reports_client_hash ON reports (client, created_at) WHERE client IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_reports_net ON reports (net, crossing, direction, created_at) WHERE net IS NOT NULL;
 -- Aufbewahrungsfrist (observed_at) bzw. Obergrenze und Zähler nach Eingang (created_at)
 CREATE INDEX IF NOT EXISTS idx_reports_observed ON reports (observed_at);
 CREATE INDEX IF NOT EXISTS idx_reports_created ON reports (created_at);
@@ -63,26 +65,75 @@ def default_salt_path(db_path: str) -> str:
 
 def connect(path: str, salt_path: str | None = None) -> Connection:
     conn = sqlite3.connect(path, timeout=5, isolation_level=None, factory=Connection)
-    conn.path = path
-    conn.salt_path = salt_path or default_salt_path(path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA busy_timeout=5000")
-    # Gelöschte Prüfwerte und Schlüssel mit Nullen überschreiben, statt sie als freien
-    # Speicher in der Datei liegen zu lassen
-    conn.execute("PRAGMA secure_delete=ON")
+    try:
+        conn.path = path
+        conn.salt_path = salt_path or default_salt_path(path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        # Gelöschte Prüfwerte und Schlüssel mit Nullen überschreiben, statt sie als freien
+        # Speicher in der Datei liegen zu lassen
+        conn.execute("PRAGMA secure_delete=ON")
+    except BaseException:
+        conn.close()
+        raise
     return conn
+
+
+def _open_salt_db(path: str) -> Connection:
+    """Schlüssel-DB öffnen und, falls sie fehlt, neu anlegen.
+
+    Auf tmpfs kann das Verzeichnis nach einem Neustart oder durch systemd verschwinden. Ein
+    verlorener Tagesschlüssel ist harmlos (neuer Schlüssel, die Sperren des Tages beginnen neu),
+    deshalb legt die App Verzeichnis und Tabelle still wieder an, soweit sie das darf.
+    """
+    try:
+        sconn = connect(path)
+    except sqlite3.OperationalError:
+        try:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:  # z. B. unter /run ohne Rechte: als DB-Fehler melden
+            raise sqlite3.OperationalError(f"Schlüssel-DB nicht anlegbar: {exc}") from exc
+        sconn = connect(path)
+    try:
+        sconn.executescript(SALT_SCHEMA)  # liest nur das Schema, solange die Tabelle existiert
+    except BaseException:
+        sconn.close()
+        raise
+    return sconn
 
 
 @contextmanager
 def salt_db(conn: Connection):
     """Eigene, kurze Verbindung zur Schlüssel-DB der übergebenen Haupt-DB-Verbindung."""
-    sconn = connect(conn.salt_path)
+    sconn = _open_salt_db(conn.salt_path)
     try:
         yield sconn
     finally:
         sconn.close()
+
+
+def check_salt_db(path: str) -> str | None:
+    """Kann die App die Schlüssel-DB lesen und beschreiben? None, sonst die Fehlermeldung.
+
+    Ohne sie scheitert jede Meldung. Der Schreibtest ändert nichts: ein leeres DELETE in einer
+    Transaktion, die zurückgerollt wird. Es braucht trotzdem Schreibrechte auf Datei, -wal und -shm.
+    """
+    try:
+        sconn = _open_salt_db(path)
+        try:
+            sconn.execute("SELECT 1 FROM salts LIMIT 1").fetchone()
+            sconn.execute("BEGIN IMMEDIATE")
+            try:
+                sconn.execute("DELETE FROM salts WHERE day = ''")
+            finally:
+                sconn.execute("ROLLBACK")
+        finally:
+            sconn.close()
+    except sqlite3.Error as exc:
+        return str(exc)
+    return None
 
 
 def init_db(path: str, salt_path: str | None = None) -> None:
@@ -91,6 +142,7 @@ def init_db(path: str, salt_path: str | None = None) -> None:
         Path(file).parent.mkdir(parents=True, exist_ok=True)
     conn = connect(path, salt_path)
     try:
+        _add_missing_columns(conn)
         conn.executescript(SCHEMA)
         _drop_legacy_salts(conn)
     finally:
@@ -100,6 +152,23 @@ def init_db(path: str, salt_path: str | None = None) -> None:
         sconn.executescript(SALT_SCHEMA)
     finally:
         sconn.close()
+
+
+def _add_missing_columns(conn: Connection) -> None:
+    """Bestehende Haupt-DB um später dazugekommene Spalten ergänzen (reports.net).
+
+    In einer Schreibtransaktion: Parallel startende gunicorn-Worker ergänzen nur einmal.
+    Muss vor SCHEMA laufen, denn dessen Index auf net braucht die Spalte.
+    """
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(reports)")}
+        if columns and "net" not in columns:
+            conn.execute("ALTER TABLE reports ADD COLUMN net TEXT")
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
 
 
 def _drop_legacy_salts(conn: Connection) -> None:

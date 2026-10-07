@@ -4,17 +4,28 @@ Ehrlichkeitsregeln:
 - Wir speichern und zeigen Bereiche (z. B. „30–60 Min.“), keine Scheingenauigkeit.
 - Ein Status gilt nur mit Meldungen aus den letzten WINDOW_MIN Minuten, sonst „keine
   aktuellen Meldungen“ plus Alter der letzten Meldung.
-- Eine Stimme pro Client: Im Median zählt je Übergang und Richtung nur die jüngste Meldung
-  eines Clients im Fenster. Client heißt: dieselbe IPv4-Adresse bzw. dasselbe IPv6-/64-Netz,
-  erkannt am Tages-Prüfwert. Wer alle 20 Minuten neu meldet, ersetzt nur seine eigene Stimme.
+- Eine Stimme pro Anschluss: Im Median zählt je Übergang und Richtung nur die jüngste Meldung
+  eines Anschlusses im Fenster. Anschluss heißt: dieselbe IPv4-Adresse bzw. dasselbe IPv6-/56
+  (ein Heimanschluss bekommt oft ein /56 mit 256 /64-Netzen), erkannt am Tages-Prüfwert `net`.
+  Wer alle 20 Minuten neu meldet, ersetzt nur seine eigene Stimme.
 - Median statt Mittelwert: einzelne Ausreißer und Trolle verschieben den Status kaum. Bei
   gerader Anzahl zählt der höhere Wert (lieber vorsichtig als zu optimistisch).
 
-Grenzen des Schutzes (bewusst offen benannt): Wer viele IPv4-Adressen oder /64-Netze hat,
-bekommt mehrere Stimmen. Dagegen wirken die Obergrenze je Übergang und Richtung
-(CROSSING_CAP Meldungen in CROSSING_CAP_MIN Minuten, danach Log-Warnung) und das Aufräumen
-per `flask --app tatilvakti purge-reports`. Beim Schlüsselwechsel um 00:00 UTC bekommt ein
-Client einen neuen Prüfwert und kann kurz doppelt zählen.
+Limits (Prüfwerte statt IP-Adressen, siehe client_keys):
+- je Client (IPv4-Adresse bzw. IPv6-/64): SAME_SPOT_COOLDOWN_MIN Minuten Sperre je Übergang
+  und Richtung, höchstens MAX_REPORTS_PER_HOUR Meldungen pro Stunde insgesamt;
+- je Anschluss (IPv4-Adresse bzw. IPv6-/56): höchstens NET_REPORTS_PER_HOUR Meldungen pro
+  Stunde je Übergang und Richtung – so viele, wie eine IPv4-Adresse wegen der Sperre ohnehin
+  schafft. Damit füllt ein einzelner Anschluss die Obergrenze nicht allein;
+- je Übergang und Richtung über alle: CROSSING_CAP Meldungen in CROSSING_CAP_MIN Minuten,
+  darüber 429 „crossing_busy“ und eine Log-Warnung.
+
+Grenzen des Schutzes (bewusst offen benannt): Wer viele IPv4-Adressen oder viele /56-Netze hat
+(z. B. ein /48 aus einem Tunnel-Angebot), bekommt mehrere Stimmen und kann die Obergrenze
+füllen; dann bekommen auch ehrliche Melder kurz 429. Dagegen helfen die Log-Warnung und das
+Aufräumen per `flask --app tatilvakti purge-reports`. Umgekehrt teilen sich Menschen hinter
+einer gemeinsamen IPv4-Adresse (CGNAT) oder im selben /56 eine Stimme und die Limits. Beim
+Schlüsselwechsel um 00:00 UTC bekommt ein Client einen neuen Prüfwert und kann kurz doppelt zählen.
 """
 from __future__ import annotations
 
@@ -27,7 +38,7 @@ import re
 import sqlite3
 import statistics
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from .db import salt_db
 
@@ -46,6 +57,8 @@ WINDOW_MIN = 120
 MAX_REPORT_AGE_MIN = 90
 SAME_SPOT_COOLDOWN_MIN = 20
 MAX_REPORTS_PER_HOUR = 10
+# Je Anschluss (IPv4-Adresse bzw. IPv6-/56) und Übergang und Richtung, pro Stunde
+NET_REPORTS_PER_HOUR = 3
 # Obergrenze je Übergang und Richtung über alle Clients: bremst Fluten aus vielen Adressen
 CROSSING_CAP = 30
 CROSSING_CAP_MIN = 10
@@ -55,6 +68,7 @@ MAINTENANCE_EVERY_S = 600
 STATUS_CACHE_S = 15
 PATTERN_CACHE_S = 300
 IPV6_CLIENT_PREFIX = 64
+IPV6_NET_PREFIX = 56
 _MAX_ABS_INT = 10 ** 12
 _INT_TEXT = re.compile(r"-?[0-9]{1,12}")
 
@@ -69,6 +83,11 @@ class InvalidReport(ReportError):
 
 class RateLimited(ReportError):
     code = "ratelimited"
+
+
+class CrossingBusy(RateLimited):
+    """Obergrenze des Übergangs erreicht – betrifft alle, nicht nur diesen Client."""
+    code = "busy"
 
 
 class StaleReport(ReportError):
@@ -89,6 +108,38 @@ def _utc_day(ts: int) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
 
 
+_unparsable_warned = False
+
+
+def _parse_ip(value):
+    """IP-Adresse aus REMOTE_ADDR lesen, auch mit Klammern oder Port ('[2001:db8::1]:443',
+    '203.0.113.7:4444'). IPv4 in IPv6 (::ffff:a.b.c.d) gilt als IPv4. Unlesbar: None."""
+    global _unparsable_warned
+    text = str(value).strip()
+    if text.startswith("["):
+        end = text.find("]")
+        if end != -1:
+            text = text[1:end]
+    elif text.count(":") == 1:  # IPv4 mit Port; IPv6 hat immer mindestens zwei Doppelpunkte
+        text = text.split(":", 1)[0]
+    try:
+        addr = ipaddress.ip_address(text)
+    except ValueError:
+        if not _unparsable_warned:
+            _unparsable_warned = True
+            log.warning("Unlesbare Client-Adresse: Der Spam-Schutz zählt sie als eigenen Client. "
+                        "Header-Kette des Reverse-Proxys prüfen (X-Forwarded-For, TV_TRUST_PROXY).")
+        return None
+    if addr.version == 6 and addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped
+    return addr
+
+
+def _ipv6_network(addr, prefix: int) -> str:
+    host_bits = 128 - prefix
+    return str(ipaddress.IPv6Network((int(addr) >> host_bits << host_bits, prefix)))
+
+
 def normalize_ip(ip: str) -> str:
     """Die Adresse, die für den Spam-Schutz als ein Client gilt.
 
@@ -96,32 +147,51 @@ def normalize_ip(ip: str) -> str:
     beliebig viele Adressen nutzen. Deshalb zählt das /64 als ein Client. IPv4 bleibt
     unverändert, IPv4 in IPv6 (::ffff:a.b.c.d) gilt als IPv4. Unlesbares bleibt, wie es ist.
     """
-    try:
-        addr = ipaddress.ip_address(ip.strip())
-    except (AttributeError, ValueError):
+    addr = _parse_ip(ip)
+    if addr is None:
         return str(ip)
-    if addr.version == 6:
-        if addr.ipv4_mapped is not None:
-            return str(addr.ipv4_mapped)
-        host_bits = 128 - IPV6_CLIENT_PREFIX
-        network = int(addr) >> host_bits << host_bits
-        return str(ipaddress.IPv6Network((network, IPV6_CLIENT_PREFIX)))
-    return str(addr)
+    return _ipv6_network(addr, IPV6_CLIENT_PREFIX) if addr.version == 6 else str(addr)
 
 
-def client_key(conn: sqlite3.Connection, ip: str, now: int) -> str:
-    """HMAC der normalisierten IP mit einem täglich wechselnden Zufallsschlüssel.
+def normalize_net(ip: str) -> str:
+    """Der Anschluss hinter einer Adresse: bei IPv6 das /56, bei IPv4 die Adresse selbst.
 
-    Die IP wird nie gespeichert. Der Schlüssel liegt in der eigenen Schlüssel-DB
-    (TV_SALT_DB_PATH), nie in der gesicherten Haupt-DB.
+    Heimanschlüsse bekommen oft ein /56 (256 /64-Netze), daraus ließen sich sonst 256 Clients
+    machen. Gröber (/48) wäre unfair: Dann teilten sich viele fremde Mobilfunkkunden eine Stimme.
     """
+    addr = _parse_ip(ip)
+    if addr is None:
+        return str(ip)
+    return _ipv6_network(addr, IPV6_NET_PREFIX) if addr.version == 6 else str(addr)
+
+
+def _day_salt(conn: sqlite3.Connection, now: int) -> bytes:
     day = _utc_day(now)
     with salt_db(conn) as sconn:
         row = sconn.execute("SELECT salt FROM salts WHERE day = ?", (day,)).fetchone()
         if row is None:
             sconn.execute("INSERT OR IGNORE INTO salts (day, salt) VALUES (?, ?)", (day, os.urandom(32)))
             row = sconn.execute("SELECT salt FROM salts WHERE day = ?", (day,)).fetchone()
-    return hmac.new(row["salt"], normalize_ip(ip).encode(), hashlib.sha256).hexdigest()[:32]
+    return row["salt"]
+
+
+def _digest(salt: bytes, text: str) -> str:
+    return hmac.new(salt, text.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def client_keys(conn: sqlite3.Connection, ip: str, now: int) -> tuple[str, str]:
+    """Prüfwerte (client, net): HMAC von Client und Anschluss mit dem täglich wechselnden Schlüssel.
+
+    Die IP wird nie gespeichert. Der Schlüssel liegt in der eigenen Schlüssel-DB
+    (TV_SALT_DB_PATH), nie in der gesicherten Haupt-DB. Bei IPv4 sind beide Werte gleich.
+    """
+    salt = _day_salt(conn, now)
+    return _digest(salt, normalize_ip(ip)), _digest(salt, normalize_net(ip))
+
+
+def client_key(conn: sqlite3.Connection, ip: str, now: int) -> str:
+    """Nur der Client-Prüfwert (IPv4-Adresse bzw. IPv6-/64), siehe client_keys."""
+    return client_keys(conn, ip, now)[0]
 
 
 def _strict_int(value, field: str) -> int:
@@ -139,14 +209,19 @@ def _strict_int(value, field: str) -> int:
     raise InvalidReport(field)
 
 
-def _bump_revision(conn: sqlite3.Connection) -> None:
-    """Meldungsstand hochzählen: macht den Status-Cache in allen Prozessen ungültig."""
-    conn.execute("INSERT INTO kv (key, value) VALUES ('reports_rev', '1') "
-                 "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1")
+def _bump_revision(conn: sqlite3.Connection, deleted: bool = False) -> None:
+    """Meldungsstand hochzählen: macht den Status-Cache in allen Prozessen ungültig.
+
+    deleted=True (Löschen per purge-reports oder Wartung) zählt zusätzlich purge_rev hoch,
+    daran hängt der Cache des Tagesverlaufs.
+    """
+    for key in ("reports_rev", "purge_rev") if deleted else ("reports_rev",):
+        conn.execute("INSERT INTO kv (key, value) VALUES (?, '1') "
+                     "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1", (key,))
 
 
-def _revision(conn: sqlite3.Connection) -> str | None:
-    row = conn.execute("SELECT value FROM kv WHERE key = 'reports_rev'").fetchone()
+def _revision(conn: sqlite3.Connection, key: str = "reports_rev") -> str | None:
+    row = conn.execute("SELECT value FROM kv WHERE key = ?", (key,)).fetchone()
     return row[0] if row else None
 
 
@@ -182,7 +257,7 @@ def add_report(conn: sqlite3.Connection, crossing: str, direction: str, bucket, 
         if observed < now - MAX_REPORT_AGE_MIN * 60:
             raise StaleReport("observed_at")
 
-    client = client_key(conn, ip, now)
+    client, net = client_keys(conn, ip, now)
     # Prüfen und Speichern in EINER Schreibtransaktion: BEGIN IMMEDIATE sperrt sofort für
     # andere Schreiber, parallele Requests desselben Clients sehen also die erste Meldung.
     conn.execute("BEGIN IMMEDIATE")
@@ -198,6 +273,14 @@ def add_report(conn: sqlite3.Connection, crossing: str, direction: str, bucket, 
         ).fetchone()[0]
         if per_hour >= MAX_REPORTS_PER_HOUR:
             raise RateLimited("per_hour")
+        # Vor der Obergrenze: Ein einzelner Anschluss (z. B. ein /56 mit 256 /64-Netzen) soll
+        # sie nicht allein füllen und damit ehrliche Melder aussperren können
+        per_net = conn.execute(
+            "SELECT COUNT(*) FROM reports WHERE net = ? AND crossing = ? AND direction = ? AND created_at > ?",
+            (net, crossing, direction, now - 3600),
+        ).fetchone()[0]
+        if per_net >= NET_REPORTS_PER_HOUR:
+            raise RateLimited("net_per_hour")
         # INDEXED BY: nur die Meldungen der letzten Minuten lesen, nie den ganzen Übergang
         busy = conn.execute(
             "SELECT COUNT(*) FROM reports INDEXED BY idx_reports_created "
@@ -206,11 +289,11 @@ def add_report(conn: sqlite3.Connection, crossing: str, direction: str, bucket, 
         ).fetchone()[0]
         if busy >= CROSSING_CAP:
             _warn_crossing_cap(conn, crossing, direction, now)
-            raise RateLimited("crossing_busy")
+            raise CrossingBusy("crossing_busy")
         cur = conn.execute(
-            "INSERT INTO reports (crossing, direction, bucket, observed_at, created_at, client) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (crossing, direction, bucket, observed, now, client),
+            "INSERT INTO reports (crossing, direction, bucket, observed_at, created_at, client, net) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (crossing, direction, bucket, observed, now, client, net),
         )
         _bump_revision(conn)
         conn.execute("COMMIT")
@@ -225,7 +308,8 @@ def add_report(conn: sqlite3.Connection, crossing: str, direction: str, bucket, 
 
 
 def maintenance(conn: sqlite3.Connection, now: int, force: bool = False) -> dict | None:
-    """Datensparsamkeit: Prüfwerte nach 48 h löschen, alte Meldungen und Tagesschlüssel entfernen.
+    """Datensparsamkeit: Prüfwerte nach 48 h, Meldungen nach RETENTION_DAYS Tagen und
+    Tagesschlüssel nach dem Tageswechsel (UTC) löschen.
 
     Läuft über alle Prozesse höchstens alle MAINTENANCE_EVERY_S Sekunden (Zeitstempel in kv),
     mit force=True sofort. Liefert die Zahl der gelöschten Einträge, None wenn übersprungen.
@@ -238,23 +322,24 @@ def maintenance(conn: sqlite3.Connection, now: int, force: bool = False) -> dict
             return None
         # Ein Intervall Vorlauf: Die Wartung läuft nur alle MAINTENANCE_EVERY_S Sekunden, so
         # wird trotzdem kein Prüfwert älter als die zugesagten 48 h. Die Limits brauchen nur 1 h.
+        # net wird nur zusammen mit client gesetzt, also auch zusammen gelöscht.
         cleared = conn.execute(
-            "UPDATE reports SET client = NULL WHERE client IS NOT NULL AND created_at <= ?",
+            "UPDATE reports SET client = NULL, net = NULL WHERE client IS NOT NULL AND created_at <= ?",
             (now - CLIENT_HASH_TTL_H * 3600 + MAINTENANCE_EVERY_S,)).rowcount
         deleted = conn.execute("DELETE FROM reports WHERE observed_at < ?",
                                (now - RETENTION_DAYS * 86400,)).rowcount
         if deleted:
-            _bump_revision(conn)
+            _bump_revision(conn, deleted=True)
         conn.execute("INSERT INTO kv (key, value) VALUES ('maintenance_at', ?) "
                      "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (str(now),))
         conn.execute("COMMIT")
     except BaseException:
         conn.execute("ROLLBACK")
         raise
-    # Erst nach dem COMMIT: nie die Schlüssel-DB sperren, während die Haupt-DB gesperrt ist
-    yesterday = (datetime.fromtimestamp(now, tz=timezone.utc).date() - timedelta(days=1)).isoformat()
+    # Erst nach dem COMMIT: nie die Schlüssel-DB sperren, während die Haupt-DB gesperrt ist.
+    # Prüfwerte entstehen nur mit dem heutigen Schlüssel; ältere werden nicht mehr gebraucht.
     with salt_db(conn) as sconn:
-        salts = sconn.execute("DELETE FROM salts WHERE day < ?", (yesterday,)).rowcount
+        salts = sconn.execute("DELETE FROM salts WHERE day < ?", (_utc_day(now),)).rowcount
     return {"clients_cleared": cleared, "reports_deleted": deleted, "salts_deleted": salts}
 
 
@@ -280,7 +365,7 @@ def purge_reports(conn: sqlite3.Connection, crossing: str, since: int, until: in
     try:
         count = conn.execute(f"DELETE FROM reports WHERE {where}", params).rowcount
         if count:
-            _bump_revision(conn)
+            _bump_revision(conn, deleted=True)
         conn.execute("COMMIT")
     except BaseException:
         conn.execute("ROLLBACK")
@@ -360,17 +445,22 @@ def _compute_statuses(conn: sqlite3.Connection, ids: tuple[str, ...], now: int) 
         return {}
     since = now - WINDOW_MIN * 60
     marks = ",".join("?" * len(ids))
-    # Eine Stimme pro Client: spätere Meldungen desselben Prüfwerts überschreiben frühere.
-    # Meldungen ohne Prüfwert (nach 48 h gelöscht oder Altbestand) zählen einzeln.
+    # Eine Stimme pro Anschluss: spätere Meldungen desselben Prüfwerts überschreiben frühere.
+    # Altbestand ohne net zählt je Client, Meldungen ganz ohne Prüfwert (nach 48 h) einzeln.
     # direction IN (…) gehört dazu: Erst damit wird jedes Paar ein Index-Seek auf das Zeitfenster.
     votes: dict[tuple, int] = {}
     for row in conn.execute(
-        f"SELECT id, crossing, direction, bucket, client FROM reports "
+        f"SELECT id, crossing, direction, bucket, client, net FROM reports "
         f"WHERE crossing IN ({marks}) AND direction IN ({','.join('?' * len(DIRECTIONS))}) "
         f"AND observed_at >= ? AND observed_at <= ? ORDER BY observed_at, id",
         (*ids, *DIRECTIONS, since, now),
     ):
-        voter = ("client", row["client"]) if row["client"] is not None else ("report", row["id"])
+        if row["net"] is not None:
+            voter = ("net", row["net"])
+        elif row["client"] is not None:
+            voter = ("client", row["client"])
+        else:
+            voter = ("report", row["id"])
         votes[(row["crossing"], row["direction"], voter)] = row["bucket"]
     fresh: dict[tuple[str, str], list[int]] = {}
     for (cid, direction, _voter), bucket in votes.items():
@@ -401,15 +491,17 @@ def hourly_pattern(conn: sqlite3.Connection, crossing: str, direction: str, tz_n
 
     Reine Historie über Wochen, deshalb bis PATTERN_CACHE_S Sekunden gecacht – auch über neue
     Meldungen hinweg. Sonst würde eine Meldungsflut die teure Rechnung bei jedem Aufruf auslösen.
+    Gelöschte Meldungen (purge-reports, Wartung) machen den Cache über purge_rev sofort ungültig.
     """
     path = getattr(conn, "path", "")
     key = (path, crossing, direction, tz_name, weeks, min_reports)
     cacheable = _pattern_cache.enabled(path)
-    result = _pattern_cache.get(key, None, now) if cacheable else None
+    rev = _revision(conn, "purge_rev") if cacheable else None
+    result = _pattern_cache.get(key, rev, now) if cacheable else None
     if result is None:
         result = _compute_pattern(conn, crossing, direction, tz_name, now, weeks, min_reports)
         if cacheable:
-            _pattern_cache.put(key, None, now, result)
+            _pattern_cache.put(key, rev, now, result)
     return {**result, "slots": [dict(slot) for slot in result["slots"]]}
 
 

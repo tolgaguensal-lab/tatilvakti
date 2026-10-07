@@ -98,6 +98,24 @@ def test_report_form_works_without_javascript(client):
     assert "fehler=ratelimited" in limited.headers["Location"]
 
 
+@pytest.mark.parametrize("lang,path,text", [
+    ("de", "/de/grenze/kapikule", "kommen gerade sehr viele Meldungen an"),
+    ("tr", "/tr/sinir/kapikule", "çok fazla bildirim geliyor"),
+])
+def test_full_crossing_gets_its_own_message(client, monkeypatch, lang, path, text):
+    """Obergrenze voll: nicht „Du hast hier gerade schon gemeldet“, das stimmt für Erstmelder nicht."""
+    from tatilvakti import borders as B
+    monkeypatch.setattr(B, "CROSSING_CAP", 0)
+    api = client.post("/api/v1/borders/kapikule/reports", json={"direction": "to_tr", "bucket": 1})
+    assert api.status_code == 429 and api.get_json() == {"error": "ratelimited", "detail": "crossing_busy"}
+    form = client.post(f"{path}/report", data={"direction": "to_tr", "bucket": "1"}, headers=SAME_ORIGIN)
+    assert form.headers["Location"].endswith(f"{path}?fehler=busy#melden")
+    page = client.get(f"{path}?fehler=busy").get_data(as_text=True)
+    assert text in page.split('id="tv-strings"')[0]  # Hinweis im Formular ohne JavaScript
+    strings = json.loads(re.search(r'id="tv-strings">(.*?)</script>', page).group(1))
+    assert text in strings["b_report_busy"]  # und für app.js
+
+
 @pytest.mark.parametrize("headers", [
     {"Origin": "https://evil.example"},
     {"Origin": "null"},
@@ -201,7 +219,7 @@ def test_manifest(client, lang):
 
 def test_healthz_reports_data_freshness(client):
     data = client.get("/healthz").get_json()
-    assert data["db"] is True
+    assert data["db"] is True and data["salt_db"] is True
     assert data["datasets"]["holidays"]["as_of"] == "2026-10-06"
     assert data["datasets"]["holidays"]["review_due"] is False
     assert data["due_items"] == [] and data["next_review"] > "2026-10-06"
@@ -256,6 +274,26 @@ def test_healthz_flags_whole_datasets_after_review_date(operated_app, clock):
     assert whole == {"holidays", "customs", "transit", "crossings"}
 
 
+def test_healthz_flags_an_unusable_salt_db(operated_app, tmp_path, caplog):
+    """Review: Ohne Schlüssel-DB scheitert jede Meldung – /healthz muss das zeigen (HTTP bleibt 200)."""
+    client = operated_app.test_client()
+    blocker = tmp_path / "keine-verzeichnis"
+    blocker.write_text("")  # wie /run/tatilvakti-v2 weg und ohne Recht, es neu anzulegen
+    operated_app.config["TV_SALT_DB_PATH"] = str(blocker / "salts.db")
+    operated_app.config["PROPAGATE_EXCEPTIONS"] = False  # wie im Betrieb: 500 statt Exception im Test
+    with caplog.at_level("WARNING"):
+        assert client.post("/api/v1/borders/kapikule/reports", json={"direction": "to_tr", "bucket": 1}).status_code == 500
+        for _ in range(2):
+            resp = client.get("/healthz")
+            data = resp.get_json()
+            assert resp.status_code == 200 and data["salt_db"] is False
+            assert (data["status"], data["attention"]) == ("attention", ["salt_db"])
+    assert len([r for r in caplog.records if "nicht nutzbar" in r.getMessage()]) == 1  # einmal, nicht je Abfrage
+    operated_app.config["TV_SALT_DB_PATH"] = str(tmp_path / "wieder" / "salts.db")  # repariert
+    data = client.get("/healthz").get_json()
+    assert (data["status"], data["salt_db"]) == ("ok", True)
+
+
 def test_forwarded_header_without_trusted_proxy_warns_once(client, caplog):
     with caplog.at_level("WARNING"):
         client.get("/de/", headers={"X-Forwarded-For": "203.0.113.9"})
@@ -276,6 +314,11 @@ def test_trusted_proxy_groups_ipv6_by_64(tmp_path, clock):
     assert client.post(url, json=body, headers={"X-Forwarded-For": "2001:db8:1:2::77"}).status_code == 429
     assert client.post(url, json=body, headers={"X-Forwarded-For": "2001:db8:1:3::1"}).status_code == 201
     assert client.get("/healthz").get_json()["proxy"] == {"trust_proxy": 1, "forwarded_ignored": False}
+    # Derselbe Anschluss (/56) aus weiteren /64-Netzen: nach 3 Meldungen pro Stunde ist Schluss
+    assert client.post(url, json=body, headers={"X-Forwarded-For": "2001:db8:1:4::1"}).status_code == 201
+    over = client.post(url, json=body, headers={"X-Forwarded-For": "2001:db8:1:5::1"})
+    assert over.status_code == 429 and over.get_json()["detail"] == "net_per_hour"
+    assert client.post(url, json=body, headers={"X-Forwarded-For": "198.51.100.7"}).status_code == 201
 
 
 def test_maintenance_runs_without_new_reports(client, db, clock):

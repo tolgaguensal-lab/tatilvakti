@@ -32,7 +32,8 @@ class State:
     asset_hashes: dict[str, str]
     build_id: str
     # Laufzeit-Zustand je Prozess (siehe views.register: before_request)
-    runtime: dict = field(default_factory=lambda: {"maintenance_checked_at": None, "forwarded_ignored": False})
+    runtime: dict = field(default_factory=lambda: {"maintenance_checked_at": None, "forwarded_ignored": False,
+                                                   "salt_db_failed": False})
 
 
 PACKAGE_DIR = Path(__file__).parent

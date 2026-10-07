@@ -13,6 +13,7 @@ from werkzeug.exceptions import HTTPException
 from . import borders as B
 from . import today_berlin, utcnow
 from .content import DATASETS, is_due
+from .db import check_salt_db
 from .i18n import LANGS, SLUGS, fmt_date, fmt_pct, fmt_range, negotiate
 
 PAGES = ("home", "holidays", "route", "borders", "customs", "info", "offline")
@@ -111,8 +112,8 @@ def whatsapp_url(text: str, url: str) -> str:
 
 def _client_strings() -> dict:
     keys = ["ago_now", "ago_min", "ago_h", "ago_d", "b_no_reports", "b_no_reports_ever", "b_last_report", "b_reports_1",
-            "b_reports_n", "b_report_thanks", "b_report_queued", "b_report_ratelimited", "b_report_stale",
-            "b_report_error", "b_level_ok", "b_level_mid", "b_level_bad", "b_level_none", "c_no_results"]
+            "b_reports_n", "b_report_thanks", "b_report_queued", "b_report_ratelimited", "b_report_busy",
+            "b_report_stale", "b_report_error", "b_level_ok", "b_level_mid", "b_level_bad", "b_level_none", "c_no_results"]
     keys += [f"b_bucket_{i}" for i in range(B.BUCKET_COUNT)]
     return {k: t(k) for k in keys}
 
@@ -248,8 +249,9 @@ def crossing(cid: str):
     flash = None
     if request.args.get("gemeldet"):
         flash = ("ok", t("b_report_thanks"))
-    elif request.args.get("fehler") in ("ratelimited", "stale", "invalid"):
-        key = {"ratelimited": "b_report_ratelimited", "stale": "b_report_stale"}.get(request.args["fehler"], "b_report_error")
+    elif request.args.get("fehler") in ("ratelimited", "busy", "stale", "invalid"):
+        key = {"ratelimited": "b_report_ratelimited", "busy": "b_report_busy",
+               "stale": "b_report_stale"}.get(request.args["fehler"], "b_report_error")
         flash = ("error", t(key))
     return render_template("crossing.html", page="crossing", c=c, statuses=statuses, patterns=patterns,
                            routes=routes, share_text=share_text, share_url=share_url, flash=flash, now=now,
@@ -284,7 +286,7 @@ def report_form(cid: str):
     try:
         B.add_report(_db(), cid, request.form.get("direction"), request.form.get("bucket"),
                      request.remote_addr or "0.0.0.0", now_ts())
-    except B.ReportError as exc:
+    except B.ReportError as exc:  # code: invalid, stale, ratelimited oder busy (Obergrenze)
         return redirect(f"{target}?fehler={exc.code}#melden", code=303)
     return redirect(f"{target}?gemeldet=1#melden", code=303)
 
@@ -436,6 +438,8 @@ def healthz():
     """Betriebsstatus für das Monitoring. HTTP 503 nur, wenn die DB nicht antwortet.
 
     status 'attention' (weiter HTTP 200), wenn etwas zu tun ist; die Gründe stehen in 'attention'.
+    Eine kaputte Schlüssel-DB ('salt_db') legt alle Meldungen lahm, die Seiten laufen aber weiter –
+    deshalb kein 503, sonst nähme ein Health-Check im Proxy die ganze Seite vom Netz.
     """
     content = tv().content
     cfg = current_app.config
@@ -446,17 +450,25 @@ def healthz():
         db_ok = True
     except sqlite3.Error:  # pragma: no cover - DB nicht lesbar
         maintenance_at, db_ok = None, False
+    salt_error = check_salt_db(cfg["TV_SALT_DB_PATH"])
+    runtime = tv().runtime
+    if salt_error and not runtime["salt_db_failed"]:  # nur beim Wechsel loggen, nicht jede Minute
+        current_app.logger.warning("Schlüssel-DB (TV_SALT_DB_PATH) nicht nutzbar, Meldungen scheitern: %s",
+                                   salt_error)
+    runtime["salt_db_failed"] = salt_error is not None
     due, next_review = due_items(content, today)
     imprint_ok = all(str(cfg[f"TV_OPERATOR_{k}"]).strip() for k in ("NAME", "ADDRESS", "EMAIL"))
-    forwarded_ignored = tv().runtime["forwarded_ignored"]
+    forwarded_ignored = runtime["forwarded_ignored"]
     # Wartung läuft im before_request alle 10 Min.; deutlich älter heißt: Schreiben schlägt fehl
     maintenance_overdue = maintenance_at is None or now - maintenance_at > 3 * B.MAINTENANCE_EVERY_S
     attention = [reason for reason, active in (("due_items", bool(due)), ("imprint", not imprint_ok),
                                                 ("proxy", forwarded_ignored),
-                                                ("maintenance", db_ok and maintenance_overdue)) if active]
+                                                ("maintenance", db_ok and maintenance_overdue),
+                                                ("salt_db", salt_error is not None)) if active]
     data = {
         "status": "degraded" if not db_ok else ("attention" if attention else "ok"),
         "db": db_ok,
+        "salt_db": salt_error is None,
         "build": tv().build_id,
         "datasets": {n: {"as_of": content.meta(n)["as_of"], "review_due": content.review_due(n, today)}
                      for n in DATASETS},
