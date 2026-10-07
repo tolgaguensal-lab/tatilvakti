@@ -1,6 +1,7 @@
-# Datensparsamkeit unabhängig vom Verkehr: Prüfwerte nach 48 h und alte Tagesschlüssel löschen,
-# alte Meldungen entfernen. Gestartet stündlich von tatilvakti-v2-maintenance.timer.
+# Datensparsamkeit unabhängig vom Verkehr: 'flask --app tatilvakti maintenance' löscht Prüfwerte
+# nach 48 h, alte Tagesschlüssel und alte Meldungen. Gestartet von tatilvakti-v2-maintenance.timer.
 # Sofort ausführen:  sudo systemctl start tatilvakti-v2-maintenance.service
+#   (mit Ausgabe im Terminal: sudo /opt/tatilvakti-v2/current/scripts/tv-flask.sh maintenance)
 [Unit]
 Description=tatilvakti v2 – Wartung (Prüfwerte und Tagesschlüssel löschen)
 After=tatilvakti-v2.service

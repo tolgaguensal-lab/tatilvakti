@@ -1,11 +1,13 @@
-# Stündlich: hält die Zusage „Prüfwert spätestens nach 48 h gelöscht“ auch ohne neue Meldungen ein.
+# Alle 5 Minuten, auch ganz ohne Verkehr: Die Wartung löscht Prüfwerte mit 10 Minuten Vorlauf
+# vor Ablauf der 48 h, bei diesem Takt wird also keiner älter als zugesagt. Ein Lauf braucht
+# rund 0,2 s CPU. Bei Verkehr stößt die App die Wartung zusätzlich selbst an.
 #   sudo systemctl enable --now tatilvakti-v2-maintenance.timer
 [Unit]
-Description=tatilvakti v2 – Wartung stündlich
+Description=tatilvakti v2 – Wartung alle 5 Minuten
 
 [Timer]
-OnCalendar=hourly
-RandomizedDelaySec=5min
+OnCalendar=*:0/5
+AccuracySec=10s
 # Verpasste Läufe (z. B. Server war aus) nach dem Start nachholen
 Persistent=true
 

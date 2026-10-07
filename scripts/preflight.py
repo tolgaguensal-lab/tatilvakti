@@ -1,25 +1,34 @@
 #!/usr/bin/env python3
 """Preflight für ein Release, bevor scripts/deploy.sh den Symlink umschaltet.
 
-Im Release-Verzeichnis mit dessen venv ausführen, am besten als Dienstbenutzer:
+Im Release-Verzeichnis mit dessen venv ausführen, als Dienstbenutzer (deploy.sh macht das so):
 
-    .venv/bin/python scripts/preflight.py --env-file /etc/tatilvakti-v2.env \
-        --db /var/lib/tatilvakti-v2/tatilvakti.db [--no-tests]
+    sudo -u tatilvakti-v2 .venv/bin/python scripts/preflight.py \
+        --env-file /etc/tatilvakti-v2.env --db /var/lib/tatilvakti-v2/tatilvakti.db \
+        [--test-python /pfad/zu/venv-test/bin/python] [--no-tests]
+
+Nie als root gegen die Produktions-DB: SQLite legt beim Öffnen -wal/-shm an, gehören die root,
+kann der Dienst danach nicht mehr schreiben. Das Skript bricht deshalb ab, wenn der aufrufende
+Benutzer nicht Eigentümer der DB ist.
 
 Prüft der Reihe nach:
-1. Konfiguration aus der Env-Datei: TV_BASE_URL, TV_TRUST_PROXY, Impressum (Fehler bzw. Warnung).
+1. Konfiguration aus der Env-Datei: TV_BASE_URL, TV_TRUST_PROXY, Impressum, keine Pfad-Variablen.
 2. create_app() gegen eine Online-KOPIE der Produktions-DB in einem temporären Verzeichnis:
    Datenvalidierung und Schema. Echte DB und Salts-Datei bleiben unberührt.
-3. Jede Seite ohne Parameter, jede Grenzübergangsseite, /healthz, /sw.js, Sitemap usw.:
-   kein Status ab 400. Canonical-Links müssen auf TV_BASE_URL zeigen.
-4. pytest im Release, ohne TV_*-Variablen aus der Umgebung.
+3. Alle GET-Routen (jede Seite, jeder Grenzübergang, /healthz, /sw.js, Sitemap …) und jede URL
+   der Precache-Liste aus /sw.js: kein Status ab 400. Sonst fehlt die Seite offline, bei einem
+   Asset installiert sich der Service Worker gar nicht. Canonical-Links müssen auf TV_BASE_URL zeigen.
+4. pytest im Release, ohne TV_*-Variablen aus der Umgebung (--test-python: venv mit pytest,
+   damit das Laufzeit-venv ohne Testwerkzeuge auskommt).
 
 Letzte Zeile bei Erfolg: "preflight ok build=<id>". Exit-Code 1 bei jedem Fehler.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -28,6 +37,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
+SW_CONFIG_RE = re.compile(r"self\.TV_CONFIG\s*=\s*(\{.*?\});\s*\n")
 
 
 class Report:
@@ -63,6 +73,10 @@ def parse_env_file(text: str) -> dict[str, str]:
     return env
 
 
+def legacy_sw_paths(env: dict[str, str]) -> list[str]:
+    return [p.strip() for p in env.get("TV_LEGACY_SW_PATHS", "").split(",") if p.strip()]
+
+
 def check_config(env: dict[str, str], rep: Report) -> None:
     base = env.get("TV_BASE_URL", "").rstrip("/")
     if not base:
@@ -88,9 +102,23 @@ def check_config(env: dict[str, str], rep: Report) -> None:
         rep.warn("Impressum unvollständig, vor dem Launch setzen: " + ", ".join(missing))
     else:
         rep.ok("Impressum-Angaben gesetzt")
-    for path in filter(None, (p.strip() for p in env.get("TV_LEGACY_SW_PATHS", "").split(","))):
+    # Die Pfade gehören zu StateDirectory/RuntimeDirectory der Units. In der Env-Datei würden sie
+    # die Units überschreiben: Schreiben scheitert dann an ProtectSystem=strict, oder die
+    # Tagesschlüssel landen auf der Platte statt auf tmpfs.
+    for key in ("TV_DB_PATH", "TV_SALT_DB_PATH"):
+        if key in env:
+            rep.error(f"{key} nicht in der Env-Datei setzen, das übernehmen die systemd-Units")
+    for path in legacy_sw_paths(env):
         if not path.startswith("/"):
             rep.error(f"TV_LEGACY_SW_PATHS: Pfad muss mit / beginnen: {path!r}")
+
+
+def check_owner(db: Path) -> None:
+    """Die DB nur als ihr Eigentümer öffnen (siehe Modul-Docstring: -wal/-shm-Eigentümer)."""
+    owner = db.stat().st_uid
+    if hasattr(os, "geteuid") and os.geteuid() != owner:
+        raise PermissionError(f"{db} gehört UID {owner}, Aufruf als UID {os.geteuid()}: "
+                              "als Dienstbenutzer ausführen (z. B. sudo -u tatilvakti-v2 …)")
 
 
 def copy_db(src: Path, dst: Path) -> None:
@@ -106,11 +134,39 @@ def copy_db(src: Path, dst: Path) -> None:
         source.close()
 
 
+def route_urls(app, cids: list[str]) -> list[str]:
+    """Alle GET-Routen ohne Pflichtparameter, Routen mit <cid> für jeden Grenzübergang."""
+    adapter = app.url_map.bind("localhost")
+    urls = []
+    for rule in app.url_map.iter_rules():
+        if rule.endpoint == "static" or "GET" not in (rule.methods or ()):
+            continue
+        needed = set(rule.arguments) - set(rule.defaults or {})
+        if not needed:
+            urls.append(adapter.build(rule.endpoint, {}))
+        elif needed == {"cid"}:
+            urls.extend(adapter.build(rule.endpoint, {"cid": cid}) for cid in cids)
+    return urls
+
+
+def precache_urls(sw_source: str) -> list[str] | None:
+    """Seiten und Assets aus der Konfiguration, die /sw.js vorab speichert (None: nicht lesbar)."""
+    match = SW_CONFIG_RE.search(sw_source)
+    if not match:
+        return None
+    try:
+        config = json.loads(match.group(1))
+    except ValueError:
+        return None
+    return list(config.get("pages", [])) + list(config.get("assets", []))
+
+
 def check_app(env: dict[str, str], db: Path | None, tmp: Path, rep: Report) -> str | None:
     os.environ.update(env)
     os.environ["TV_DB_PATH"] = str(tmp / "tatilvakti.db")
     os.environ["TV_SALT_DB_PATH"] = str(tmp / "salts.db")
     if db and db.exists():
+        check_owner(db)
         copy_db(db, tmp / "tatilvakti.db")
         rep.ok(f"Kopie der Datenbank für den Test: {db}")
     else:
@@ -132,7 +188,7 @@ def check_app(env: dict[str, str], db: Path | None, tmp: Path, rep: Report) -> s
     else:
         rep.ok(f"/healthz status={data.get('status')} build={data.get('build')}")
         if data.get("status") != "ok":
-            rep.warn(f"/healthz meldet status={data.get('status')!r}")
+            rep.warn(f"/healthz meldet status={data.get('status')!r} {data.get('attention') or ''}")
         if data.get("due_items"):
             rep.warn(f"Prüfung fällig: {data['due_items']}")
         if data.get("imprint_ok") is False:
@@ -142,30 +198,29 @@ def check_app(env: dict[str, str], db: Path | None, tmp: Path, rep: Report) -> s
     cids = [c["id"] for c in borders.get("crossings", [])]
     if not cids:
         rep.error("/api/v1/borders liefert keine Grenzübergänge")
-    adapter = app.url_map.bind("localhost")
-    urls = []
-    for rule in app.url_map.iter_rules():
-        if rule.endpoint == "static" or "GET" not in (rule.methods or ()):
-            continue
-        if not rule.arguments:
-            urls.append(adapter.build(rule.endpoint, {}))
-        elif set(rule.arguments) == {"cid"}:
-            urls.extend(adapter.build(rule.endpoint, {"cid": cid}) for cid in cids)
-    legacy = [p.strip() for p in env.get("TV_LEGACY_SW_PATHS", "").split(",") if p.strip()]
+    urls = set(route_urls(app, cids))
+    precache = precache_urls(client.get("/sw.js").get_data(as_text=True))
+    if precache is None:
+        rep.warn("Precache-Liste in /sw.js nicht lesbar, nur die Routen geprüft")
+    else:
+        urls.update(precache)
     failed = []
-    for url in sorted(set(urls)):
+    for url in sorted(urls):
         resp = client.get(url)
         if resp.status_code >= 400:
             failed.append(f"{url} → {resp.status_code}")
+    legacy = legacy_sw_paths(env)
     for path in legacy:
         resp = client.get(path)
         if resp.status_code != 200 or "javascript" not in (resp.mimetype or ""):
-            failed.append(f"Kill-Switch {path} → {resp.status_code} {resp.mimetype}")
+            failed.append(f"Kill-Switch {path} → {resp.status_code} {resp.mimetype}"
+                          " (unterstützt dieses Release TV_LEGACY_SW_PATHS?)")
     if failed:
         for line in failed:
             rep.error(line)
     else:
-        rep.ok(f"{len(set(urls)) + len(legacy)} URLs ohne Fehler")
+        rep.ok(f"{len(urls) + len(legacy)} URLs ohne Fehler"
+               + (f", davon {len(precache)} aus der Precache-Liste" if precache else ""))
 
     base = env.get("TV_BASE_URL", "").rstrip("/")
     if base:
@@ -175,11 +230,16 @@ def check_app(env: dict[str, str], db: Path | None, tmp: Path, rep: Report) -> s
     return data.get("build")
 
 
-def run_tests(clean_env: dict[str, str], tmp: Path, rep: Report) -> None:
+def run_tests(clean_env: dict[str, str], python: str, tmp: Path, rep: Report) -> None:
     env = {k: v for k, v in clean_env.items() if not k.startswith("TV_")}
+    # Das Release ist für den Dienstbenutzer schreibgeschützt: keine .pyc, kein .pytest_cache
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", f"--basetemp={tmp / 'pytest'}"]
-    result = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True)
+    cmd = [python, "-m", "pytest", "-p", "no:cacheprovider", f"--basetemp={tmp / 'pytest'}"]
+    try:
+        result = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True)
+    except OSError as exc:
+        rep.error(f"pytest nicht startbar ({python}): {exc}")
+        return
     tail = (result.stdout + result.stderr).strip().splitlines()[-15:]
     if result.returncode != 0:
         print("\n".join(tail))
@@ -191,7 +251,10 @@ def run_tests(clean_env: dict[str, str], tmp: Path, rep: Report) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Preflight für ein tatilvakti-Release")
     parser.add_argument("--env-file", type=Path, help="z. B. /etc/tatilvakti-v2.env")
-    parser.add_argument("--db", type=Path, help="Produktions-DB, wird nur kopiert (z. B. /var/lib/tatilvakti-v2/tatilvakti.db)")
+    parser.add_argument("--db", type=Path,
+                        help="Produktions-DB, wird nur kopiert (z. B. /var/lib/tatilvakti-v2/tatilvakti.db)")
+    parser.add_argument("--test-python", default=sys.executable,
+                        help="Python mit pytest für Schritt 4 (Standard: dieses Python)")
     parser.add_argument("--no-tests", action="store_true", help="pytest auslassen (z. B. beim Rollback)")
     args = parser.parse_args(argv)
 
@@ -201,12 +264,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.env_file:
         try:
             env = parse_env_file(args.env_file.read_text(encoding="utf-8"))
+            check_config(env, rep)
         except OSError as exc:
             rep.error(f"Env-Datei nicht lesbar: {exc}")
     else:
         rep.warn("ohne --env-file: Konfiguration wird nicht geprüft")
-    if args.env_file:
-        check_config(env, rep)
 
     with tempfile.TemporaryDirectory(prefix="tv-preflight-") as name:
         tmp = Path(name)
@@ -216,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, sqlite3.Error) as exc:
             rep.error(f"Datenbank-Kopie fehlgeschlagen: {exc}")
         if not args.no_tests:
-            run_tests(original_env, tmp, rep)
+            run_tests(original_env, args.test_python, tmp, rep)
 
     if rep.errors:
         print(f"preflight FEHLGESCHLAGEN ({len(rep.errors)} Fehler)")

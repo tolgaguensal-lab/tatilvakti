@@ -15,6 +15,10 @@ entfernt. Die eigene Salts-Datei (TV_SALT_DB_PATH) wird nie gelesen. Das Origina
 Ergebnis: <dest>/tatilvakti-<UTC-Zeit>.db (Modus 0600). Ältere Sicherungen als --keep-days werden
 erst NACH einer erfolgreichen neuen Sicherung gelöscht, die neueste bleibt also immer erhalten.
 Exit-Code ≠ 0 bei jedem Fehler (systemd meldet den Lauf dann als fehlgeschlagen).
+
+Nur als Eigentümer der DB ausführen (in Produktion: tatilvakti-v2-backup.service). Als root
+angelegte -wal/-shm-Dateien könnte der Dienst danach nicht mehr beschreiben; das Skript bricht
+deshalb ab, wenn der aufrufende Benutzer nicht Eigentümer der DB ist.
 """
 from __future__ import annotations
 
@@ -28,6 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 NAME_RE = re.compile(r"^tatilvakti-(\d{8}T\d{6}Z)\.db$")
+TMP_RE = re.compile(r"^\.tatilvakti-\d{8}T\d{6}Z\.db\.tmp$")
 
 
 def _tables(conn: sqlite3.Connection) -> set[str]:
@@ -72,7 +77,16 @@ def verify(path: Path) -> dict:
         conn.close()
 
 
-def backup(db: Path, dest: Path, now: datetime) -> Path:
+def check_owner(db: Path) -> None:
+    """Die DB nur als ihr Eigentümer öffnen (siehe Modul-Docstring: -wal/-shm-Eigentümer)."""
+    owner = db.stat().st_uid
+    if hasattr(os, "geteuid") and os.geteuid() != owner:
+        raise PermissionError(f"{db} gehört UID {owner}, Aufruf als UID {os.geteuid()}: "
+                              "als Dienstbenutzer ausführen (systemctl start tatilvakti-v2-backup)")
+
+
+def backup(db: Path, dest: Path, now: datetime) -> tuple[Path, dict]:
+    """Sichert db nach dest, bereinigt und prüft die Kopie. Gibt Pfad und Zählwerte zurück."""
     if not db.is_file():
         raise FileNotFoundError(f"Datenbank fehlt: {db}")
     dest.mkdir(parents=True, exist_ok=True)
@@ -93,18 +107,23 @@ def backup(db: Path, dest: Path, now: datetime) -> Path:
         finally:
             src.close()
         os.chmod(tmp, 0o600)
-        verify(tmp)
+        info = verify(tmp)
         os.replace(tmp, target)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
-    return target
+    return target, info
 
 
 def prune(dest: Path, keep_days: int, now: datetime, keep: Path) -> list[Path]:
-    """Löscht Sicherungen, die älter als keep_days sind (nach Zeitstempel im Dateinamen)."""
+    """Löscht Sicherungen, die älter als keep_days sind (nach Zeitstempel im Dateinamen),
+    und Reste abgebrochener Läufe (.tatilvakti-….db.tmp)."""
     removed = []
     for path in sorted(dest.iterdir()):
+        if TMP_RE.match(path.name):
+            path.unlink()
+            removed.append(path)
+            continue
         match = NAME_RE.match(path.name)
         if not match or path == keep:
             continue
@@ -119,7 +138,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--db", type=Path, default=os.environ.get("TV_DB_PATH"),
                         help="Quelle (Standard: $TV_DB_PATH)")
-    parser.add_argument("--dest", type=Path, required=True, help="Zielverzeichnis der Sicherungen")
+    parser.add_argument("--dest", type=Path, help="Zielverzeichnis der Sicherungen")
     parser.add_argument("--keep-days", type=int, default=14, help="Aufbewahrung in Tagen (Standard 14)")
     parser.add_argument("--verify", type=Path, metavar="DATEI",
                         help="nur eine vorhandene Sicherung prüfen (z. B. vor einem Restore)")
@@ -132,12 +151,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.db is None:
             parser.error("--db fehlt (oder TV_DB_PATH setzen)")
+        if args.dest is None:
+            parser.error("--dest fehlt")
         if args.keep_days < 1:
             parser.error("--keep-days muss mindestens 1 sein")
         now = datetime.now(timezone.utc)
         started = time.monotonic()
-        target = backup(args.db, args.dest, now)
-        info = verify(target)
+        if args.db.exists():
+            check_owner(args.db)
+        target, info = backup(args.db, args.dest, now)
         removed = prune(args.dest, args.keep_days, now, keep=target)
         print(f"ok {target} reports={info['reports']} bytes={target.stat().st_size} "
               f"removed={len(removed)} dauer={time.monotonic() - started:.1f}s")
