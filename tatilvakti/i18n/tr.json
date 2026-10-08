@@ -249,6 +249,8 @@
   "b_report_delivered": "İnternetsizken yaptığın bildirim şimdi ulaştı. Teşekkürler!",
   "b_report_dropped_1": "Cihazında bekleyen bildirimin maalesef sayılmadı: gönderilirken çok eskiydi ya da kabul edilmedi. Hâlâ sınırdaysan lütfen yeniden bildir.",
   "b_report_dropped_n": "Cihazında bekleyen {n} bildirim maalesef sayılmadı: gönderilirken çok eskiydi ya da kabul edilmedi. Hâlâ sınırdaysan lütfen yeniden bildir.",
+  "b_report_partial_1": "Cihazında bekleyen bildirimlerinin bir kısmı ulaştı, teşekkürler! Biri maalesef sayılmadı: gönderilirken çok eskiydi ya da kabul edilmedi. Hâlâ sınırdaysan lütfen yeniden bildir.",
+  "b_report_partial_n": "Cihazında bekleyen bildirimlerinin bir kısmı ulaştı, teşekkürler! {n} tanesi maalesef sayılmadı: gönderilirken çok eskiydi ya da kabul edilmedi. Hâlâ sınırdaysan lütfen yeniden bildir.",
   "a2hs_title": "Sınırda internetsiz de açılır",
   "a2hs_text": "Ana ekranına eklersen yolda tek dokunuşla açılır.",
   "a2hs_install": "Ana ekrana ekle",

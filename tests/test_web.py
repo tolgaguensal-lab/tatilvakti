@@ -2,7 +2,7 @@
 import html as htmllib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -274,18 +274,32 @@ def test_home_shows_next_real_holiday_start_during_gap(client, clock):
     assert "Beginn Mo 01.03.2027" not in html
 
 
-def test_home_says_honestly_when_no_further_holidays_are_listed(client, clock):
+def test_home_says_honestly_when_no_further_holidays_are_listed(app, client, clock):
     """Audit d1-home-stale-pick-state: Ist für das gewählte Land nichts Künftiges mehr eingetragen,
-    steht dort ein ehrlicher Hinweis statt „Wähle dein Bundesland“ (Bayern: Sommerferien laufen noch)."""
-    clock.now = datetime(2028, 9, 4, 9, 0, tzinfo=timezone.utc)
-    html = client.get("/de/").get_data(as_text=True)
-    blocks = dict(re.findall(r'<div data-per-state="(\w+)"(?: hidden)?>(.*?)</div>', html, re.S))
+    steht dort ein ehrlicher Hinweis statt „Wähle dein Bundesland“.
+
+    Unabhängig vom Datenstand (ein neues Schuljahr in holidays.json darf den Test nicht brechen):
+    Stichtag ist der Tag nach dem letzten freien Zeitraum des Landes, dessen Daten zuerst enden."""
+    states = app.extensions["tv"].radar.states
+    last = {code: max(s.end for p in _periods(app) for s in p.stretches(code)) for code in states}
+    code = min(last, key=lambda c: (last[c], c))
+    name = states[code]["name"]
+
+    def blocks_on(day, lang="de"):
+        clock.now = datetime(day.year, day.month, day.day, 9, 0, tzinfo=timezone.utc)
+        html = client.get(f"/{lang}/").get_data(as_text=True)
+        return dict(re.findall(r'<div data-per-state="(\w+)"(?: hidden)?>(.*?)</div>', html, re.S))
+
+    # Gegenprobe am letzten eingetragenen Tag: Die Ferien laufen noch
+    blocks = blocks_on(last[code])
+    assert f"Nächste Ferien in {name}" in blocks[code] and "noch keine weiteren" not in blocks[code]
+    day = last[code] + timedelta(days=1)
+    blocks = blocks_on(day)
     assert len(blocks) == 17  # 16 Länder und „none“
-    assert "Für Nordrhein-Westfalen sind noch keine weiteren Ferien eingetragen." in blocks["NW"]
-    assert "Wähle dein Bundesland" not in blocks["NW"]
-    assert "Nächste Ferien in Bayern" in blocks["BY"] and "noch keine weiteren" not in blocks["BY"]
-    tr = client.get("/tr/").get_data(as_text=True)
-    assert "Nordrhein-Westfalen için sıradaki tatil tarihleri henüz eklenmedi." in tr
+    assert f"Für {name} sind noch keine weiteren Ferien eingetragen." in blocks[code]
+    assert "Wähle dein Bundesland" not in blocks[code] and "Nächste Ferien" not in blocks[code]
+    assert "Wähle dein Bundesland" in blocks["none"]
+    assert f"{name} için sıradaki tatil tarihleri henüz eklenmedi." in blocks_on(day, "tr")[code]
 
 
 def test_customs_search_has_a_permanent_live_region(client):

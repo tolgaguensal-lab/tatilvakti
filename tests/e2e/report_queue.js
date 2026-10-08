@@ -130,13 +130,30 @@ t.run(async () => {
     t.check("verworfen: Hinweis mit Anzahl", lost.text.startsWith("2 gespeicherte Meldungen zählen leider nicht") && lost.cls.includes("flash--error"),
       JSON.stringify(lost));
     t.check("verworfen: Warteschlange leer", (await queued()).length === 0);
+    // Gemischt (offline gesammelt, eine zu alt, eine frisch): ein eigener Text, kein Widerspruch
+    // „Deine Meldung ist angekommen … Deine Meldung zählt nicht“
+    await page.evaluate((items) => localStorage.setItem("tv.queue", JSON.stringify(items)), [
+      { cid: "gradina", direction: "to_de", bucket: 1, observed_at: now - 2 * 3600 },  // älter als 90 Min.
+      { cid: "horgos", direction: "to_tr", bucket: 2, observed_at: now },               // kommt an (201)
+    ]);
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await L.waitFor(page, () => /Ein Teil/.test(document.querySelector("[data-report-msg]").textContent), null,
+      { label: "Hinweis „teils angekommen“" });
+    const mixed = await msg();
+    t.check("gemischt: ein Text mit Anzahl, gelb statt rot",
+      mixed.text.startsWith("Ein Teil deiner gespeicherten Meldungen ist angekommen, danke! Eine davon zählt leider nicht")
+        && !mixed.text.includes("Deine Meldung") && mixed.cls.includes("flash--queued"), JSON.stringify(mixed));
+    const horgos = (await (await page.request.get(proxy.url + "/api/v1/borders/horgos")).json()).directions.to_tr;
+    t.check("gemischt: frische Meldung auf dem Server", horgos.state === "live" && horgos.bucket === 2, JSON.stringify(horgos));
+    t.check("gemischt: Warteschlange leer", (await queued()).length === 0);
     // War die Meldung schon unterwegs (Antwort verloren) und meldet der Server „hier schon gemeldet“,
     // ist sie angekommen – kein falscher Hinweis „zählt nicht“
     await page.evaluate((item) => localStorage.setItem("tv.queue", JSON.stringify([item])),
       { cid: "kapikule", direction: "to_tr", bucket: 2, observed_at: now, tried: true });
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
-    await L.waitFor(page, () => /angekommen/.test(document.querySelector("[data-report-msg]").textContent), null,
-      { label: "versucht + schon gemeldet = angekommen" });
+    // Auf den eigenen Text warten: Der gemischte Hinweis davor enthält auch „angekommen“
+    await L.waitFor(page, () => /^Deine Meldung ohne Netz ist jetzt angekommen/.test(document.querySelector("[data-report-msg]").textContent.trim()),
+      null, { label: "versucht + schon gemeldet = angekommen" });
     t.check("versucht + 429 same_spot: gilt als angekommen", (await msg()).cls.includes("flash--ok"));
     // Seite ohne Meldeformular (z. B. Start der installierten App): Hinweis oben im Inhalt
     await page.evaluate((item) => localStorage.setItem("tv.queue", JSON.stringify([item])),

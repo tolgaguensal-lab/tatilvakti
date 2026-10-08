@@ -358,9 +358,13 @@
       }, function () { /* Zeitlimit oder Netz: bleibt für den nächsten Versuch */ });
     })).then(function () {
       flushing = false;
-      if (dropped) {
-        var lost = fmt(S[dropped === 1 ? "b_report_dropped_1" : "b_report_dropped_n"], { n: dropped });
-        say("error", delivered ? S.b_report_delivered + " " + lost : lost);
+      var one = dropped === 1 ? "_1" : "_n";
+      if (dropped && delivered) {
+        // Gemischt: ein eigener Text, sonst läse es sich, als sei dieselbe Meldung angekommen und zähle
+        // doch nicht. Gelb (queued) statt rot: Ein Teil hat ja geklappt.
+        say("queued", fmt(S["b_report_partial" + one], { n: dropped }));
+      } else if (dropped) {
+        say("error", fmt(S["b_report_dropped" + one], { n: dropped }));
       } else if (delivered) {
         say("ok", S.b_report_delivered);
       }

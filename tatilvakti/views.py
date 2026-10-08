@@ -141,8 +141,8 @@ def official_sources(crossings) -> list[dict]:
 def _client_strings() -> dict:
     keys = ["ago_now", "ago_min", "ago_h", "ago_d", "b_no_reports", "b_no_reports_ever", "b_last_report", "b_reports_1",
             "b_reports_n", "b_report_thanks", "b_report_sending", "b_report_queued", "b_report_slow", "b_report_retry",
-            "b_report_delivered", "b_report_dropped_1", "b_report_dropped_n", "b_report_ratelimited", "b_report_busy",
-            "b_report_stale", "b_report_error", "b_level_ok", "b_level_mid", "b_level_bad", "b_level_none",
+            "b_report_delivered", "b_report_dropped_1", "b_report_dropped_n", "b_report_partial_1", "b_report_partial_n",
+            "b_report_ratelimited", "b_report_busy", "b_report_stale", "b_report_error", "b_level_ok", "b_level_mid", "b_level_bad", "b_level_none",
             "c_no_results", "c_results_1", "c_results_n"]
     keys += [f"b_bucket_{i}" for i in range(B.BUCKET_COUNT)]
     return {k: t(k) for k in keys}

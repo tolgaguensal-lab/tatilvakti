@@ -341,17 +341,23 @@ def test_client_strings_include_delivery_notice(client):
     assert strings["b_report_delivered"].startswith("Deine Meldung ohne Netz")
 
 
-@pytest.mark.parametrize("path, sending, dropped", [
-    ("/de/grenze/kapikule", "Wird gesendet …", "{n} gespeicherte Meldungen zählen leider nicht"),
-    ("/tr/sinir/kapikule", "Gönderiliyor…", "Cihazında bekleyen {n} bildirim maalesef sayılmadı"),
+@pytest.mark.parametrize("path, sending, dropped, partial", [
+    ("/de/grenze/kapikule", "Wird gesendet …", "{n} gespeicherte Meldungen zählen leider nicht",
+     "Ein Teil deiner gespeicherten Meldungen ist angekommen"),
+    ("/tr/sinir/kapikule", "Gönderiliyor…", "Cihazında bekleyen {n} bildirim maalesef sayılmadı",
+     "Cihazında bekleyen bildirimlerinin bir kısmı ulaştı"),
 ])
-def test_client_strings_for_sending_timeout_and_dropped_reports(client, path, sending, dropped):
+def test_client_strings_for_sending_timeout_and_dropped_reports(client, path, sending, dropped, partial):
     """Audit d1-report-loading-timeout und d1-queue-silent-drop: Sende-Zustand, Zeitlimit, Server-Störung
-    und verworfene Meldungen haben je einen eigenen Text in beiden Sprachen."""
+    und verworfene Meldungen haben je einen eigenen Text in beiden Sprachen – auch der gemischte Fall
+    (teils angekommen, teils verworfen), damit sich die Hinweise nicht widersprechen."""
     html = client.get(path).get_data(as_text=True)
     strings = json.loads(re.search(r'<script type="application/json" id="tv-strings">(.*?)</script>', html, re.S).group(1))
     assert strings["b_report_sending"] == sending
     assert strings["b_report_dropped_n"].startswith(dropped) and "{n}" not in strings["b_report_dropped_1"]
+    for key in ("b_report_partial_1", "b_report_partial_n"):
+        assert strings[key].startswith(partial), key
+    assert "{n}" in strings["b_report_partial_n"] and "{n}" not in strings["b_report_partial_1"]
     for key in ("b_report_slow", "b_report_retry", "b_report_queued"):
         assert strings[key], key
     assert len({strings["b_report_slow"], strings["b_report_retry"], strings["b_report_queued"]}) == 3

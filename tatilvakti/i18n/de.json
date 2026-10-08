@@ -249,6 +249,8 @@
   "b_report_delivered": "Deine Meldung ohne Netz ist jetzt angekommen. Danke!",
   "b_report_dropped_1": "Deine gespeicherte Meldung zählt leider nicht: Sie war beim Nachsenden zu alt oder wurde abgelehnt. Wenn du noch an der Grenze bist, melde bitte neu.",
   "b_report_dropped_n": "{n} gespeicherte Meldungen zählen leider nicht: Sie waren beim Nachsenden zu alt oder wurden abgelehnt. Wenn du noch an der Grenze bist, melde bitte neu.",
+  "b_report_partial_1": "Ein Teil deiner gespeicherten Meldungen ist angekommen, danke! Eine davon zählt leider nicht: Sie war beim Nachsenden zu alt oder wurde abgelehnt. Wenn du noch an der Grenze bist, melde bitte neu.",
+  "b_report_partial_n": "Ein Teil deiner gespeicherten Meldungen ist angekommen, danke! {n} davon zählen leider nicht: Sie waren beim Nachsenden zu alt oder wurden abgelehnt. Wenn du noch an der Grenze bist, melde bitte neu.",
   "a2hs_title": "Öffnet an der Grenze auch ohne Netz",
   "a2hs_text": "Auf dem Startbildschirm ist die App unterwegs mit einem Tipp da.",
   "a2hs_install": "Zum Startbildschirm hinzufügen",
