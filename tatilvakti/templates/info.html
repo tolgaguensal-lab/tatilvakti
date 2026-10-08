@@ -48,7 +48,7 @@
   <h3>{{ t("i_privacy_device_title") }}</h3>
   <p>{{ t("i_privacy_device_intro") }}</p>
   <ul class="bullets">
-    {%- for key in ("prefs", "checks", "queue", "last", "visits", "cache") %}
+    {%- for key in ("prefs", "checks", "queue", "last", "a2hs", "cache") %}
     <li>{{ t("i_privacy_dev_" ~ key) }}</li>
     {%- endfor %}
   </ul>

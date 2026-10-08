@@ -1,4 +1,6 @@
-/* Layout bei 320 px (d) und Hinweis „auf den Startbildschirm“ (iOS, Chromium, installiert, ohne JS). */
+/* Layout bei 320 px (d) und Hinweis „auf den Startbildschirm“ (iOS, Chromium, installiert, ohne JS):
+   nur auf Start-, Grenz- und Übergangsseiten, erst nach Wahl des Bundeslandes oder einer Meldung,
+   ohne Besuchszähler, auf niedrigen Bildschirmen kompakt, Fokus nie unter der Karte. */
 "use strict";
 
 const L = require("./lib");
@@ -37,6 +39,8 @@ function overflowing() {
 }
 
 const hintVisible = (page) => page.isVisible("[data-a2hs]");
+const HINT_PAGES = /^\/(de|tr)\/(grenze|sinir)?(\/[a-z-]+)?$/; // Start, Grenz-Übersicht, Übergang
+const hintPage = (path) => HINT_PAGES.test(path.split("?")[0]);
 const store = (page, key) => page.evaluate((k) => JSON.parse(localStorage.getItem("tv." + k) || "null"), key);
 
 t.run(async () => {
@@ -55,8 +59,10 @@ t.run(async () => {
         await page.goto(base + path, { waitUntil: "load" });
         const res = await page.evaluate(overflowing);
         t.check(`(d) ${width}px ${path}: kein horizontales Überlaufen`, res.n === 0, JSON.stringify(res.first));
-        if (!path.includes("offline") && !path.includes("cevrimdisi")) {
+        if (hintPage(path)) {
           t.check(`(d) ${width}px ${path}: Hinweis sichtbar`, await hintVisible(page));
+        } else {
+          t.check(`(d) ${width}px ${path}: kein Hinweis`, (await page.$$("[data-a2hs]")).length === 0);
         }
       }
       if (width === 320) {
@@ -88,18 +94,92 @@ t.run(async () => {
       await ctx.close();
     }
     {
-      // Zweiter Besuch (mehr als 30 Min. nach dem ersten) ohne Bundesland
+      // Ohne Bundesland: kein Besuchszähler mehr, erst eine angenommene Meldung zeigt den Hinweis.
+      // Werte älterer Versionen (tv.visits, tv.seen_at) verschwinden beim Laden.
       const ctx = await L.newContext(browser, { isMobile: true, hasTouch: true, userAgent: IPHONE_UA, serviceWorkers: "block" });
+      await ctx.addInitScript(() => {
+        if (sessionStorage.getItem("seeded")) return;
+        sessionStorage.setItem("seeded", "1");
+        localStorage.setItem("tv.visits", "2");
+        localStorage.setItem("tv.seen_at", "1791424414465");
+      });
       const page = await ctx.newPage();
       await page.goto(base + "/tr/", { waitUntil: "load" });
-      t.check("iOS: 1. Besuch kein Hinweis", !(await hintVisible(page)) && (await store(page, "visits")) === 1);
-      await page.reload({ waitUntil: "load" });
-      t.check("iOS: Neuladen ist kein neuer Besuch", (await store(page, "visits")) === 1 && !(await hintVisible(page)));
-      await page.evaluate((now) => localStorage.setItem("tv.seen_at", String(now - 2 * 3600 * 1000)), Date.parse(L.NOW));
-      await page.reload({ waitUntil: "load" });
-      t.check("iOS: 2. Besuch → Hinweis", (await store(page, "visits")) === 2 && await hintVisible(page));
+      t.check("iOS: alte Zählerwerte entfernt", (await page.evaluate(() => [localStorage.getItem("tv.visits"), localStorage.getItem("tv.seen_at")]))
+        .every((v) => v === null));
+      t.check("iOS: ohne Bundesland und Meldung kein Hinweis (auch nicht beim „2. Besuch“)", !(await hintVisible(page)));
+      const keys = await page.evaluate(() => Object.keys(localStorage).sort());
+      t.check("iOS: Aufruf allein speichert nichts", keys.length === 0, JSON.stringify(keys));
+      await page.goto(base + "/tr/sinir/kapikule", { waitUntil: "load" });
+      // abgelehnte Meldung (Limit) zählt nicht
+      await page.route("**/api/v1/borders/*/reports", (route) => route.fulfill({
+        status: 429, contentType: "application/json", body: '{"error":"ratelimited"}' }));
+      await page.click('label.seg__opt:has(input[value="to_tr"])');
+      await page.click('label.bucket:has(input[value="1"])');
+      await page.click('form[data-report] button[type="submit"]');
+      await L.waitFor(page, () => document.querySelector("[data-report-msg]").textContent.length > 0, null, { label: "Antwort" });
+      t.check("iOS: abgelehnte Meldung → kein Hinweis, nichts gemerkt", !(await hintVisible(page)) && (await store(page, "report_pref")) === null);
+      await page.unroute("**/api/v1/borders/*/reports");
+      await page.click('label.bucket:has(input[value="1"])');
+      await page.click('form[data-report] button[type="submit"]');
+      await L.waitFor(page, () => !document.querySelector("[data-a2hs]").hidden, null, { label: "Hinweis nach Meldung" });
+      t.check("iOS: nach erfolgreicher Meldung Hinweis", await hintVisible(page));
       t.check("iOS: Text auf Türkisch", (await page.textContent("[data-a2hs]")).includes("Ana Ekrana Ekle"));
+      await page.goto(base + "/tr/sinir", { waitUntil: "load" });
+      t.check("iOS: auch auf der Grenz-Übersicht", await hintVisible(page));
+      await page.goto(base + "/tr/gumruk", { waitUntil: "load" });
+      t.check("iOS: nicht auf der Zollseite", (await page.$$("[data-a2hs]")).length === 0);
       await ctx.close();
+    }
+    {
+      // Fokus nie unter der Karte (WCAG 2.4.11), Esc schließt. Niedriger Bildschirm (320 × 568):
+      // kompakte Karte, die iOS-Schritte erst auf Knopfdruck. 360 × 740: volle Karte.
+      const cases = [[320, 568, "/de/"], [320, 568, "/tr/"], [320, 568, "/de/grenze/kapikule"], [360, 740, "/de/"], [360, 740, "/tr/sinir"]];
+      for (const [width, height, path] of cases) {
+        const label = `${width}×${height} ${path}`;
+        const compact = height <= 640;
+        const ctx = await L.newContext(browser, {
+          viewport: { width, height }, isMobile: true, hasTouch: true, userAgent: IPHONE_UA, serviceWorkers: "block",
+        });
+        await ctx.addInitScript(() => { try { localStorage.setItem("tv.state", '"NW"'); } catch (e) { /* egal */ } });
+        const page = await ctx.newPage();
+        await page.goto(base + path, { waitUntil: "load" });
+        const card = await page.locator("[data-a2hs]").boundingBox();
+        if (compact) {
+          t.check(`${label}: kompakte Karte höchstens 120 px hoch`, card && card.height <= 120, JSON.stringify(card));
+          t.check(`${label}: Schritte zu, Knopf da`, !(await page.isVisible(".a2hs__steps")) && await page.isVisible("[data-a2hs-how]"));
+          await page.click("[data-a2hs-how]");
+          t.check(`${label}: Schritte nach Klick`, await page.isVisible(".a2hs__steps")
+            && (await page.getAttribute("[data-a2hs-how]", "aria-expanded")) === "true");
+          await page.click("[data-a2hs-how]");
+        } else {
+          t.check(`${label}: volle Karte mit Schritten, ohne Knopf`, await page.isVisible(".a2hs__steps") && !(await page.isVisible("[data-a2hs-how]")));
+        }
+        const covered = [];
+        let stops = 0;
+        await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); window.scrollTo(0, 0); });
+        for (let i = 0; i < 90; i++) {
+          await page.keyboard.press("Tab");
+          await page.waitForTimeout(20);
+          const f = await page.evaluate(() => {
+            const el = document.activeElement;
+            if (!el || el === document.body) return null;
+            const hint = document.querySelector("[data-a2hs]");
+            if (hint.contains(el) || el.closest(".tabbar, .topbar, .skip")) return { skip: true };
+            const r = el.getBoundingClientRect();
+            const top = hint.hidden ? Infinity : hint.getBoundingClientRect().top;
+            return { covered: r.bottom > top + 0.5, label: el.tagName + " " + (el.textContent || "").trim().slice(0, 30), bottom: Math.round(r.bottom), card: Math.round(top) };
+          });
+          if (!f || f.skip) continue;
+          stops++;
+          if (f.covered) covered.push(f);
+        }
+        t.check(`${label}: kein Fokus (auch nicht teilweise) unter der Karte, ${stops} Stopps`, stops > 10 && covered.length === 0,
+          JSON.stringify(covered.slice(0, 3)));
+        await page.keyboard.press("Escape");
+        t.check(`${label}: Esc schließt und merkt`, !(await hintVisible(page)) && (await store(page, "a2hs_off")) === true);
+        await ctx.close();
+      }
     }
     {
       // Als App vom Home-Bildschirm gestartet: nie ein Hinweis, Speicher wird dauerhaft angefragt
@@ -116,7 +196,7 @@ t.run(async () => {
       const page = await ctx.newPage();
       await page.goto(base + "/de/", { waitUntil: "load" });
       t.check("standalone: kein Hinweis", !(await hintVisible(page)));
-      t.check("standalone: persist() einmal je Besuch", (await page.evaluate(() => window.__persist)) === 1);
+      t.check("standalone: persist() beim Laden", (await page.evaluate(() => window.__persist)) === 1);
       await ctx.close();
     }
 

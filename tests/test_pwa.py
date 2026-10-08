@@ -41,6 +41,9 @@ def test_sw_install_is_a_transaction_and_never_ends_empty():
     assert "adoptMissingPages()" in source  # Übernahme aus dem alten Seiten-Cache vor dem Löschen
     assert "staticCache.put(cacheKey(url)" in source  # Offline-Seiten auch im STATIC-Cache
     assert 'new Response("Offline"' not in source  # letzter Fallback ist eine Seite, kein nackter Text
+    # …zweisprachig mit Sprachangabe und dem Wort, das die TR-Ansicht überall nutzt (prod-5)
+    assert '<html lang="de">' in source and '<span lang="tr">İnternet yok</span>' in source
+    assert "evrimdış" not in source
 
 
 # ------------------------------------------------------------------ Kill-Switch
@@ -229,15 +232,41 @@ def test_data_validation_includes_the_redirect_table():
     ({"from": "/de/ferien", "to": "/de/", "code": 301}, "eigene Route"),
     ({"from": "/de/ferien/", "to": "/de/", "code": 301}, "eigene Route"),
     ({"from": "/sw.js", "to": None, "code": 410}, "eigene Route"),
-    ({"from": "/de/grenze/alt", "to": "/de/grenze", "code": 301}, "eigene Route"),
-    ({"from": "/de/grenze/kapikule/report", "to": None, "code": 410}, "eigene Route"),  # nur POST
+    ({"from": "/de/grenze/kapikule", "to": "/de/grenze", "code": 301}, "eigene Route"),
+    ({"from": "/de/grenze/kapikule/report", "to": None, "code": 410}, "liefert 405 statt 404"),  # nur POST
+    ({"from": "/de/ferien/sommer-2026", "to": "/de/ferien", "code": 301}, "liefert 302 statt 404"),  # macht v2 selbst
     ({"from": "/alt", "to": "/de/gibts-nicht", "code": 301}, "keine Seite von v2"),
+    # Review: Ziele mit Platzhalter wurden nur am Muster geprüft
+    ({"from": "/alt", "to": "/de/grenze/kapikul", "code": 301}, "liefert 404 statt 200"),
+    ({"from": "/alt", "to": "/de/grenze/kapikule/report", "code": 301}, "liefert 405 statt 200"),
+    ({"from": "/alt", "to": "/de", "code": 301}, "liefert 308 statt 200"),
+    ({"from": "/alt", "to": "/de/ferien?zeitraum=sommer-2027", "code": 301}, "liefert 301 statt 200"),
 ])
 def test_redirects_must_not_shadow_own_routes(tmp_path, clock, monkeypatch, entry, needle):
     with_redirects(monkeypatch, [entry])
     with pytest.raises(RuntimeError) as err:
         make_app(tmp_path, clock)
     assert "redirects.json" in str(err.value) and needle in str(err.value)
+
+
+def test_old_urls_under_routes_with_placeholders_and_encoded_paths_work(tmp_path, clock, monkeypatch):
+    """Review: /de/grenze/<alter-übergang> galt als eigene Route, obwohl v2 dort 404 liefert;
+    prozentkodierte Pfade aus Search Console oder Proxy-Log griffen nie."""
+    with_redirects(monkeypatch, [{"from": "/de/grenze/kapitan-andreevo", "to": "/de/grenze", "code": 301},
+                                 {"from": "/%C3%BCber-uns", "to": "/de/info#impressum", "code": 301},
+                                 {"from": "/tr/g%C3%BCmr%C3%BCk", "to": "/tr/gumruk", "code": 301}])
+    client = make_app(tmp_path, clock).test_client()
+    for path, target in [("/de/grenze/kapitan-andreevo", "/de/grenze"), ("/über-uns", "/de/info#impressum"),
+                         ("/%C3%BCber-uns", "/de/info#impressum"), ("/%c3%bcber-uns/", "/de/info#impressum"),
+                         ("/tr/gümrük", "/tr/gumruk")]:
+        resp = client.get(path)
+        assert resp.status_code == 301 and resp.headers["Location"] == target, path
+    assert client.get("/de/grenze/kapikule").status_code == 200  # echte Übergänge bleiben unberührt
+
+
+def test_encoded_and_plain_spelling_of_one_path_are_duplicates():
+    entries = [{"from": "/über-uns", "to": "/de/info", "code": 301}, {"from": "/%C3%BCber-uns", "to": None, "code": 410}]
+    assert any("doppelt" in p for p in validate_redirects({"meta": {"as_of": "2026-10-07"}, "redirects": entries}))
 
 
 def test_redirect_must_not_shadow_a_kill_switch(tmp_path, clock, monkeypatch):
@@ -248,12 +277,12 @@ def test_redirect_must_not_shadow_a_kill_switch(tmp_path, clock, monkeypatch):
 
 
 def test_route_check_accepts_targets_with_query_and_fragment():
-    def is_route(path):
-        return path in ("/de/info", "/de/grenze")
+    def status(path):
+        return 200 if path in ("/de/info", "/de/grenze?land=NW") else 404
     data = {"redirects": [{"from": "/x", "to": "/de/info#impressum", "code": 301},
                           {"from": "/y", "to": "/de/grenze?land=NW", "code": 301},
                           {"from": "/z", "to": None, "code": 410}]}
-    assert redirect_route_problems(data, is_route) == []
+    assert redirect_route_problems(data, status) == []
 
 
 # ------------------------------------------------------------------ Startbildschirm-Hinweis, Info-Seite
@@ -273,9 +302,20 @@ def test_home_screen_hint_is_rendered_hidden(client, path, title, ios):
     assert 'id="i-ios-share"' in html and 'id="i-add-square"' in html and 'id="i-close"' in html
 
 
-@pytest.mark.parametrize("path", ["/de/offline", "/tr/cevrimdisi"])
-def test_no_home_screen_hint_on_the_offline_page(client, path):
+@pytest.mark.parametrize("path", ["/de/offline", "/tr/cevrimdisi", "/de/ferien", "/tr/tatil/yaz-2027", "/de/route",
+                                  "/tr/gumruk", "/de/zoll", "/de/info"])
+def test_home_screen_hint_only_where_people_look_on_the_road(client, path):
+    """Nur Startseite, Grenz-Übersicht und Übergangsseiten – auf der Zollseite verdeckte die Karte
+    zusammen mit der Sticky-Toolbar fast alles (Review)."""
     assert "data-a2hs" not in client.get(path).get_data(as_text=True)
+
+
+@pytest.mark.parametrize("path", ["/de/", "/tr/", "/de/grenze", "/tr/sinir", "/de/grenze/kapikule", "/tr/sinir/ipsala"])
+def test_home_screen_hint_on_home_and_border_pages(client, path):
+    html = client.get(path).get_data(as_text=True)
+    assert '<aside class="a2hs" data-a2hs hidden' in html
+    # Kompakte Variante: Knopf für die iOS-Schritte, an die Liste gekoppelt
+    assert 'data-a2hs-how aria-expanded="false" aria-controls="a2hs-steps"' in html and 'id="a2hs-steps"' in html
 
 
 def test_no_home_screen_hint_on_error_pages(client):

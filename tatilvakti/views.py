@@ -177,7 +177,9 @@ def holidays(slug: str | None = None):
     (TR: /tr/tatil/<slug>) einen bestimmten – mit eigenem Titel und h1, kanonisch ohne ?land=.
 
     Alte Links mit ?zeitraum=<id> und Slugs der anderen Sprache leiten dauerhaft (301) auf den
-    Pfad weiter; ?land= bleibt dabei erhalten.
+    Pfad weiter; ?land= bleibt dabei erhalten. Ein unbekannter Slug – meist ein abgelaufener
+    Zeitraum aus einem geteilten Link – führt auf die Übersicht (302, mit ?land=): nur vorläufig,
+    damit ein Browser die Umleitung nicht dauerhaft speichert, falls es den Zeitraum später gibt.
     """
     app = current_app
     today = today_berlin(app)
@@ -195,7 +197,7 @@ def holidays(slug: str | None = None):
         if period is None:
             target = radar.find_period(slug)
             if target is None:
-                abort(404)
+                return redirect(href("holidays", **keep), code=302)
             return redirect(href("holidays", slug=target.slug[g.lang], **keep), code=301)
         # Sprachwechsel, hreflang und Canonical: derselbe Zeitraum mit dem Slug der anderen Sprache
         g.alt_params = {lang: {"slug": period.slug[lang]} for lang in LANGS}
@@ -208,7 +210,7 @@ def holidays(slug: str | None = None):
             stretches = period.stretches(code)
             personal[code] = {"ranges": ranges, "days": period.holiday_days(code), "free": stretches,
                               "free_differs": [(r.start, r.end) for r in stretches] != [(r.start, r.end) for r in ranges],
-                              "quiet": radar.quiet_days(period, code),
+                              "quiet": radar.quiet_days(period, code, today),
                               "bayrams": [b for b, states in bayrams if code in states]}
     share_texts = {code: _holiday_share_text(radar, period, code, info) for code, info in personal.items()}
     # Link-Vorschau (z. B. WhatsApp): mit Bundesland dessen Ferien und ruhige Tage, sonst die Einleitung
@@ -224,17 +226,29 @@ def holidays(slug: str | None = None):
 
 def _holiday_share_text(radar, period, code: str, info: dict) -> str:
     """„Nordrhein-Westfalen, Sommerferien 2027: 19.07.–31.08.2027 · Tage mit der kleinsten
-    Reisewelle – Abreise: Di 20.07., …; Rückreise: …“. Voller Ländername, Schulferien wie amtlich
-    festgelegt, die empfohlenen Tage (wie auf der Seite) in einer Nachricht nach Datum sortiert."""
+    Reisewelle – Abreise: Di 20.07. (0 %); Rückreise: Sa 28.08. (0 %)“.
+
+    Voller Ländername, Schulferien wie amtlich festgelegt, je Richtung der beste Tag wie auf der
+    Seite (Rang 1) mit Reisewelle – bzw. ehrlich „kein ruhiger Tag“. Richtungen, deren Tage schon
+    vorbei sind, fehlen. Zugleich die Beschreibung der Link-Vorschau.
+    """
     tr = tv().tr
 
-    def days(kind: str) -> str:
-        return ", ".join(fmt_date(w.day, g.lang, tr, with_weekday=True, with_year=False)
-                         for w in sorted(info["quiet"][kind].days, key=lambda w: w.day))
+    def best(kind: str) -> str | None:
+        pick = info["quiet"][kind]
+        if not pick.days:
+            return None
+        w = pick.days[0]
+        day = f"{fmt_date(w.day, g.lang, tr, with_weekday=True, with_year=False)} ({fmt_pct(w.share, g.lang)})"
+        return day if pick.calm else t("hol_share_none", day=day)
 
     dates = " + ".join(fmt_range(r.start, r.end, g.lang, tr) for r in info["ranges"])
-    return t("hol_share_text", state=radar.states[code]["name"], period=period.label[g.lang], dates=dates,
-             dep=days("departure"), ret=days("return"))
+    text = t("hol_share_text", state=radar.states[code]["name"], period=period.label[g.lang], dates=dates)
+    parts = [t(key, day=day) for key, day in (("hol_share_dep", best("departure")), ("hol_share_ret", best("return")))
+             if day]
+    if parts:
+        text += " · " + t("hol_share_quiet", parts="; ".join(parts))
+    return text
 
 
 def _wave_note(wave, kind: str) -> str:
@@ -280,7 +294,10 @@ def _holiday_chart(radar, period, today, bayrams=()) -> dict:
     months, day = [], first
     while day <= last:
         if day.day == 1:
-            months.append({"x": pct(day), "label": tv().tr.t(g.lang, "month_short")[day.month - 1]})
+            # Beginnt der Monat kurz vor dem rechten Rand, passt sein Name nicht mehr (320 px: „Haz“
+            # ragte aus der Zeitleiste) – dann nur die Gitterlinie
+            months.append({"x": pct(day), "label": tv().tr.t(g.lang, "month_short")[day.month - 1],
+                           "tight": pct(day) > 88})
         day += timedelta(days=1)
     if not months or months[0]["x"] > 12:
         months.insert(0, {"x": 0, "label": tv().tr.t(g.lang, "month_short")[first.month - 1], "edge": True})
@@ -507,6 +524,21 @@ def parse_legacy_sw_paths(value) -> list[str]:
     return [str(p).strip() for p in items if str(p).strip()]
 
 
+def own_status(app: Flask, path: str) -> int:
+    """HTTP-Status, den v2 selbst für GET path liefert – ohne Weiterleitungstabelle.
+
+    Für die Prüfung von data/redirects.json beim Start (content.redirect_route_problems): Nur so
+    zählen auch Routen mit Platzhalter richtig (/de/grenze/<unbekannt> → 404, die Weiterleitung
+    greift) und Ziele, die selbst 404, 405 oder eine Weiterleitung liefern.
+    """
+    content = app.extensions["tv"].content
+    table, content.redirect_by_path = content.redirect_by_path, {}
+    try:
+        return app.test_client().get(path).status_code
+    finally:
+        content.redirect_by_path = table
+
+
 def is_route(app: Flask, path: str) -> bool:
     """Gehört der Pfad zu einer eigenen Route (auch nur für POST oder per Slash-Weiterleitung)?"""
     adapter = app.url_map.bind("localhost")
@@ -670,13 +702,20 @@ def asset(path: str) -> str:
     return url_for("static", filename=path, v=tv().asset_hashes.get(path, "0"))
 
 
+def error_page(code: int) -> str:
+    """Fehlerseite ohne Canonical, hreflang, og:url und Sprachwechsel: Unter einem bekannten
+    Endpunkt (z. B. /de/grenze/<unbekannt>) zeigten sie sonst auf eine URL, die es nicht gibt.
+    Explizit übergebene Werte haben Vorrang vor dem Context-Processor."""
+    return render_template("error.html", page=None, code=code, alt_urls={}, switch_urls={})
+
+
 def _legacy_url(entry: dict):
     """Alte URL der Alt-App: dauerhaft weiterleiten (301) oder „gibt es nicht mehr“ (410)."""
     if entry["code"] == 301:
         return redirect(entry["to"], code=301)
     if request.path.startswith("/api/"):
         return {"error": "gone"}, 410
-    resp = make_response(render_template("error.html", page=None, code=410), 410)
+    resp = make_response(error_page(410), 410)
     if g.get("lang_negotiated"):  # Sprache aus Accept-Language: Caches dürfen DE und TR nicht mischen
         resp.headers["Vary"] = "Accept-Language"
     return resp
@@ -812,7 +851,7 @@ def register(app: Flask) -> None:
     def forbidden(_exc):
         if request.path.startswith("/api/"):
             return {"error": "forbidden"}, 403
-        return render_template("error.html", page=None, code=403), 403
+        return error_page(403), 403
 
     @app.errorhandler(404)
     def not_found(_exc):
@@ -822,13 +861,13 @@ def register(app: Flask) -> None:
             return _legacy_url(entry)
         if request.path.startswith("/api/"):
             return {"error": "not_found"}, 404
-        return render_template("error.html", page=None, code=404), 404
+        return error_page(404), 404
 
     @app.errorhandler(500)
     def server_error(_exc):  # pragma: no cover - Notfallpfad
         if request.path.startswith("/api/"):
             return {"error": "server_error", "degraded": True}, 500
-        return render_template("error.html", page=None, code=500), 500
+        return error_page(500), 500
 
     @app.errorhandler(HTTPException)
     def http_error(exc):

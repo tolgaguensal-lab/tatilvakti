@@ -5,7 +5,7 @@ from datetime import date, timedelta
 import pytest
 
 from tatilvakti.content import DATA_DIR, MIN_FREE_DAYS
-from tatilvakti.holidays import (CANDIDATE_DAYS, QUIET_MAX, HolidayRadar, Range, easter_sunday, free_stretches,
+from tatilvakti.holidays import (QUIET_MAX, SHIFT_DIVISOR, HolidayRadar, Range, easter_sunday, free_stretches,
                                  national_holidays)
 from tatilvakti.i18n import fmt_pct
 
@@ -118,26 +118,75 @@ def test_return_days_are_not_the_days_everybody_drives_home(radar, state, own_la
     assert date(2027, 8, 2) not in {w.day for w in pick.days}
 
 
+def _calm(state, wave) -> bool:
+    return state not in wave.states and wave.share <= QUIET_MAX + 1e-9
+
+
 def test_quiet_days_are_the_best_candidates_everywhere(radar):
-    """Für jedes Land und jeden Zeitraum: keine empfohlene Welle größer als ein nicht gewählter Kandidat."""
+    """Für jedes Land und jeden Zeitraum: Kandidaten nur bis 1/6 der freien Tage vom Rand, ruhige
+    Tage nie mit dem eigenen Land in der Welle, keine empfohlene Welle größer als ein übergangener
+    ruhiger Kandidat – und ohne ruhigen Kandidaten nur der am wenigsten schlechte Tag."""
     for period in radar.periods:
         for state in radar.states:
             stretches = period.stretches(state)
             if not stretches:
                 continue
-            first, last = stretches[0], stretches[-1]
-            n_dep = min(CANDIDATE_DAYS, first.days // 2) if first == last else min(CANDIDATE_DAYS, first.days)
-            n_ret = min(CANDIDATE_DAYS, last.days // 2) if first == last else min(CANDIDATE_DAYS, last.days)
+            assert len(stretches) == 1, (period.id, state)  # content.validate erzwingt einen Block
+            block = stretches[0]
+            n = block.days // SHIFT_DIVISOR + 1
             quiet = radar.quiet_days(period, state)
-            for kind, window in (("departure", [first.start + timedelta(days=i) for i in range(n_dep)]),
-                                 ("return", [last.end - timedelta(days=i) for i in range(n_ret)])):
+            for kind, window in (("departure", [block.start + timedelta(days=i) for i in range(n)]),
+                                 ("return", [block.end - timedelta(days=i) for i in range(n)])):
                 pick = quiet[kind]
+                waves = [radar.wave(d, kind) for d in window]
                 chosen = {w.day for w in pick.days}
-                assert chosen <= set(window), (period.id, state, kind)
-                rest = [radar.wave(d, kind).share for d in window if d not in chosen]
-                assert all(w.share <= r + 1e-9 for w in pick.days for r in rest), (period.id, state, kind)
+                assert chosen <= set(window) and pick.days and not pick.over, (period.id, state, kind)
                 assert [w.share for w in pick.days] == sorted(w.share for w in pick.days)  # bester zuerst
-                assert pick.calm == all(w.share <= QUIET_MAX for w in pick.days)
+                calm = [w for w in waves if _calm(state, w)]
+                assert pick.calm == bool(calm), (period.id, state, kind)
+                if pick.calm:
+                    # kein eigener Wellentag in der Liste, solange es einen ruhigen Tag gibt
+                    assert all(_calm(state, w) for w in pick.days), (period.id, state, kind)
+                    rest = [w.share for w in calm if w.day not in chosen]
+                    assert all(w.share <= r + 1e-9 for w in pick.days for r in rest), (period.id, state, kind)
+                else:
+                    assert len(pick.days) == 1 and pick.days[0].share <= min(w.share for w in waves) + 1e-9
+
+
+def test_recommended_stay_keeps_two_thirds_of_the_free_days(radar):
+    """Review: Vorher ergaben Herbst-, Winter- und Osterferien Aufenthalte von 2–5 Tagen (BW Herbst
+    2026: Di 27.10. → Do 29.10. bei 9 freien Tagen). Jetzt kosten Abreise Nr. 1 und Rückreise
+    Nr. 1 zusammen höchstens ein Drittel der freien Zeit."""
+    for period in radar.periods:
+        for state in radar.states:
+            stretches = period.stretches(state)
+            if not stretches:
+                continue
+            block = stretches[0]
+            quiet = radar.quiet_days(period, state)
+            dep, ret = quiet["departure"].days[0].day, quiet["return"].days[0].day
+            lost = (dep - block.start).days + (block.end - ret).days
+            assert lost <= block.days / 3, (period.id, state, dep, ret)
+            assert (ret - dep).days + 1 >= block.days * 2 / 3, (period.id, state)
+    herbst = radar.quiet_days(radar.by_id["herbst-2026"], "BW")
+    assert herbst["departure"].days[0].day == date(2026, 10, 24) and not herbst["departure"].calm
+    assert herbst["return"].days[0].day == date(2026, 11, 1)
+
+
+def test_own_start_days_are_never_quiet_even_below_the_threshold():
+    """Review: QUIET_MAX lag über dem Anteil jedes Landes – die eigenen Stoßtage galten als ruhig."""
+    radar = HolidayRadar({
+        "states": {"AA": {"population": 1}, "BB": {"population": 1}, "CC": {"population": 2}},
+        "periods": [{"id": "p", "kind": "x", "label": {"de": "P", "tr": "P"}, "slug": {"de": "p", "tr": "p"}, "ranges": {
+            "AA": [["2027-06-07", "2027-07-02"]],   # Mo–Fr: frei Sa 05.06.–So 04.07. (30 Tage, je Richtung 5)
+            "BB": [["2027-06-08", "2027-07-02"]],   # Di: Welle 08.–10.06. mit genau 25 %
+            "CC": [],
+        }}],
+    })
+    dep = radar.quiet_days(radar.by_id["p"], "AA")["departure"]
+    # 05.–07.06.: nur AA selbst (25 %) – trotzdem nicht ruhig; 08.–10.06.: BB mit genau 25 % – ruhig
+    assert dep.calm and [w.day for w in dep.days] == [date(2027, 6, 8), date(2027, 6, 9), date(2027, 6, 10)]
+    assert [w.share for w in dep.days] == [0.25] * 3 and all(w.states == ("BB",) for w in dep.days)
 
 
 def test_split_easter_holidays_are_kept(radar):
@@ -181,6 +230,7 @@ def test_quiet_days_peak_and_windows_cope_with_empty_states(radar):
     pfingsten = radar.by_id["pfingsten-2027"]
     empty = radar.quiet_days(pfingsten, "HE")
     assert empty["departure"].days == () and empty["return"].days == ()
+    assert not empty["departure"].over  # keine Ferien ist nicht „schon vorbei“
     quiet = radar.quiet_days(pfingsten, "BW")
     assert quiet["departure"].days and quiet["return"].days
     assert radar.all_states_windows(pfingsten) == []
@@ -290,7 +340,7 @@ def _staggered_radar():
     return HolidayRadar({
         "states": {"NW": {"population": 1}, "BW": {"population": 1}, "BY": {"population": 1}},
         "periods": [{"id": "p", "kind": "x", "label": {"de": "P", "tr": "P"}, "slug": {"de": "p", "tr": "p"}, "ranges": {
-            "NW": [["2027-06-05", "2027-06-20"]],   # Sa–So: frei 05.06.–20.06., Kandidaten je 8 Tage
+            "NW": [["2027-06-07", "2027-07-02"]],   # Mo–Fr: frei Sa 05.06.–So 04.07. (30 Tage, je Richtung 5)
             "BW": [["2027-06-08", "2027-07-02"]],   # Di: Welle 08.–10.06.
             "BY": [["2027-06-11", "2027-07-02"]],   # Fr: Welle 11.–13.06.
         }}],
@@ -302,39 +352,36 @@ def test_no_quiet_day_shows_only_the_least_bad_day():
     quiet = radar.quiet_days(radar.by_id["p"], "NW")
     dep = quiet["departure"]
     assert dep.calm is False and len(dep.days) == 1
-    # alle Kandidaten 05.–12.06. bei 1/3; bei Gleichstand der Tag am Blockrand
+    # Kandidaten 05.–10.06.: erst NRW selbst, dann BW, je 1/3; bei Gleichstand der Tag am Blockrand
     assert dep.days[0].day == date(2027, 6, 5) and dep.days[0].share == pytest.approx(1 / 3)
     assert dep.days[0].states == ("NW",)
-    # Rückreise: nur NRW endet im Fenster (18.–20.06.) – davor ist es ruhig
+    # Rückreise: alle drei enden am So 04.07. (Welle 02.–04.07.) – davor ist es ruhig
     ret = quiet["return"]
     assert ret.calm is True
-    assert [w.day for w in ret.days] == [date(2027, 6, 17), date(2027, 6, 16), date(2027, 6, 15)]
+    assert [w.day for w in ret.days] == [date(2027, 7, 1), date(2027, 6, 30), date(2027, 6, 29)]
 
 
-def test_quiet_threshold_is_inclusive_and_documented():
-    assert QUIET_MAX == 0.25
-    radar = HolidayRadar({
-        "states": {"AA": {"population": 1}, "BB": {"population": 3}},
-        "periods": [{"id": "p", "kind": "x", "label": {"de": "P", "tr": "P"}, "slug": {"de": "p", "tr": "p"},
-                     "ranges": {"AA": [["2027-06-05", "2027-06-13"]], "BB": []}}],
-    })
-    dep = radar.quiet_days(radar.by_id["p"], "AA")["departure"]  # 9 Tage → 4 Kandidaten
-    assert dep.calm and [w.day for w in dep.days][0] == date(2027, 6, 8)  # 0 % schlägt die eigene Welle
-    assert [round(w.share, 2) for w in dep.days] == [0, 0.25, 0.25]  # genau 25 % zählt noch als ruhig
+def test_quiet_threshold_is_documented():
+    assert QUIET_MAX == 0.25  # die TR-Texte setzen „%25 sınırını“ – Suffix-frei, passt auch zu anderen Werten
+    assert SHIFT_DIVISOR == 6  # hol_quiet_expl: „bei sechs Wochen also bis zu sieben Tage“
+    assert 42 // SHIFT_DIVISOR == 7
 
 
 def test_no_quiet_day_is_rendered_in_both_languages(app, client, monkeypatch):
     radar = app.extensions["tv"].radar
     synthetic = _staggered_radar()
     monkeypatch.setattr(radar, "quiet_days",
-                        lambda period, state, count=3: synthetic.quiet_days(synthetic.by_id["p"], "NW", count))
+                        lambda period, state, today=None, count=3: synthetic.quiet_days(synthetic.by_id["p"], "NW"))
     de = client.get("/de/ferien/sommer-2027?land=NW").get_data(as_text=True)
     nw = de.split('data-per-state="NW">', 1)[1].split("</article>", 1)[0]
-    assert f"Kein ruhiger Tag in diesem Zeitraum: Die Reisewelle liegt an jedem Tag über 25{NBSP}%." in nw
+    assert ("Kein ruhiger Abreisetag, ohne viele freie Tage zu verlieren: An jedem infrage kommenden Tag fährt "
+            f"dein Bundesland selbst los oder die Reisewelle liegt über 25{NBSP}%.") in nw
     assert "quiet__list--none" in nw and "Sa 05.06." in nw and _item(f"33,3{NBSP}%", "Ferienstart: NRW") in nw
+    assert "Kein ruhiger Rückreisetag" not in nw and "Do 01.07." in nw
     tr = client.get("/tr/tatil/yaz-2027?land=NW").get_data(as_text=True)
     nw = tr.split('data-per-state="NW">', 1)[1].split("</article>", 1)[0]
-    assert "Bu dönemde sakin gün yok: Tatil dalgası her gün %25 üzerinde." in nw
+    assert ("Çok fazla tatil gününden vazgeçmeden sakin bir gidiş günü yok: Uygun günlerin hepsinde ya kendi "
+            "eyaletin de yola çıkıyor ya da tatil dalgası %25 sınırını aşıyor.") in nw
     assert _item("%33,3", "Tatil başlıyor: NRW") in nw
 
 
@@ -355,12 +402,13 @@ def test_holiday_page_shows_wave_days_with_context(client):
 
 
 def test_wave_context_names_states_or_counts_them(client):
-    html = client.get("/de/ferien/weihnachten-2026?land=BW").get_data(as_text=True)
-    bw = html.split('data-per-state="BW">', 1)[1].split("</article>", 1)[0]
-    assert _item(f"22,7{NBSP}%", "Ferienende in 8 Ländern") in bw  # Sa 02.01.: acht Länder fahren heim
     html = client.get("/de/ferien/herbst-2026?land=BW").get_data(as_text=True)
     bw = html.split('data-per-state="BW">', 1)[1].split("</article>", 1)[0]
-    assert _item(f"13,5{NBSP}%", "Ferienstart: BW") in bw
+    assert _item(f"13,5{NBSP}%", "Ferienstart: BW") in bw  # Sa 24.10.: nur BW selbst
+    assert _item(f"47,3{NBSP}%", "Ferienende in 6 Ländern") in bw  # So 01.11.: sechs Länder fahren heim
+    html = client.get("/de/ferien/weihnachten-2026?land=BW").get_data(as_text=True)
+    bw = html.split('data-per-state="BW">', 1)[1].split("</article>", 1)[0]
+    assert _item(f"15,9{NBSP}%", "Ferienstart: BY") in bw  # Sa 26.12.: Bayern, nicht BW selbst
 
 
 def test_percentages_follow_the_language(client):
@@ -420,7 +468,7 @@ def test_holiday_page_marks_kurban_bayrami_in_pentecost_2027(client):
     assert "Fällt in die freien Tage von: BY, BW, ST, HH" in html
     assert "https://namazvakitleri.diyanet.gov.tr/en-US/dini-gunler" in html
     tr = client.get("/tr/tatil/mayis-2027?land=BW").get_data(as_text=True)
-    assert "Kurban Bayramı tatiline denk geliyor: arife Cmt 15.05., bayram Paz 16.05.2027 – Çar 19.05.2027." in tr
+    assert "Kurban Bayramı senin tatiline denk geliyor: arife Cmt 15.05., bayram Paz 16.05.2027 – Çar 19.05.2027." in tr
     assert "Tatiline denk geldiği eyaletler: BY, BW, ST, HH" in tr
     summer = client.get("/de/ferien/sommer-2027").get_data(as_text=True)
     assert "tl__bayram" not in summer and "Bayram" not in summer
@@ -429,3 +477,48 @@ def test_holiday_page_marks_kurban_bayrami_in_pentecost_2027(client):
 def test_info_page_lists_bayram_source(client):
     html = client.get("/tr/bilgi").get_data(as_text=True)
     assert "https://namazvakitleri.diyanet.gov.tr/en-US/dini-gunler" in html
+
+
+# ------------------------------------------------ Laufende Ferien: keine Tage in der Vergangenheit
+
+def test_quiet_days_skip_days_before_today(radar):
+    summer = radar.by_id["sommer-2027"]
+    pick = radar.quiet_days(summer, "NW", date(2027, 7, 21))["departure"]
+    assert pick.calm and not pick.over and pick.days[0].day == date(2027, 7, 21)
+    assert all(w.day >= date(2027, 7, 21) for w in pick.days)
+    # Abreisefenster vorbei (bis 24.07.), Rückreise noch offen
+    quiet = radar.quiet_days(summer, "NW", date(2027, 7, 25))
+    assert quiet["departure"] == type(quiet["departure"])((), False, over=True)
+    assert quiet["return"].days and not quiet["return"].over
+    # ganz vorbei
+    quiet = radar.quiet_days(summer, "NW", date(2027, 9, 1))
+    assert quiet["departure"].over and quiet["return"].over and not quiet["return"].days
+    # ohne today (z. B. Auswertungen) wie bisher alle Kandidaten
+    assert radar.quiet_days(summer, "NW")["departure"].days[0].day == date(2027, 7, 20)
+
+
+def test_running_holidays_say_so_instead_of_past_days(client, clock):
+    clock.now = clock.now.replace(day=7)  # 07.10.2026: Hessen hat seit Sa 03.10. frei
+    html = client.get("/de/ferien/herbst-2026?land=HE").get_data(as_text=True)
+    quiet = html.split('data-per-state="HE">', 1)[1].split('<div class="quiet">', 1)[1].split('<p class="hint">', 1)[0]
+    assert "Deine Ferien haben schon begonnen – die Abreisetage liegen hinter dir." in quiet
+    assert quiet.count("<li>") == 1 and "So 18.10." in quiet  # nur noch die Rückreise
+    tr = client.get("/tr/tatil/sonbahar-2026?land=HE").get_data(as_text=True)
+    he = tr.split('data-per-state="HE">', 1)[1].split("</article>", 1)[0]
+    assert "Tatilin zaten başladı – gidiş günleri geride kaldı." in he
+    clock.now = clock.now.replace(day=20)
+    html = client.get("/de/ferien/herbst-2026?land=HE").get_data(as_text=True)
+    he = html.split('data-per-state="HE">', 1)[1].split("</article>", 1)[0]
+    assert "Deine Ferien sind schon vorbei." in he and "<ol" not in he
+    tr = client.get("/tr/tatil/sonbahar-2026?land=HE").get_data(as_text=True)
+    assert "Tatilin zaten bitti." in tr
+
+
+def test_month_label_close_to_the_right_edge_is_left_out(client):
+    """Review: „Haz“/„Juni“ ragten bei 320–390 px rechts aus der Zeitleiste (Pfingsten 2027: Juni ab 96,6 %)."""
+    html = client.get("/tr/tatil/mayis-2027").get_data(as_text=True)
+    labels = html.split('class="tl__months"', 1)[1].split("</svg>", 1)[0]
+    assert ">May<" in labels and ">Haz<" not in labels
+    assert 'class="tl__grid" x1="96.552%"' in html  # die Gitterlinie zum Monatswechsel bleibt
+    summer = client.get("/de/ferien/sommer-2027").get_data(as_text=True)
+    assert all(f">{m}<" in summer for m in ("Juli", "Aug", "Sep"))

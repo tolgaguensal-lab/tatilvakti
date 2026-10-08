@@ -1,0 +1,6 @@
+{
+  "note": "Texte der Link-Vorschaubilder: i18n-Schlüssel je Feld. render.js liest sie aus tatilvakti/i18n/<lang>.json.",
+  "claim": "tagline",
+  "feats": ["hol_title", "r_title", "b_title", "nav_customs"],
+  "foot": "og_foot"
+}

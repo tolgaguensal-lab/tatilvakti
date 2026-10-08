@@ -77,7 +77,7 @@ def test_validation_requires_bilingual_source_labels():
 def test_home_cold_start_shows_one_line_instead_of_grey_chips(client, path, line, call):
     html = page(client, path)
     station = html.split('id="pick-title"')[0].rsplit('<li class="station', 1)[1]
-    assert '<div class="live is-empty" data-live>' in station  # CSS blendet die Chips aus
+    assert '<div class="live is-empty" data-live-list>' in station  # CSS blendet die Chips aus
     empty = re.search(r'<p class="live__empty">(.*?)</p>', station, re.S).group(1)
     assert line in text(empty) and call in text(empty)
 
@@ -85,7 +85,7 @@ def test_home_cold_start_shows_one_line_instead_of_grey_chips(client, path, line
 def test_report_switches_the_empty_state_off_per_crossing(client):
     report(client, "horgos")
     html = page(client, "/de/")
-    assert '<div class="live" data-live>' in html
+    assert '<div class="live" data-live-list>' in html
     rows = dict(re.findall(r'href="/de/grenze/(\w+)">[^<]*</a>\s*<div class="(dirs[^"]*)" data-dirs>', html))
     assert rows == {"kapikule": "dirs is-empty", "gradina": "dirs is-empty", "horgos": "dirs", "batrovci": "dirs is-empty"}
     assert 'data-cid="horgos" data-dir="to_tr" data-live="1"' in html
@@ -95,10 +95,10 @@ def test_report_switches_the_empty_state_off_per_crossing(client):
 @pytest.mark.parametrize("path", ["/de/grenze", "/tr/sinir", "/de/route", "/tr/guzergah"])
 def test_lists_without_reports_are_collapsed(client, path):
     html = page(client, path)
-    lists = re.findall(r'class="live( is-empty)?"[^>]*data-live>', html)
+    lists = re.findall(r'class="live( is-empty)?"[^>]*data-live-list>', html)
     assert lists and all(lists), lists  # jede Liste im Leerzustand
     report(client, "kapikule")
-    lists = re.findall(r'class="live( is-empty)?"[^>]*data-live>', page(client, path))
+    lists = re.findall(r'class="live( is-empty)?"[^>]*data-live-list>', page(client, path))
     assert "" in lists  # die Liste mit Kapıkule (Richtung Türkei) zeigt jetzt Status
 
 
@@ -196,6 +196,22 @@ def test_preview_images_are_small_pngs_in_the_right_size(lang):
     assert struct.unpack(">II", data[16:24]) == (1200, 630)
 
 
+def test_preview_images_show_the_current_texts():
+    """Review: og-tr.png zeigte noch „Sınır canlı“ und „çevrimdışı“, die Quelle lag nur im Scratchpad.
+    Jetzt: scripts/og/render.js rendert aus og.html mit den i18n-Texten (Zuordnung og.json) und
+    hält die verwendeten Texte in rendered-texts.json fest. Ändert sich ein Text, schlägt dieser
+    Test fehl, bis die Bilder neu gerendert sind."""
+    og = ROOT / "scripts" / "og"
+    keys = json.loads((og / "og.json").read_text(encoding="utf-8"))
+    rendered = json.loads((og / "rendered-texts.json").read_text(encoding="utf-8"))
+    for lang in ("de", "tr"):
+        strings = json.loads((ROOT / "tatilvakti" / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+        expected = {"claim": strings[keys["claim"]], "feats": [strings[k] for k in keys["feats"]], "foot": strings[keys["foot"]]}
+        assert rendered[lang] == expected, f"Texte geändert: NODE_PATH=… node scripts/og/render.js ausführen ({lang})"
+    assert "Sınır canlı" not in json.dumps(rendered, ensure_ascii=False) and "çevrimdışı" not in rendered["tr"]["foot"]
+    assert "<script" not in (og / "og.html").read_text(encoding="utf-8")  # Texte setzt render.js
+
+
 def test_preview_urls_fall_back_to_the_request_host(tmp_path, clock):
     app = create_app({"TESTING": True, "TV_DB_PATH": str(tmp_path / "h.db"), "TV_CLOCK": clock})
     html = app.test_client().get("/tr/sinir").get_data(as_text=True)
@@ -205,9 +221,9 @@ def test_preview_urls_fall_back_to_the_request_host(tmp_path, clock):
 
 @pytest.mark.parametrize("lang, expected", [
     ("de", "Nordrhein-Westfalen, Sommerferien 2027: 19.07.–31.08.2027 · Tage mit der kleinsten Reisewelle – "
-           "Abreise: Di 20.07., Mi 21.07., Do 22.07.; Rückreise: "),
+           "Abreise: Di 20.07. (0\u00a0%); Rückreise: Sa 28.08. (0\u00a0%)"),
     ("tr", "Nordrhein-Westfalen, 2027 yaz tatili: 19.07.–31.08.2027 · Tatil dalgasının en küçük olduğu günler – "
-           "gidiş: Sal 20.07., Çar 21.07., Per 22.07.; dönüş: "),
+           "gidiş: Sal 20.07. (%0); dönüş: Cmt 28.08. (%0)"),
 ])
 def test_holiday_share_text_names_the_state_and_the_quiet_days(client, lang, expected):
     path = "/de/ferien/sommer-2027" if lang == "de" else "/tr/tatil/yaz-2027"
@@ -216,13 +232,45 @@ def test_holiday_share_text_names_the_state_and_the_quiet_days(client, lang, exp
     shares = re.findall(r'data-share-text="([^"]*)"', article)
     assert len(shares) == 1  # ein Teilen-Block je Kontext
     share = htmllib.unescape(shares[0])
-    assert share.startswith(expected), share
+    assert share == expected, share
+    # je Richtung der Tag auf Rang 1 der Seite (Review: vorher nach Datum sortiert, ohne Prozent)
+    first = [re.search(r"<strong>([^<]+)</strong>", ol).group(1) for ol in re.findall(r"<ol[^>]*>(.*?)</ol>", article, re.S)]
+    assert len(first) == 2 and all(day in share for day in first)
     assert "Ferien Sommerferien" not in share and "tatilimiz" not in share and " NRW" not in share
     # Link-Vorschau des geteilten Links: dieselbe Zusammenfassung
     assert meta(html, "og:description") == share
     wa = htmllib.unescape(re.search(r'href="(https://wa\.me/[^"]+)"', article).group(1))
     # Geteilt wird der Pfad des Zeitraums (eigene Seite), das Bundesland bleibt als ?land= dran
     assert wa.endswith(f"%20https%3A//tatilvakti.example{path}%3Fland%3DNW")
+
+
+@pytest.mark.parametrize("lang, path, expected", [
+    # Herbst 2026, BW: neun freie Tage – die eigene Welle lässt sich nicht umgehen, das steht so da
+    ("de", "/de/ferien/herbst-2026?land=BW",
+     "Baden-Württemberg, Herbstferien 2026: 26.10.–30.10.2026 · Tage mit der kleinsten Reisewelle – "
+     "Abreise: kein ruhiger Tag, am ehesten Sa 24.10. (13,5\u00a0%); "
+     "Rückreise: kein ruhiger Tag, am ehesten So 01.11. (47,3\u00a0%)"),
+    ("tr", "/tr/tatil/sonbahar-2026?land=BW",
+     "Baden-Württemberg, 2026 sonbahar tatili: 26.10.–30.10.2026 · Tatil dalgasının en küçük olduğu günler – "
+     "gidiş: sakin gün yok, en uygunu Cmt 24.10. (%13,5); dönüş: sakin gün yok, en uygunu Paz 01.11. (%47,3)"),
+])
+def test_holiday_share_text_says_when_there_is_no_quiet_day(client, lang, path, expected):
+    html = page(client, path)
+    article = re.search(r'data-per-state="BW">(.*?)</article>', html, re.S).group(1)
+    assert htmllib.unescape(re.search(r'data-share-text="([^"]*)"', article).group(1)) == expected
+    assert meta(html, "og:description") == expected
+
+
+def test_holiday_share_text_leaves_out_days_in_the_past(client, clock):
+    """Review: Am 07.10.2026 empfahl die Seite Hessen „Di 06.10.“ – gestern – auch im WhatsApp-Text."""
+    clock.now = clock.now.replace(day=7)
+    html = page(client, "/de/ferien/herbst-2026?land=HE")
+    share = htmllib.unescape(re.search(r'data-per-state="HE">.*?data-share-text="([^"]*)"', html, re.S).group(1))
+    assert share == ("Hessen, Herbstferien 2026: 05.10.–17.10.2026 · Tage mit der kleinsten Reisewelle – "
+                     "Rückreise: kein ruhiger Tag, am ehesten So 18.10. (13,7\u00a0%)")
+    clock.now = clock.now.replace(day=20)
+    html = page(client, "/de/ferien/herbst-2026?land=HE")
+    assert meta(html, "og:description") == "Hessen, Herbstferien 2026: 05.10.–17.10.2026"
 
 
 def test_holiday_page_without_state_keeps_the_lead_as_preview(client):
@@ -326,7 +374,7 @@ def test_start_warns_in_production_without_complete_imprint(tmp_path, clock, cap
 
 # Was app.js im localStorage ablegt (Schlüssel tv.<name>) – der Datenschutztext nennt jeden davon
 DOCUMENTED_KEYS = {"state": "prefs", "mode": "prefs", "checks": "checks", "queue": "queue", "report_pref": "last",
-                   "visits": "visits", "seen_at": "visits", "a2hs_off": "visits"}
+                   "a2hs_off": "a2hs"}
 
 
 def test_privacy_text_covers_every_storage_key_in_app_js():
@@ -334,10 +382,23 @@ def test_privacy_text_covers_every_storage_key_in_app_js():
     keys = set(re.findall(r'store\.(?:get|set)\("([\w-]+)"', js))
     assert keys == set(DOCUMENTED_KEYS), "neuer Schlüssel in app.js: Datenschutztext (i_privacy_dev_*) ergänzen"
     assert "sessionStorage" not in js and "indexedDB" not in js and "document.cookie" not in js
+    # Kein Besuchszähler mehr (Datensparsamkeit, § 25 TDDDG): die alten Werte werden nur noch entfernt
+    assert set(re.findall(r'store\.remove\("([\w-]+)"', js)) == {"visits", "seen_at"}
+    assert "visits" not in js.replace('store.remove("visits")', "")
+    assert "seen_at" not in js.replace('store.remove("seen_at")', "")
     template = (ROOT / "tatilvakti" / "templates" / "info.html").read_text(encoding="utf-8")
     listed = re.search(r'for key in \(([^)]*)\)', template).group(1)
     for item in set(DOCUMENTED_KEYS.values()) | {"cache"}:
         assert f'"{item}"' in listed
+
+
+def test_backup_retention_in_the_privacy_text_matches_the_unit():
+    unit = (ROOT / "deploy" / "tatilvakti-v2-backup.service").read_text(encoding="utf-8")
+    days = re.search(r"--keep-days (\d+)", unit).group(1)
+    de = json.loads((ROOT / "tatilvakti" / "i18n" / "de.json").read_text(encoding="utf-8"))
+    tr = json.loads((ROOT / "tatilvakti" / "i18n" / "tr.json").read_text(encoding="utf-8"))
+    assert f"löschen wir sie nach {days} Tagen" in de["i_privacy_reports_keep"]
+    assert f"{days} gün sonra sileriz" in tr["i_privacy_reports_keep"]
 
 
 @pytest.mark.parametrize("path, words", [

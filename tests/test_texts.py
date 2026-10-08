@@ -19,7 +19,7 @@ GERMAN_WORDS = (
     "nicht", "nur", "bei", "ist", "sind", "auf", "aus", "über", "ca.", "live", "Quelle", "Quellen", "Preise",
     "Wartezeit", "Wartezeiten", "Seite", "Grenze", "Zoll", "Ferien", "Gebühr", "Gebühren", "Maut", "Handy",
     "Gold", "Polizei", "Regierung", "mehrere", "gerundet", "staatlicher", "Straßenagentur", "Stand",
-    "geprüft", "Hinweis", "Tage", "Klasse", "Pkw", "Vignette", "Fahrzeug", "Reisefreimengen",
+    "geprüft", "Hinweis", "Tage", "Klasse", "Pkw", "Vignette", "Fahrzeug", "Reisefreimengen", "Himmelfahrt",
 )
 GERMAN_RE = re.compile(r"(?<![\w'’])(?:" + "|".join(re.escape(w) for w in GERMAN_WORDS) + r")(?![\w'’])",
                        re.IGNORECASE)
@@ -208,6 +208,7 @@ def test_turkish_texts_use_the_informal_sen_form_throughout():
     ("Yaz tatili", "Zeitraum klein"),
     ("evrimdış", "Fachwort; TDK schreibt ohnehin getrennt – „internetsiz“, „İnternet yok“"),
     ("çevrim içi", "Fachwort – „internetten“, „internet gelince“"),
+    ("„", "deutsches Anführungszeichen – im Türkischen “…”"),
 ])
 def test_audit_wording_is_gone_from_turkish_texts(wrong, why):
     assert [where for where, text in _turkish_texts() if wrong in text] == [], why
@@ -225,7 +226,7 @@ def test_resmi_is_always_spelled_with_circumflex():
     ("c_lead", "Neleri götürebilirsin, neler yasak? Gidiş ve dönüş için; her kural resmî kaynağıyla."),
     ("b_pattern", "Saatlere göre bekleme"),
     ("err_404_text", "Bu sayfa bulunamadı ya da artık yok."),
-    ("hol_your", "{state} okul tatilin"),
+    ("hol_your", "Okul tatilin – {state}"),  # „{state} okul tatilin“ hatte keinen Anschluss
     ("hol_pressure_expl", "O gün okul tatilinde olan eyaletlerde yaşayanların Almanya nüfusundaki oranı "
                           "(kısa tatiller hariç, aşağıdaki nota bak)."),
 ])
@@ -243,4 +244,5 @@ def test_audit_replacements_in_the_data():
     assert items["tr-schmuck"]["title"]["de"] == "Eigenes Gold und eigener Schmuck"
     note = content.holidays["meta"]["note"]["tr"]
     assert "eyaletinin" in note and "Okulların kendi belirlediği ek tatil günleri" in note
+    assert "Göğe Yükseliş" in note  # vorher stand dort das deutsche Wort „Himmelfahrt“ ohne Erklärung
     assert [p["label"]["tr"] for p in content.holidays["periods"]][-1] == "2028 yaz tatili"

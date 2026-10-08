@@ -115,9 +115,22 @@ def test_old_period_links_redirect_permanently(client, path, location):
     assert resp.headers["Location"] == location
 
 
-def test_unknown_period_is_not_found_and_unknown_query_shows_the_radar(client):
-    assert client.get("/de/ferien/sommer-1999").status_code == 404
-    assert client.get("/tr/tatil/yok").status_code == 404
+@pytest.mark.parametrize("path, location", [
+    # abgelaufener Zeitraum aus einem geteilten Link: zur Übersicht, das Bundesland bleibt
+    ("/de/ferien/sommer-2026?land=NW", "/de/ferien?land=NW"),
+    ("/tr/tatil/yok", "/tr/tatil"),
+    ("/de/ferien/sommer-1999?land=XX", "/de/ferien"),
+])
+def test_unknown_period_leads_to_the_radar(client, path, location):
+    """Review: Zeitraumseiten stehen in der Sitemap und in WhatsApp-Links – nach der Datenpflege
+    endeten sie dauerhaft in 404. 302 statt 301: Gibt es den Slug später, darf kein Browser die
+    Umleitung gespeichert haben."""
+    resp = client.get(path)
+    assert resp.status_code == 302 and resp.headers["Location"] == location
+    assert client.get(location).status_code == 200
+
+
+def test_unknown_query_shows_the_radar(client):
     resp = client.get("/de/ferien?zeitraum=sommer-1999")
     assert resp.status_code == 200 and "Ferien-Radar</h1>" in resp.get_data(as_text=True)
 
@@ -255,6 +268,17 @@ def test_split_holidays_are_shown_as_separate_blocks(client):
 def test_unknown_pages_are_404(client):
     assert client.get("/de/grenze/atlantis").status_code == 404
     assert client.get("/api/v1/borders/atlantis").get_json() == {"error": "not_found"}
+
+
+@pytest.mark.parametrize("path, code", [("/de/grenze/atlantis", 404), ("/tr/sinir/atlantis", 404), ("/gibts-nicht", 404)])
+def test_error_pages_have_no_canonical_or_language_switch(client, path, code):
+    """Review: Unter einem bekannten Endpunkt zeigten Canonical, og:url, hreflang und der
+    Sprachwechsel auf eine URL, die es nicht gibt (/tr/sinir/atlantis → wieder 404)."""
+    resp = client.get(path)
+    html = resp.get_data(as_text=True)
+    assert resp.status_code == code
+    assert 'rel="canonical"' not in html and "hreflang" not in html and 'property="og:url"' not in html
+    assert 'class="plate"' not in html
 
 
 def test_service_worker_precaches_all_pages(client):

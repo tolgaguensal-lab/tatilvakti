@@ -25,7 +25,7 @@
     "btk_mcks": {"name": {"de": "BTK – Merkezi Cihaz Kayıt Sistemi", "tr": "BTK – Merkezi Cihaz Kayıt Sistemi"}, "url": "https://tuketici.btk.gov.tr/merkezi-cihaz-kayit-sistemi"},
     "edevlet_imei": {"name": {"de": "e-Devlet – IMEI Kaydet", "tr": "e-Devlet – IMEI Kaydet"}, "url": "https://www.turkiye.gov.tr/btk-imei-kaydet"},
     "mcks": {"name": {"de": "BTK – Merkezi Cihaz Kayıt Sistemi (mcks.gov.tr)", "tr": "BTK – Merkezi Cihaz Kayıt Sistemi (mcks.gov.tr)"}, "url": "https://www.mcks.gov.tr"},
-    "edevlet_btk": {"name": {"de": "e-Devlet – Dienste der BTK (u. a. „Kayıtlı Cihazlarım ve Kayıt Hakkı Sorgulama“)", "tr": "e-Devlet – BTK hizmetleri (ör. „Kayıtlı Cihazlarım ve Kayıt Hakkı Sorgulama“)"}, "url": "https://www.turkiye.gov.tr/bilgi-teknolojileri-ve-iletisim-kurumu"},
+    "edevlet_btk": {"name": {"de": "e-Devlet – Dienste der BTK (u. a. „Kayıtlı Cihazlarım ve Kayıt Hakkı Sorgulama“)", "tr": "e-Devlet – BTK hizmetleri (ör. “Kayıtlı Cihazlarım ve Kayıt Hakkı Sorgulama”)"}, "url": "https://www.turkiye.gov.tr/bilgi-teknolojileri-ve-iletisim-kurumu"},
     "rg_harc_2026": {"name": {"de": "Resmî Gazete vom 31.12.2025, Sayı 33124 (5. Mükerrer) – Harçlar Kanunu Genel Tebliği (Seri No: 98), Gebühren 2026", "tr": "Resmî Gazete, 31.12.2025, Sayı 33124 (5. Mükerrer) – Harçlar Kanunu Genel Tebliği (Seri No: 98), 2026 harçları"}, "url": "https://www.resmigazete.gov.tr"},
     "gruene_karte": {"name": {"de": "GDV (Die Versicherer) – Grüne Karte", "tr": "GDV (Alman sigortacılar birliği) – Yeşil Kart"}, "url": "https://www.dieversicherer.de/versicherer/auto/news/gruene-karte-kfz-versicherung-142706"},
     "adac_tuerkei": {"name": {"de": "ADAC – Mit dem Fahrzeug in die Türkei", "tr": "ADAC – araçla Türkiye'ye"}, "url": "https://www.adac.de/reise-freizeit/reiseplanung/reiseziele/tuerkei/fahrzeug/"},
@@ -57,7 +57,7 @@
       },
       "detail": {
         "de": "Registrieren kannst du innerhalb der 120 Tage über e-Devlet („IMEI Kaydet“), mit dem Pass, mit dem du eingereist bist. Danach läuft das Gerät nur mit Leitungen, die auf dich registriert sind. Ob du gerade ein Registrierungsrecht hast, zeigt e-Devlet unter „Kayıtlı Cihazlarım ve Kayıt Hakkı Sorgulama“. Wer nur mit deutscher SIM (Roaming) oder einer Reise-eSIM eines ausländischen Anbieters surft, steckt keine türkische SIM ein – die 120-Tage-Regel wird dann nach übereinstimmenden Berichten nicht ausgelöst. Roaming-Preise vorher prüfen.",
-        "tr": "Kaydı 120 gün içinde e-Devlet üzerinden („IMEI Kaydet“), giriş yaptığın pasaportla yapabilirsin. Kayıttan sonra cihaz yalnızca senin adına kayıtlı hatlarla çalışır. Şu an kayıt hakkın olup olmadığını e-Devlet'te „Kayıtlı Cihazlarım ve Kayıt Hakkı Sorgulama“ hizmetinden görebilirsin. Yalnızca Alman SIM kartınla (roaming) ya da yabancı bir operatörün seyahat eSIM'iyle internete giriyorsan Türk SIM takmamış olursun – bu durumda 120 gün kuralı, birbiriyle örtüşen haberlere göre devreye girmez. Roaming ücretlerini önceden kontrol et."
+        "tr": "Kaydı 120 gün içinde e-Devlet üzerinden (“IMEI Kaydet”), giriş yaptığın pasaportla yapabilirsin. Kayıttan sonra cihaz yalnızca senin adına kayıtlı hatlarla çalışır. Şu an kayıt hakkın olup olmadığını e-Devlet'te “Kayıtlı Cihazlarım ve Kayıt Hakkı Sorgulama” hizmetinden görebilirsin. Yalnızca Alman SIM kartınla (roaming) ya da yabancı bir operatörün seyahat eSIM'iyle internete giriyorsan Türk SIM takmamış olursun – bu durumda 120 gün kuralı, birbiriyle örtüşen haberlere göre devreye girmez. Roaming ücretlerini önceden kontrol et."
       },
       "sources": ["btk_mcks", "mcks", "edevlet_imei", "edevlet_btk", "rg_harc_2026"],
       "review_after": "2026-12-31",
@@ -163,7 +163,7 @@
       "title": {"de": "Grüne Versicherungskarte", "tr": "Yeşil kart sigortası"},
       "rule": {
         "de": "Für die Einreise mit dem Auto Pflicht. Das Feld „TR“ darf nicht durchgestrichen sein – bei manchen Versicherern kostet die Türkei extra. Frag deine Versicherung, ob der Schutz auch im asiatischen Teil gilt.",
-        "tr": "Araçla girişte zorunlu. Karttaki „TR“ alanı çizili olmamalı – bazı sigortacılar Türkiye için ek prim ister. Teminatın Türkiye'nin Asya kısmında da geçerli olup olmadığını sigortana sor."
+        "tr": "Araçla girişte zorunlu. Karttaki “TR” alanı çizili olmamalı – bazı sigortacılar Türkiye için ek prim ister. Teminatın Türkiye'nin Asya kısmında da geçerli olup olmadığını sigortana sor."
       },
       "detail": {
         "de": "Die Kfz-Haftpflicht gilt mit der Grünen Karte in der Regel in der ganzen Türkei. Die Kasko deckt nach vielen Verträgen aber nur den europäischen Teil ab, also nicht Anatolien. Lass dir den Schutz für den asiatischen Teil schriftlich bestätigen oder schließ für die Reise eine Zusatzdeckung ab.",

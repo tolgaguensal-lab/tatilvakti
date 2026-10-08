@@ -134,6 +134,19 @@ def test_day_key_is_deleted_right_after_the_utc_day_change(db, clock):
     assert salt_days(db) == []
 
 
+def test_only_todays_day_key_exists_once_a_new_one_is_made(db, clock):
+    """Der Schlüssel von gestern verschwindet schon mit der ersten Meldung des neuen Tages,
+    nicht erst mit der nächsten Wartung."""
+    report(db, clock, 1)
+    assert salt_days(db) == ["2026-10-06"]
+    clock.advance(days=1)
+    B.client_key(db, "203.0.113.9", clock.ts)  # erste Anfrage nach 00:00 UTC
+    assert salt_days(db) == ["2026-10-07"]
+    before = B.client_key(db, "203.0.113.9", clock.ts)
+    assert B.client_key(db, "203.0.113.9", clock.ts) == before  # derselbe Schlüssel den ganzen Tag
+    assert salt_days(db) == ["2026-10-07"]
+
+
 def test_maintenance_is_throttled_unless_forced(db, clock):
     assert B.maintenance(db, clock.ts) is not None
     clock.advance(seconds=B.MAINTENANCE_EVERY_S - 1)

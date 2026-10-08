@@ -76,7 +76,7 @@
       <p class="station__kicker">{{ t("station_n", n=3) }}</p>
       <h2 class="station__title">{{ icon("border") }}{{ t("station_border") }}</h2>
       {#- Ohne jede aktuelle Meldung (Kaltstart, Nebensaison) eine Zeile statt acht grauer Chips #}
-      <div class="live{% if not any_live(statuses, statuses.keys()) %} is-empty{% endif %}" data-live>
+      <div class="live{% if not any_live(statuses, statuses.keys()) %} is-empty{% endif %}" data-live-list>
         <ul class="mini-borders live__rows">
           {%- for c in main_crossings %}
           <li>

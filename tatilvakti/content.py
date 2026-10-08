@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from .holidays import Range, free_stretches
 from .i18n import LANGS, fold
@@ -51,7 +51,7 @@ class Content:
     crossings: dict
     crossing_by_id: dict = field(default_factory=dict)
     redirects: dict = field(default_factory=lambda: {"meta": {}, "redirects": []})
-    redirect_by_path: dict = field(default_factory=dict)  # redirect_key(from) → Eintrag
+    redirect_by_path: dict = field(default_factory=dict)  # entry_key(from) → Eintrag
 
     def meta(self, name: str) -> dict:
         return getattr(self, name)["meta"]
@@ -66,7 +66,7 @@ class Content:
         self.redirect_by_path = {}
         for entry in entries if isinstance(entries, list) else []:
             if isinstance(entry, dict) and isinstance(entry.get("from"), str):
-                self.redirect_by_path.setdefault(redirect_key(entry["from"]), entry)
+                self.redirect_by_path.setdefault(entry_key(entry["from"]), entry)
 
 
 def is_due(review_after: str | None, today: date) -> bool:
@@ -94,6 +94,13 @@ def load_content(data_dir: Path = DATA_DIR) -> Content:
 def redirect_key(path: str) -> str:
     """Vergleichsform eines Pfads für die Weiterleitungen: '/alt/' und '/alt' sind dieselbe URL."""
     return path.rstrip("/") or "/"
+
+
+def entry_key(path: str) -> str:
+    """Vergleichsform eines Pfads aus der Tabelle. Search Console und Proxy-Logs zeigen Pfade
+    prozentkodiert ('/%C3%BCber-uns'), request.path ist schon dekodiert ('/über-uns') – deshalb
+    nur hier dekodieren, nie den Request (sonst würde '%25' doppelt dekodiert)."""
+    return redirect_key(unquote(path))
 
 
 def _is_local_path(value, allow_query: bool) -> bool:
@@ -127,14 +134,14 @@ def validate_redirects(data) -> list[str]:
             problems.append(f"{where}: unbekannte Felder {unknown} (erlaubt: from, to, code, note)")
         if not _is_local_path(src, allow_query=False):
             problems.append(f"{where}: from muss ein Pfad sein, der mit / beginnt (ohne Query, Fragment, Leerzeichen)")
-        elif redirect_key(src) == "/":
+        elif entry_key(src) == "/":
             problems.append(f"{where}: / ist die Startseite von v2")
         elif (src + "/").startswith(REDIRECT_RESERVED):
             problems.append(f"{where}: {', '.join(REDIRECT_RESERVED)} gehören v2")
-        elif redirect_key(src) in sources:
-            problems.append(f"{where}: doppelt (auch {sources[redirect_key(src)]!r})")
+        elif entry_key(src) in sources:
+            problems.append(f"{where}: doppelt (auch {sources[entry_key(src)]!r})")
         else:
-            sources[redirect_key(src)] = src
+            sources[entry_key(src)] = src
         if type(code) is not int or code not in REDIRECT_CODES:  # type(): True wäre sonst 1
             problems.append(f"{where}: code muss 301 oder 410 sein, ist {code!r}")
         elif code == 410 and dst is not None:
@@ -145,20 +152,33 @@ def validate_redirects(data) -> list[str]:
             problems.append(f"{where}: note muss Text sein")
     for entry in data["redirects"]:  # keine Ketten: ein Ziel ist nie selbst eine alte URL
         if isinstance(entry, dict) and entry.get("code") == 301 and _is_local_path(entry.get("to"), True):
-            if redirect_key(urlsplit(entry["to"]).path) in sources:
+            if entry_key(urlsplit(entry["to"]).path) in sources:
                 problems.append(f"redirects {entry.get('from')!r}: Ziel {entry['to']!r} ist selbst eine alte URL (Kette)")
     return problems
 
 
-def redirect_route_problems(data, is_route: Callable[[str], bool]) -> list[str]:
-    """Alte URLs dürfen keine eigene Route treffen (sie griffen nie), Ziele müssen eine sein."""
+def redirect_route_problems(data, status: Callable[[str], int]) -> list[str]:
+    """Prüfung gegen die echten Antworten von v2 (status: HTTP-Status eines GET ohne die Tabelle).
+
+    Eine alte URL greift nur, wo v2 sonst 404 antwortet – auch unter Routen mit Platzhalter
+    (/de/grenze/<alter-übergang>). Ein Ziel muss direkt 200 liefern: kein Tippfehler (404),
+    keine reine POST-Route (405), keine weitere Weiterleitung (/de → 308).
+    """
     problems = []
     for entry in data.get("redirects", []):
         src, dst = entry["from"], entry.get("to")
-        if is_route(src) or (redirect_key(src) != src and is_route(redirect_key(src))):
-            problems.append(f"redirects {src!r}: ist eine eigene Route von v2, die Weiterleitung griffe nie")
-        if dst is not None and not is_route(urlsplit(dst).path):
-            problems.append(f"redirects {src!r}: Ziel {dst!r} ist keine Seite von v2")
+        for path in dict.fromkeys((src, entry_key(src))):  # '/alt/' trifft auch '/alt'
+            code = status(path)
+            if code != 404:
+                problems.append(f"redirects {src!r}: ist eine eigene Route von v2 (GET {path} liefert {code} statt 404), "
+                                "die Weiterleitung griffe nie")
+                break
+        if dst is not None:
+            parts = urlsplit(dst)
+            target = parts.path + (f"?{parts.query}" if parts.query else "")
+            code = status(target)
+            if code != 200:
+                problems.append(f"redirects {src!r}: Ziel {dst!r} ist keine Seite von v2 (GET liefert {code} statt 200)")
     return problems
 
 
@@ -313,7 +333,12 @@ def validate(content: Content) -> list[str]:
                         problems.append(f"holidays.{pid}.{state}: {start}–{end} überschneidet sich mit {other}")
                 taken[state].append((s, e, pid))
                 valid.append(Range(s, e))
-            for stretch in free_stretches(valid):
+            stretches = free_stretches(valid)
+            if len(stretches) > 1:
+                # Abreise aus dem ersten und Rückreise aus dem letzten Block überspannte Schulwochen
+                problems.append(f"holidays.{pid}.{state}: {len(stretches)} getrennte freie Blöcke "
+                                f"({', '.join(f'{r.start}–{r.end}' for r in stretches)}); je Block einen eigenen Zeitraum anlegen")
+            for stretch in stretches:
                 blocks.setdefault(state, []).append((stretch, pid))
                 if stretch.days < MIN_FREE_DAYS:
                     problems.append(

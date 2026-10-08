@@ -51,6 +51,8 @@ def test_validation_rejects_period_without_any_holidays():
     ([["2027-05-18", "2027-05-10"]], "unplausibler Zeitraum"),
     ([["2027-05-18", "2027-05-29"], ["2027-05-25", "2027-05-26"]], "überschneidet sich mit pfingsten-2027"),
     ([["2027-03-31", "2027-04-01"]], "überschneidet sich mit ostern-2027"),  # BW-Osterferien
+    # Zwei Blöcke mit Schultagen dazwischen: Die Reisetage überspannten sonst Schulwochen
+    ([["2027-05-18", "2027-05-26"], ["2027-06-08", "2027-06-16"]], "2 getrennte freie Blöcke"),
 ])
 def test_validation_catches_broken_holiday_ranges(ranges, message):
     content = load_content()

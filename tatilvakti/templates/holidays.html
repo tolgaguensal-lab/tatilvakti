@@ -54,14 +54,18 @@
       {%- set pick = info.quiet[kind] %}
       <div class="quiet__col">
         <h3>{{ t(label) }}</h3>
+        {%- if pick.over %}
+        <p class="quiet__none">{{ t("hol_quiet_over_" ~ kind) }}</p>
+        {%- else %}
         {%- if not pick.calm %}
-        <p class="quiet__none">{{ t("hol_quiet_none", pct=fmt_pct(quiet_max, 0)) }}</p>
+        <p class="quiet__none">{{ t("hol_quiet_none_" ~ kind, pct=fmt_pct(quiet_max, 0)) }}</p>
         {%- endif %}
         <ol class="quiet__list{% if not pick.calm %} quiet__list--none{% endif %}">
           {%- for w in pick.days %}
           <li><strong>{{ fmt_date(w.day, with_weekday=True, with_year=False) }}</strong><span class="quiet__pct">{{ fmt_pct(w.share) }}</span><span class="quiet__why">{{ wave_note(w, kind) }}</span></li>
           {%- endfor %}
         </ol>
+        {%- endif %}
       </div>
       {%- endfor %}
     </div>
@@ -79,7 +83,7 @@
   <figure class="tl" aria-label="{{ t('hol_chart_label', period=period.label[lang]) }}">
     <div class="tl__corner"></div>
     <svg class="tl__months" width="100%" height="18" aria-hidden="true">
-      {%- for m in chart.months %}
+      {%- for m in chart.months if not m.tight %}
       <text x="{{ m.x }}%" y="13"{% if m.edge %} class="is-edge"{% endif %}>{{ m.label }}</text>
       {%- endfor %}
     </svg>

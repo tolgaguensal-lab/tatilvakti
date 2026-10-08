@@ -23,8 +23,15 @@
     },
     set: function (key, value) {
       try { window.localStorage.setItem("tv." + key, JSON.stringify(value)); } catch (e) { /* private mode */ }
+    },
+    remove: function (key) {
+      try { window.localStorage.removeItem("tv." + key); } catch (e) { /* private mode */ }
     }
   };
+  // Besuchszähler und Zeitpunkt des letzten Aufrufs gibt es nicht mehr (Datensparsamkeit,
+  // § 25 TDDDG): Werte älterer Versionen beim Laden entfernen
+  store.remove("visits");
+  store.remove("seen_at");
 
   $$(".js-hide").forEach(function (el) { el.hidden = true; });
   $$(".chips__item.is-active").forEach(function (chip) {
@@ -204,12 +211,12 @@
       $$('[data-node][data-cid="' + q(c.id) + '"]').forEach(function (node) { node.setAttribute("data-l-" + dir, st.level); });
     });
   }
-  // Leerzustand nachziehen: Übergang ohne aktuelle Meldung (data-dirs) bzw. ganze Liste (data-live)
+  // Leerzustand nachziehen: Übergang ohne aktuelle Meldung (data-dirs) bzw. ganze Liste (data-live-list)
   function updateEmpty() {
     $$("[data-dirs]").forEach(function (box) {
       box.classList.toggle("is-empty", !$('[data-status][data-live="1"]', box));
     });
-    $$("[data-live]").forEach(function (list) {
+    $$("[data-live-list]").forEach(function (list) {
       list.classList.toggle("is-empty", !$("[data-dirs]:not(.is-empty)", list));
     });
   }
@@ -258,6 +265,14 @@
       return r.json().catch(function () { return {}; }).then(function (data) { return { status: r.status, data: data }; });
     });
   }
+  // Angenommene Meldung (201, direkt oder aus der Warteschlange): Übergang und Richtung merken –
+  // die Startseite zeigt ihn zuerst, das Formular schlägt die Richtung vor – und danach den
+  // Hinweis zum Startbildschirm anbieten. Abgelehnte Meldungen zählen nicht.
+  function reported(item) {
+    lastReport = { cid: item.cid, direction: item.direction };
+    store.set("report_pref", lastReport);
+    showA2hs();
+  }
   // Nachliefern: bei Netzfehler oder 5xx zurück in die Warteschlange, bei 4xx verwerfen
   // (zu alt, Limit, ungültig – ein neuer Versuch ändert daran nichts)
   var flushing = false;
@@ -274,6 +289,7 @@
       return postReport(item).then(function (res) {
         if (res.status === 201) {
           delivered++;
+          reported(item);
           if (res.data && res.data.crossing) { applyCrossing(res.data.crossing); updateEmpty(); }
         } else if (res.status >= 500 || res.status === 0) {
           requeue(item);
@@ -302,8 +318,6 @@
       if (!dir || !bucket) { form.reportValidity && form.reportValidity(); return; }
       if (hp && hp.value) { say("ok", S.b_report_thanks); return; }
       var item = { cid: form.getAttribute("data-cid"), direction: dir.value, bucket: parseInt(bucket.value, 10), observed_at: Math.floor(Date.now() / 1000) };
-      lastReport = { cid: item.cid, direction: item.direction };
-      store.set("report_pref", lastReport);
       var button = form.querySelector('button[type="submit"]');
       if (button) button.disabled = true;
       function done() { if (button) button.disabled = false; }
@@ -317,6 +331,7 @@
         if (res.status === 201) {
           say("ok", S.b_report_thanks);
           bucket.checked = false;
+          reported(item);
           if (res.data && res.data.crossing) { applyCrossing(res.data.crossing); updateEmpty(); }
         } else if (res.status === 429) {
           // crossing_busy: the crossing-wide cap is full – affects everyone, not just this client
@@ -399,7 +414,9 @@
   }
 
   // ---------------------------------------------------------- Startbildschirm-Hinweis
-  // Nur außerhalb der installierten App, ab dem 2. Besuch oder nach Wahl des Bundeslandes.
+  // Nur außerhalb der installierten App und erst, wenn die Person ein Bundesland gewählt oder
+  // erfolgreich eine Wartezeit gemeldet hat – ohne Besuchszähler. Die Karte gibt es nur auf
+  // Startseite, Grenz-Übersicht und Übergangsseiten (base.html).
   // Chromium: eigener Button (beforeinstallprompt), iOS: Kurzanleitung über „Teilen“.
   function isStandalone() {
     var mm = window.matchMedia;
@@ -407,19 +424,13 @@
       return mm("(display-mode: " + m + ")").matches;
     }));
   }
-  // Nur so viel merken wie nötig: Zähler bis 2, Zeitpunkt des letzten Aufrufs (bleibt auf dem Gerät)
-  var VISIT_GAP_MS = 30 * 60 * 1000; // länger nichts geöffnet: neuer Besuch
-  var visits = store.get("visits", 0);
-  var newVisit = Date.now() - store.get("seen_at", 0) > VISIT_GAP_MS;
-  if (newVisit && visits < 2) { visits += 1; store.set("visits", visits); }
-  store.set("seen_at", Date.now());
-
   var a2hs = $("[data-a2hs]");
   var installEvent = null;
   var isIos = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
   function a2hsWanted() {
-    return !!a2hs && !isStandalone() && !store.get("a2hs_off", false) && (visits >= 2 || !!stateCode(store.get("state", "")));
+    return !!a2hs && !isStandalone() && !store.get("a2hs_off", false)
+      && (!!stateCode(store.get("state", "")) || !!lastReport.cid);
   }
   function showA2hs() {
     var ios = !installEvent && isIos;
@@ -427,15 +438,16 @@
     $("[data-a2hs-install]", a2hs).hidden = !installEvent;
     $("[data-a2hs-ios]", a2hs).hidden = !ios;
     a2hs.hidden = false;
-    document.body.classList.add("has-a2hs");
+    document.documentElement.classList.add("has-a2hs");
   }
   function hideA2hs(remember) {
     if (!a2hs) return;
     a2hs.hidden = true;
-    document.body.classList.remove("has-a2hs");
+    document.documentElement.classList.remove("has-a2hs");
     if (remember) store.set("a2hs_off", true);
   }
-  // Speicher dauerhaft machen – nur in der installierten App, dort ohne Rückfrage an den Nutzer
+  // Speicher dauerhaft machen – nur in der installierten App, dort ohne Rückfrage an den Nutzer.
+  // Mehrfaches Anfragen schadet nicht; ist er schon dauerhaft, passiert nichts.
   function persistStorage() {
     var st = navigator.storage;
     if (!st || !st.persist || !st.persisted) return;
@@ -463,9 +475,35 @@
         .then(function () { return ev.userChoice; })
         .then(function () { hideA2hs(true); }, function () { hideA2hs(false); });
     });
+    // Niedrige Bildschirme: die iOS-Schritte erst auf „So geht's“ (app.css blendet sie sonst aus)
+    var how = $("[data-a2hs-how]", a2hs);
+    how.addEventListener("click", function () {
+      var open = !a2hs.classList.contains("is-open");
+      a2hs.classList.toggle("is-open", open);
+      how.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    document.addEventListener("keydown", function (ev) {
+      if ((ev.key === "Escape" || ev.key === "Esc") && !a2hs.hidden) hideA2hs(true);
+    });
+    // Die Karte liegt fest über der Tabbar: Was den Tastaturfokus bekommt, schieben wir darüber
+    // (scroll-padding-bottom in app.css wirkt nur bei Sprungzielen, nicht beim Fokussieren)
+    var raise = function (el) {
+      if (a2hs.hidden) return;
+      var top = a2hs.getBoundingClientRect().top;
+      var r = el.getBoundingClientRect();
+      // Noch ganz unterhalb des Fensters: erst scrollt der Browser, dann der zweite Aufruf
+      if (r.bottom > top && r.top < window.innerHeight) window.scrollBy(0, r.bottom - top + 14);
+    };
+    var later = window.requestAnimationFrame || setTimeout;
+    document.addEventListener("focusin", function (ev) {
+      var target = ev.target;
+      if (!target.getBoundingClientRect || a2hs.contains(target) || target.closest(".tabbar, .topbar, .skip")) return;
+      raise(target);
+      later(function () { raise(target); });
+    });
     showA2hs();
   }
-  if (isStandalone() && newVisit) persistStorage();
+  if (isStandalone()) persistStorage();
 
   // ---------------------------------------------------------- service worker
   if ("serviceWorker" in navigator && window.location.protocol !== "file:") {

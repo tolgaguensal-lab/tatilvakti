@@ -10,6 +10,11 @@ die Türkei fährt, bricht meist in den ersten Tagen auf und kommt in den letzte
 folgen die Tage mit der kleinsten Reisewelle und die Ferien-Wellen der Grenzseite – beide
 aus denselben Blöcken, damit sich die Seiten nicht widersprechen. Eine Schätzung aus
 Ferienterminen und Einwohnerzahlen, keine Stau-Messung.
+
+Ein ruhiger Tag darf nicht zu viel Urlaub kosten: Je Richtung kommen nur Tage infrage, die
+höchstens ein Sechstel der freien Zeit kosten (Aufenthalt mindestens zwei Drittel). Bei kurzen
+Ferien liegt das ganze Fenster in der eigenen Welle – dann sagt die Seite ehrlich „kein ruhiger
+Tag“, statt einen Aufenthalt von zwei Tagen zu empfehlen.
 """
 from __future__ import annotations
 
@@ -18,8 +23,8 @@ from datetime import date, timedelta
 from functools import cached_property
 
 WAVE_DAYS = 3        # Abfahrt in den ersten 3 Tagen eines freien Blocks, Rückfahrt in den letzten 3
-CANDIDATE_DAYS = 14  # Abreise-Kandidaten: die ersten 2 Wochen des eigenen Blocks, Rückreise: die letzten 2
-QUIET_MAX = 0.25     # Reisewelle bis 25 % gilt als ruhig; liegen alle Kandidaten darüber: „kein ruhiger Tag“
+SHIFT_DIVISOR = 6    # je Richtung höchstens 1/6 der freien Tage später los bzw. früher zurück (6 Wochen: 7 Tage)
+QUIET_MAX = 0.25     # Reisewelle bis 25 % gilt als ruhig, aber nie mit dem eigenen Land in der Welle
 
 
 @dataclass(frozen=True)
@@ -102,10 +107,15 @@ class WaveDay:
 
 @dataclass(frozen=True)
 class QuietPick:
-    """Empfohlene Reisetage, bester zuerst. calm=False: kein Kandidat bis QUIET_MAX – days enthält
-    dann nur den am wenigsten schlechten Tag, damit die Seite das ehrlich sagen kann."""
+    """Empfohlene Reisetage, bester zuerst (eine Rangfolge, keine Chronik).
+
+    calm=False: kein ruhiger Kandidat – days enthält dann nur den am wenigsten schlechten Tag,
+    damit die Seite das ehrlich sagen kann. over=True: alle Kandidaten liegen vor heute
+    (die Ferien laufen schon bzw. sind vorbei), days ist leer.
+    """
     days: tuple[WaveDay, ...]
     calm: bool
+    over: bool = False
 
 
 @dataclass(frozen=True)
@@ -275,33 +285,39 @@ class HolidayRadar:
         ordered = self._by_weight(states)
         return WaveDay(day, sum(self.weight[s] for s in ordered), ordered)
 
-    def quiet_days(self, period: Period, state: str, count: int = 3) -> dict[str, QuietPick]:
+    def quiet_days(self, period: Period, state: str, today: date | None = None,
+                   count: int = 3) -> dict[str, QuietPick]:
         """Abreise- und Rückreisetage mit der kleinsten Reisewelle innerhalb der freien Zeit eines Landes.
 
-        Kandidaten: die ersten bzw. letzten CANDIDATE_DAYS Tage des eigenen freien Blocks. Hat ein
-        Land nur einen Block unter 2 × CANDIDATE_DAYS, bekommt jede Richtung die Hälfte – sonst
-        könnte die empfohlene Abreise nach der Rückreise liegen. Rangfolge nach Reisewelle, bei
-        Gleichstand der Tag näher am Blockrand (mehr Urlaub). Gezeigt werden nur Tage bis
-        QUIET_MAX; gibt es keinen, nur der am wenigsten schlechte (calm=False).
+        Kandidaten: je Richtung die Tage vom Blockrand an, die höchstens ein Sechstel der freien
+        Tage kosten (SHIFT_DIVISOR) – so bleiben vom Urlaub mindestens zwei Drittel, und die
+        Abreise liegt immer vor der Rückreise. Tage vor heute fallen weg.
+
+        Ruhig ist ein Tag nur, wenn das eigene Land nicht in der Welle ist (dann fährt die
+        Nachbarschaft gleichzeitig los) und die Welle höchstens QUIET_MAX beträgt. Rangfolge nach
+        Reisewelle, bei Gleichstand der Tag näher am Blockrand (mehr Urlaub). Gibt es keinen
+        ruhigen Tag, nur den am wenigsten schlechten (calm=False).
+
+        Pro Land und Zeitraum gibt es genau einen freien Block (content.validate prüft das);
+        sonst überspannte die Empfehlung Schulwochen.
         """
         stretches = period.stretches(state)
         if not stretches:
             return {"departure": QuietPick((), False), "return": QuietPick((), False)}
-        first, last = stretches[0], stretches[-1]
-        if first == last:
-            n_dep = n_ret = max(1, min(CANDIDATE_DAYS, first.days // 2))
-        else:
-            n_dep, n_ret = min(CANDIDATE_DAYS, first.days), min(CANDIDATE_DAYS, last.days)
-        dep = [self.wave(first.start + timedelta(days=i), "departure") for i in range(n_dep)]
-        ret = [self.wave(last.end - timedelta(days=i), "return") for i in range(n_ret)]
-        # Kandidaten liegen nach Abstand zum Blockrand sortiert vor; sorted() ist stabil
-        return {"departure": self._pick(dep, count), "return": self._pick(ret, count)}
+        block = max(stretches, key=lambda r: r.days)
+        offsets = range(block.days // SHIFT_DIVISOR + 1)
+        dep = [block.start + timedelta(days=i) for i in offsets]
+        ret = [block.end - timedelta(days=i) for i in offsets]
+        return {"departure": self._pick(state, dep, "departure", today, count),
+                "return": self._pick(state, ret, "return", today, count)}
 
-    @staticmethod
-    def _pick(candidates: list[WaveDay], count: int) -> QuietPick:
-        """Beste Tage zuerst (die Liste ist eine Rangfolge, keine Chronik)."""
+    def _pick(self, state: str, days: list[date], kind: str, today: date | None, count: int) -> QuietPick:
+        """Beste Tage zuerst; days liegt nach Abstand zum Blockrand sortiert vor, sorted() ist stabil."""
+        candidates = [self.wave(day, kind) for day in days if today is None or day >= today]
+        if not candidates:
+            return QuietPick((), False, over=True)
         ranked = sorted(candidates, key=lambda w: round(w.share, 9))
-        calm = [w for w in ranked if w.share <= QUIET_MAX + 1e-9]
+        calm = [w for w in ranked if state not in w.states and w.share <= QUIET_MAX + 1e-9]
         return QuietPick(tuple(calm[:count] if calm else ranked[:1]), bool(calm))
 
     def bayrams_in(self, period: Period) -> list[tuple[Bayram, tuple[str, ...]]]:

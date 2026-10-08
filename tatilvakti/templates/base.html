@@ -61,19 +61,24 @@
 <main id="main" class="main">
 {% block main %}{% endblock %}
 </main>
-{%- if page and page != "offline" %}
+{%- if page in ("home", "borders", "crossing") %}
 
-{# Hinweis „auf den Startbildschirm“: bleibt ohne JS unsichtbar, app.js entscheidet, ob und welche Variante #}
+{#- Hinweis „auf den Startbildschirm“ nur dort, wo man unterwegs nachsieht (Start, Grenze, Übergang).
+    Bleibt ohne JS unsichtbar; app.js zeigt ihn erst nach Wahl des Bundeslandes oder einer Meldung. #}
 <aside class="a2hs" data-a2hs hidden aria-labelledby="a2hs-title">
   <span class="brand__mark a2hs__mark" aria-hidden="true">{{ icon("sun") }}</span>
   <div class="a2hs__body">
     <p class="a2hs__title" id="a2hs-title">{{ t("a2hs_title") }}</p>
     <p class="a2hs__text">{{ t("a2hs_text") }} <a href="{{ href('info') }}#offline">{{ t("a2hs_more") }}</a></p>
     <button class="btn btn--primary btn--small" type="button" data-a2hs-install hidden>{{ t("a2hs_install") }}</button>
-    <ol class="a2hs__steps" data-a2hs-ios hidden>
-      <li>{{ icon("ios-share", "icon--s") }}<span>{{ t("a2hs_ios_share") }}</span></li>
-      <li>{{ icon("add-square", "icon--s") }}<span>{{ t("a2hs_ios_add") }}</span></li>
-    </ol>
+    <div data-a2hs-ios hidden>
+      {#- nur auf niedrigen Bildschirmen sichtbar (app.css), dort klappt er die Schritte auf #}
+      <button class="a2hs__how" type="button" data-a2hs-how aria-expanded="false" aria-controls="a2hs-steps">{{ t("a2hs_how") }}</button>
+      <ol class="a2hs__steps" id="a2hs-steps">
+        <li>{{ icon("ios-share", "icon--s") }}<span>{{ t("a2hs_ios_share") }}</span></li>
+        <li>{{ icon("add-square", "icon--s") }}<span>{{ t("a2hs_ios_add") }}</span></li>
+      </ol>
+    </div>
   </div>
   <button class="a2hs__close" type="button" data-a2hs-close aria-label="{{ t('a2hs_close') }}">{{ icon("close") }}</button>
 </aside>

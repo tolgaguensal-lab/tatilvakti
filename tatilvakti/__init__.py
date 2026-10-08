@@ -117,7 +117,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     cli.register(app)
     # Erst nach allen eigenen Routen: Kill-Switch-Pfade und alte URLs dürfen keine treffen
     views.register_legacy_sw(app, views.parse_legacy_sw_paths(app.config["TV_LEGACY_SW_PATHS"]))
-    problems = redirect_route_problems(content.redirects, lambda path: views.is_route(app, path))
+    problems = redirect_route_problems(content.redirects, lambda path: views.own_status(app, path))
     if problems:
         raise RuntimeError("Weiterleitungen (data/redirects.json) fehlerhaft:\n" + "\n".join(problems))
     return app

@@ -386,6 +386,8 @@ body:not(.mode-plane) .only-plane { display: none; }
 .crossing__dirs { display: grid; gap: 6px; padding: 0 16px 14px; }
 .dirrow { display: grid; grid-template-columns: 7.2em 1fr; gap: 8px; align-items: center; margin-top: 4px; }
 .dirrow .dirlabel { white-space: normal; }
+/* Unter 360 px: Richtung über dem Status statt daneben – sonst brach „keine aktuelle Meldung“ Wort für Wort um */
+@media (max-width: 359px) { .dirrow { grid-template-columns: 1fr; gap: 2px; } }
 
 .dir-stack { display: grid; gap: 12px; margin-bottom: 10px; }
 @media (min-width: 560px) { .dir-stack { grid-template-columns: 1fr 1fr; } }
@@ -574,9 +576,23 @@ address { font-style: normal; margin-bottom: 10px; }
 .a2hs__steps li { display: flex; gap: 6px; align-items: flex-start; }
 .a2hs__steps .icon { color: var(--brand); margin-top: 1px; }
 .a2hs__close { flex: none; display: grid; place-items: center; width: 44px; height: 44px; margin-top: -10px; border: 0; border-radius: 10px; background: transparent; color: var(--ink-2); cursor: pointer; }
+.a2hs__how { display: none; }
 @media (max-width: 359px) { .a2hs__mark { display: none; } }
-/* Platz am Seitenende, damit die Karte nichts dauerhaft verdeckt */
-body.has-a2hs { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 230px); }
+/* Platz am Seitenende, damit die Karte nichts dauerhaft verdeckt; Sprungziele landen darüber */
+html.has-a2hs { scroll-padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 250px); }
+html.has-a2hs body { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 230px); }
+/* Niedrige Bildschirme (z. B. 320 × 568): nur Titel, Knopf und Schließen. Die volle Karte verdeckte
+   dort rund 40 % der Seite; die iOS-Schritte klappt „So geht's“ auf. */
+@media (max-height: 640px) {
+  .a2hs { padding: 8px 4px 8px 12px; }
+  .a2hs__mark, .a2hs__text { display: none; }
+  .a2hs__title { margin-bottom: 4px; }
+  .a2hs__how { display: inline-flex; align-items: center; min-height: 36px; padding: 0; border: 0; background: none;
+               color: var(--brand); font: inherit; font-size: .88rem; font-weight: 700; text-decoration: underline; cursor: pointer; }
+  .a2hs:not(.is-open) .a2hs__steps { display: none; }
+  html.has-a2hs { scroll-padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 130px); }
+  html.has-a2hs body { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 110px); }
+}
 
 /* ---------- Footer, Tabbar ---------- */
 .footer { max-width: 760px; margin: 10px auto 0; padding: 8px 16px 20px; color: var(--ink-2); font-size: .85rem; text-align: center; }
@@ -597,7 +613,7 @@ body.has-a2hs { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-botto
   .tabbar { left: 50%; transform: translateX(-50%); width: 560px; bottom: 14px; border: 1px solid var(--line); border-radius: 20px; height: var(--tabbar-h); padding-bottom: 0; }
   body { padding-bottom: calc(var(--tabbar-h) + 32px); }
   .a2hs { bottom: calc(var(--tabbar-h) + 26px); }
-  body.has-a2hs { padding-bottom: calc(var(--tabbar-h) + 220px); }
+  html.has-a2hs body { padding-bottom: calc(var(--tabbar-h) + 220px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

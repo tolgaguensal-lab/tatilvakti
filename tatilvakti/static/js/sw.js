@@ -143,8 +143,8 @@
   // Nie leer: zweisprachige Minimalseite, falls selbst die Offline-Seiten fehlen
   function lastResort() {
     var links = C.langs.map(function (l) { return '<a href="' + C.home[l] + '">' + l.toUpperCase() + "</a>"; }).join(" · ");
-    var body = '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
-      "<title>Offline</title><h1>Offline · Çevrimdışı</h1><p>" + links + "</p>";
+    var body = '<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+      '<title>Offline · İnternet yok</title><h1>Offline · <span lang="tr">İnternet yok</span></h1><p>' + links + "</p>";
     return new Response(body, { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } });
   }
 

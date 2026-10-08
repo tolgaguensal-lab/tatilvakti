@@ -1,0 +1,22 @@
+{
+  "de": {
+    "claim": "Gut vorbereitet in die Türkei",
+    "feats": [
+      "Ferien-Radar",
+      "Route & Vignetten",
+      "Grenze live",
+      "Zoll"
+    ],
+    "foot": "Zweisprachig · offline nutzbar · ohne Anmeldung"
+  },
+  "tr": {
+    "claim": "Türkiye yolculuğuna hazırlıklı çık",
+    "feats": [
+      "Tatil radarı",
+      "Güzergâh ve vinyetler",
+      "Sınırda son durum",
+      "Gümrük"
+    ],
+    "foot": "İki dilli · internetsiz de çalışır · üyelik gerekmez"
+  }
+}

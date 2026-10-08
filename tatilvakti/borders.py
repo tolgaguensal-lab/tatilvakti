@@ -166,11 +166,21 @@ def normalize_net(ip: str) -> str:
 
 
 def _day_salt(conn: sqlite3.Connection, now: int) -> bytes:
+    """Schlüssel des heutigen UTC-Tages. Wer ihn als Erster anlegt, löscht im selben Zug die
+    Schlüssel früherer Tage: Prüfwerte entstehen nur mit dem heutigen, ein älterer hat keinen
+    Zweck mehr. (Die Wartung tut das auch ohne Meldungen, siehe maintenance.)"""
     day = _utc_day(now)
     with salt_db(conn) as sconn:
         row = sconn.execute("SELECT salt FROM salts WHERE day = ?", (day,)).fetchone()
         if row is None:
-            sconn.execute("INSERT OR IGNORE INTO salts (day, salt) VALUES (?, ?)", (day, os.urandom(32)))
+            sconn.execute("BEGIN IMMEDIATE")
+            try:
+                sconn.execute("INSERT OR IGNORE INTO salts (day, salt) VALUES (?, ?)", (day, os.urandom(32)))
+                sconn.execute("DELETE FROM salts WHERE day < ?", (day,))
+                sconn.execute("COMMIT")
+            except BaseException:
+                sconn.execute("ROLLBACK")
+                raise
             row = sconn.execute("SELECT salt FROM salts WHERE day = ?", (day,)).fetchone()
     return row["salt"]
 

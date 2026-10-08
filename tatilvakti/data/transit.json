@@ -209,7 +209,7 @@
       "notes": [
         {
           "de": "Digitale Vignette („e-matrica“), ans Kennzeichen gebunden. Am besten vor der Auffahrt auf die Autobahn kaufen.",
-          "tr": "Dijital vinyet („e-matrica“), plakaya bağlı. En iyisi otoyola çıkmadan önce satın almak."
+          "tr": "Dijital vinyet (“e-matrica”), plakaya bağlı. En iyisi otoyola çıkmadan önce satın almak."
         },
         {
           "de": "D1 gilt nur für Fahrzeuge bis 3,5 t mit höchstens 7 Sitzplätzen inklusive Fahrer. Mehr Sitzplätze, Wohnmobil oder Transporter: D2. Maßgeblich sind Fahrzeugklasse (Feld J) und Sitzplätze (Feld S.1) im Fahrzeugschein.",
@@ -318,7 +318,7 @@
       "notes": [
         {
           "de": "Die Vignette („Rovinieta“) gilt für alle Nationalstraßen, nicht nur für Autobahnen. Seit 01.10.2026 hängt der Preis von der Abgasnorm ab: Gib beim Kauf die Euro-Norm aus dem Fahrzeugschein an, sonst wird der teuerste Tarif berechnet.",
-          "tr": "Vinyet („Rovinieta“) yalnızca otoyollar için değil, tüm devlet yolları için gerekir. 01.10.2026'dan beri fiyat emisyon normuna göre değişiyor: Satın alırken ruhsattaki Euro normunu gir, yoksa en pahalı tarife uygulanır."
+          "tr": "Vinyet (“Rovinieta”) yalnızca otoyollar için değil, tüm devlet yolları için gerekir. 01.10.2026'dan beri fiyat emisyon normuna göre değişiyor: Satın alırken ruhsattaki Euro normunu gir, yoksa en pahalı tarife uygulanır."
         },
         {
           "de": "Die Preise oben gelten für Pkw (Kategorie A). Ist dein Fahrzeug als Lkw, Transporter oder Bus zugelassen, gilt eine andere Kategorie – im Shop die Kategorie deines Fahrzeugs prüfen.",
@@ -326,7 +326,7 @@
         },
         {
           "de": "Seit 01.10.2026 gibt es die Vignette nur noch über die offiziellen Kanäle des neuen Systems TollRo: Portal etoll.ro, App „TollRo“, CNAIR-Verkaufsstellen (auch an der Grenze) und zugelassene Verkäufer.",
-          "tr": "01.10.2026'dan beri vinyet yalnızca yeni TollRo sisteminin resmî kanallarından alınabiliyor: etoll.ro portalı, „TollRo“ uygulaması, CNAIR satış noktaları (sınırda da) ve yetkili satıcılar."
+          "tr": "01.10.2026'dan beri vinyet yalnızca yeni TollRo sisteminin resmî kanallarından alınabiliyor: etoll.ro portalı, “TollRo” uygulaması, CNAIR satış noktaları (sınırda da) ve yetkili satıcılar."
         },
         {
           "de": "Donaubrücke Calafat–Vidin: 6 € je Richtung.",
@@ -577,7 +577,7 @@
       "id": "gruene-karte",
       "text": {
         "de": "Grüne Versicherungskarte – „TR“ darf nicht durchgestrichen sein; Schutz im asiatischen Teil mit der Versicherung klären",
-        "tr": "Yeşil kart sigortası – „TR“ çizili olmamalı; Asya kısmındaki teminatı sigortanla netleştir"
+        "tr": "Yeşil kart sigortası – “TR” çizili olmamalı; Asya kısmındaki teminatı sigortanla netleştir"
       },
       "link": "customs#tr-gruene-karte"
     },

@@ -21,8 +21,8 @@
       {%- endfor %}
     </ol>
     <p class="route-card__controls"><strong>{{ plural("r_controls", r.controls|length) }}</strong></p>
-    {#- Ohne aktuelle Meldung an allen Übergängen der Route eine Zeile statt grauer Chips (app.js: data-live) #}
-    <div class="live{% if not any_live(statuses, r.controls, ["to_tr"]) %} is-empty{% endif %}" data-live>
+    {#- Ohne aktuelle Meldung an allen Übergängen der Route eine Zeile statt grauer Chips (app.js: data-live-list) #}
+    <div class="live{% if not any_live(statuses, r.controls, ["to_tr"]) %} is-empty{% endif %}" data-live-list>
       <ul class="route-card__borders">
         {%- for cid in r.controls %}
         {%- set c = crossings[cid] %}

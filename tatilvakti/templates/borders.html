@@ -48,9 +48,9 @@
 </section>
 
 {#- Eine Liste von Übergängen. Ohne jede aktuelle Meldung (is-empty) nur Namen und eine Zeile
-    statt grauer Chips; app.js schaltet das nach jeder Aktualisierung um (data-live). #}
+    statt grauer Chips; app.js schaltet das nach jeder Aktualisierung um (data-live-list). #}
 {% macro crossing_list(items, title_id, title, call=False) -%}
-<section class="live{% if not any_live(statuses, items | map(attribute='id')) %} is-empty{% endif %}" aria-labelledby="{{ title_id }}" data-live>
+<section class="live{% if not any_live(statuses, items | map(attribute='id')) %} is-empty{% endif %}" aria-labelledby="{{ title_id }}" data-live-list>
   <h2 id="{{ title_id }}" class="section-title">{{ title }}</h2>
   <p class="live__empty">{{ icon("info", "icon--s") }}<span><strong>{{ t("b_empty_2h", h=window_h) }}</strong>{% if call %} {{ t("b_be_first") }}{% endif %}</span></p>
   <ul class="crossings">
