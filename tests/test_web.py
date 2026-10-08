@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 
 import pytest
 
+from tatilvakti import borders as B
+
 PAGES = {
     "de": ["/de/", "/de/ferien", "/de/route", "/de/grenze", "/de/grenze/kapikule", "/de/zoll", "/de/info", "/de/offline"],
     "tr": ["/tr/", "/tr/tatil", "/tr/guzergah", "/tr/sinir", "/tr/sinir/kapikule", "/tr/gumruk", "/tr/bilgi", "/tr/cevrimdisi"],
@@ -196,10 +198,11 @@ def test_report_form_works_without_javascript(client):
     ("de", "/de/grenze/kapikule", "kommen gerade sehr viele Meldungen an"),
     ("tr", "/tr/sinir/kapikule", "çok fazla bildirim geliyor"),
 ])
-def test_full_crossing_gets_its_own_message(client, monkeypatch, lang, path, text):
-    """Obergrenze voll: nicht „Du hast hier gerade schon gemeldet“, das stimmt für Erstmelder nicht."""
-    from tatilvakti import borders as B
-    monkeypatch.setattr(B, "CROSSING_CAP", 0)
+@pytest.mark.parametrize("cap", ["CROSSING_CAP", "BLOCK_CAP"])
+def test_full_crossing_gets_its_own_message(client, monkeypatch, lang, path, text, cap):
+    """Obergrenze voll: nicht „Du hast hier gerade schon gemeldet“, das stimmt für Erstmelder nicht.
+    Ebenso, wenn das eigene Netz (/48) seinen Anteil an der Obergrenze ausgeschöpft hat."""
+    monkeypatch.setattr(B, cap, 0)
     api = client.post("/api/v1/borders/kapikule/reports", json={"direction": "to_tr", "bucket": 1})
     assert api.status_code == 429 and api.get_json() == {"error": "ratelimited", "detail": "crossing_busy"}
     form = client.post(f"{path}/report", data={"direction": "to_tr", "bucket": "1"}, headers=SAME_ORIGIN)
@@ -323,8 +326,10 @@ def test_manifest(client, lang):
 
 
 def test_healthz_reports_data_freshness(client):
-    data = client.get("/healthz").get_json()
-    assert data["db"] is True and data["salt_db"] is True
+    resp = client.get("/healthz")
+    data = resp.get_json()
+    assert resp.headers["Cache-Control"] == "no-store"  # nie aus einem Cache (Audit d4-healthz-…)
+    assert data["db"] is True and data["salt_db"] is True and data["down"] == []
     assert data["datasets"]["holidays"]["as_of"] == "2026-10-06"
     assert data["datasets"]["holidays"]["review_due"] is False
     assert data["due_items"] == [] and data["next_review"] > "2026-10-06"
@@ -379,8 +384,9 @@ def test_healthz_flags_whole_datasets_after_review_date(operated_app, clock):
     assert whole == {"holidays", "customs", "transit", "crossings"}
 
 
-def test_healthz_flags_an_unusable_salt_db(operated_app, tmp_path, caplog):
-    """Review: Ohne Schlüssel-DB scheitert jede Meldung – /healthz muss das zeigen (HTTP bleibt 200)."""
+def test_healthz_is_503_without_a_usable_salt_db(operated_app, tmp_path, caplog):
+    """Audit d4-healthz-200-bei-ausfall: Ohne Schlüssel-DB scheitert jede Meldung. Ein Monitor, der
+    nur den Statuscode prüft, muss das sehen: 503, status 'down', Grund in 'down' (nicht attention)."""
     client = operated_app.test_client()
     blocker = tmp_path / "keine-verzeichnis"
     blocker.write_text("")  # wie /run/tatilvakti-v2 weg und ohne Recht, es neu anzulegen
@@ -391,12 +397,203 @@ def test_healthz_flags_an_unusable_salt_db(operated_app, tmp_path, caplog):
         for _ in range(2):
             resp = client.get("/healthz")
             data = resp.get_json()
-            assert resp.status_code == 200 and data["salt_db"] is False
-            assert (data["status"], data["attention"]) == ("attention", ["salt_db"])
+            assert resp.status_code == 503 and resp.headers["Cache-Control"] == "no-store"
+            assert (data["status"], data["down"], data["attention"]) == ("down", ["salt_db"], [])
+            assert data["salt_db"] is False and data["db"] is True
     assert len([r for r in caplog.records if "nicht nutzbar" in r.getMessage()]) == 1  # einmal, nicht je Abfrage
     operated_app.config["TV_SALT_DB_PATH"] = str(tmp_path / "wieder" / "salts.db")  # repariert
+    resp = client.get("/healthz")
+    assert resp.status_code == 200
+    assert (resp.get_json()["status"], resp.get_json()["down"]) == ("ok", [])
+
+
+def test_healthz_keeps_maintenance_hints_at_200(operated_app, clock):
+    """Pflegehinweise (fällige Prüfung, Impressum, Proxy, Wartung) sind kein Ausfall: HTTP 200,
+    status 'attention', 'down' leer. Ein Statuscode-Monitor bleibt grün."""
+    operated_app.config["TV_OPERATOR_EMAIL"] = ""
+    client = operated_app.test_client()
+    client.get("/de/", headers={"X-Forwarded-For": "203.0.113.9"})  # TV_TRUST_PROXY=0: Proxy-Hinweis
+    clock.now = datetime(2100, 1, 1, 9, 0, tzinfo=timezone.utc)  # alle Daten zur Prüfung fällig
+    resp = client.get("/healthz")
+    data = resp.get_json()
+    assert resp.status_code == 200 and data["down"] == []
+    assert data["status"] == "attention" and data["attention"] == ["due_items", "imprint", "proxy"]
+
+
+@pytest.fixture
+def quick_lock(monkeypatch):
+    """Kurze Wartezeit auf die Schreibsperre, damit Tests mit gehaltener Sperre schnell sind."""
+    import tatilvakti.db
+    monkeypatch.setattr(tatilvakti.db, "BUSY_TIMEOUT_MS", 50)
+
+
+def test_healthz_is_503_while_another_process_holds_the_write_lock(operated_app, quick_lock, caplog):
+    """Audit-Probe (b): Eine zweite Verbindung hält BEGIN IMMEDIATE. Jede Meldung scheitert dann
+    mit „database is locked“; früher blieb /healthz bei 200 und status ok."""
+    from tatilvakti.db import connect
+    client = operated_app.test_client()
+    assert client.get("/healthz").status_code == 200  # Wartung dieses Prozesses ist erledigt
+    other = connect(operated_app.config["TV_DB_PATH"])
+    try:
+        other.execute("BEGIN IMMEDIATE")
+        operated_app.config["PROPAGATE_EXCEPTIONS"] = False
+        assert client.post("/api/v1/borders/kapikule/reports", json={"direction": "to_tr", "bucket": 1}).status_code == 500
+        with caplog.at_level("WARNING"):
+            resp = client.get("/healthz")
+        data = resp.get_json()
+        assert resp.status_code == 503 and (data["status"], data["down"], data["db"]) == ("down", ["db"], False)
+        assert any("nimmt keine Meldungen an: database is locked" in r.getMessage() for r in caplog.records)
+    finally:
+        other.execute("ROLLBACK")
+        other.close()
+    assert client.get("/healthz").status_code == 200
+
+
+def test_healthz_is_503_when_the_db_is_read_only(operated_app, monkeypatch):
+    """Schreibgeschützte DB (Rechte, -wal/-shm von root, read-only eingehängt): Lesen klappt, die
+    Seiten laufen, aber keine Meldung lässt sich speichern. BEGIN IMMEDIATE allein merkt das nicht."""
+    import sqlite3
+    from tatilvakti import views
+    from tatilvakti.db import Connection
+    client = operated_app.test_client()
+    assert client.get("/healthz").status_code == 200
+    path = operated_app.config["TV_DB_PATH"]
+    readonly = sqlite3.connect(f"file:{path}?mode=ro", uri=True, isolation_level=None, factory=Connection)
+    readonly.row_factory = sqlite3.Row
+    readonly.salt_path = operated_app.config["TV_SALT_DB_PATH"]
+    monkeypatch.setattr(views, "_db", lambda: readonly)
+    try:
+        resp = client.get("/healthz")
+        assert resp.status_code == 503 and resp.get_json()["down"] == ["db"]
+        assert resp.get_json()["maintenance_at"] is not None  # lesen ging
+    finally:
+        readonly.close()
+
+
+def test_healthz_is_503_when_writing_fails(operated_app, clock, monkeypatch):
+    """Volle Platte oder E/A-Fehler zeigen sich erst beim Schreiben. /healthz stößt dafür die Wartung
+    an, die höchstens alle MAINTENANCE_EVERY_S Sekunden schreibt, und versucht es bis zum Erfolg."""
+    import sqlite3
+    client = operated_app.test_client()
+    assert client.get("/healthz").status_code == 200
+    real = B.maintenance
+
+    def full(conn, now, force=False):
+        raise sqlite3.OperationalError("database or disk is full")
+    monkeypatch.setattr(B, "maintenance", full)
+    clock.advance(seconds=B.MAINTENANCE_EVERY_S)
+    for _ in range(2):  # bleibt rot, solange Schreiben scheitert
+        resp = client.get("/healthz")
+        assert resp.status_code == 503 and resp.get_json()["down"] == ["db"]
+    monkeypatch.setattr(B, "maintenance", real)
+    assert client.get("/healthz").status_code == 200  # wieder schreibbar: sofort grün
+
+
+def test_healthz_does_not_write_on_every_call(operated_app, clock):
+    """Billig: Zwischen den Wartungsläufen schreibt /healthz nichts (data_version ändert sich nur,
+    wenn eine andere Verbindung etwas festschreibt)."""
+    from tatilvakti.db import connect
+    client = operated_app.test_client()
+    client.get("/healthz")
+    db_op = connect(operated_app.config["TV_DB_PATH"])
+    try:
+        before = db_op.execute("PRAGMA data_version").fetchone()[0]
+        for _ in range(3):
+            clock.advance(seconds=30)
+            assert client.get("/healthz").status_code == 200
+        assert db_op.execute("PRAGMA data_version").fetchone()[0] == before
+        clock.advance(seconds=B.MAINTENANCE_EVERY_S)  # jetzt ist die Wartung fällig und schreibt
+        assert client.get("/healthz").status_code == 200
+        assert db_op.execute("PRAGMA data_version").fetchone()[0] != before
+    finally:
+        db_op.close()
+
+
+
+def test_healthz_salt_error_during_maintenance_is_not_a_db_failure(operated_app, tmp_path, clock):
+    """Läuft die Wartung im /healthz-Abruf selbst und scheitert nur an der Schlüssel-DB, ist die
+    Haupt-DB trotzdem in Ordnung: down nennt nur salt_db."""
+    client = operated_app.test_client()
+    assert client.get("/healthz").status_code == 200
+    blocker = tmp_path / "keine-verzeichnis"
+    blocker.write_text("")
+    operated_app.config["TV_SALT_DB_PATH"] = str(blocker / "salts.db")
+    clock.advance(seconds=B.MAINTENANCE_EVERY_S)
+    # Die Wartung im before_request dieses Prozesses ist gerade gelaufen: Erst /healthz schreibt
+    operated_app.extensions["tv"].runtime["maintenance_checked_at"] = clock.ts
+    resp = client.get("/healthz")
+    assert resp.status_code == 503 and resp.get_json()["down"] == ["salt_db"]
+    assert resp.get_json()["maintenance_at"] == iso_z(clock.ts)
+
+
+def iso_z(ts):
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_healthz_flags_a_full_crossing_cap_for_a_day(operated_app, clock):
+    """Audit d3-ratelimit-crossing-cap-48, Erkennung: Ist eine Obergrenze (oder der Anteil eines /48)
+    erreicht, zeigt /healthz einen Tag lang den Pflegehinweis 'crossing_cap' mit Zeitpunkt. Kein
+    Ausfall: HTTP 200, damit der Uptime-Monitor nicht anschlägt; die tägliche Prüfung auf
+    "status":"ok" sieht es."""
+    from tatilvakti.db import connect
+    client = operated_app.test_client()
     data = client.get("/healthz").get_json()
-    assert (data["status"], data["salt_db"]) == ("ok", True)
+    assert (data["status"], data["crossing_cap_at"]) == ("ok", None)
+    conn = connect(operated_app.config["TV_DB_PATH"])
+    try:
+        for i in range(B.CROSSING_CAP):
+            B.add_report(conn, "kapikule", "to_tr", 1, f"198.51.100.{i + 1}", clock.ts)
+        with pytest.raises(B.CrossingBusy):
+            B.add_report(conn, "kapikule", "to_tr", 1, "198.51.100.99", clock.ts)
+    finally:
+        conn.close()
+    at = clock.ts
+    clock.advance(hours=23)
+    resp = client.get("/healthz")
+    data = resp.get_json()
+    assert resp.status_code == 200 and data["down"] == []
+    assert (data["status"], data["attention"], data["crossing_cap_at"]) == ("attention", ["crossing_cap"], iso_z(at))
+    # Von außen nur der Status, nicht der Grund
+    public = client.get("/healthz", environ_base={"REMOTE_ADDR": "198.51.100.7"}).get_json()
+    assert public == {"status": "attention", "build": data["build"], "down": []}
+    clock.advance(hours=1)
+    data = client.get("/healthz").get_json()
+    assert (data["status"], data["attention"], data["crossing_cap_at"]) == ("ok", [], iso_z(at))
+
+
+@pytest.mark.parametrize("trust_proxy, remote, headers", [
+    (1, "127.0.0.1", {"X-Forwarded-For": "203.0.113.9"}),   # Pangolin, richtig eingestellt
+    (0, "127.0.0.1", {"X-Forwarded-For": "203.0.113.9"}),   # Pangolin über den Tunnel, TV_TRUST_PROXY fehlt
+    (0, "127.0.0.1", {"Forwarded": "for=203.0.113.9"}),
+    (0, "127.0.0.1", {"X-Real-IP": "203.0.113.9"}),
+    (0, "198.51.100.7", {}),                                  # Port direkt erreichbar
+], ids=["proxy", "tunnel-ohne-trust", "forwarded", "x-real-ip", "direkt"])
+def test_healthz_shows_details_only_on_the_server(tmp_path, clock, trust_proxy, remote, headers):
+    """Audit d2-healthz-internals / d4-healthz-details-oeffentlich: Von außen nur status, build und
+    down mit demselben Statuscode. Proxy-Einstellung, Zustand des Spam-Schutzes, Pflegehinweise und
+    Prüfdaten sieht nur, wer auf dem Server selbst fragt (deploy.sh, curl auf 127.0.0.1:3096)."""
+    from tatilvakti import create_app
+    app = create_app({"TESTING": True, "TV_DB_PATH": str(tmp_path / "hz.db"), "TV_CLOCK": clock,
+                      "TV_TRUST_PROXY": trust_proxy})
+    client = app.test_client()
+    full = client.get("/healthz").get_json()  # Testclient: 127.0.0.1 ohne Proxy-Header
+    assert {"proxy", "salt_db", "due_items", "attention", "imprint_ok"} <= full.keys()
+    resp = client.get("/healthz", headers=headers, environ_base={"REMOTE_ADDR": remote})
+    assert resp.status_code == 200 and resp.headers["Cache-Control"] == "no-store"
+    assert resp.get_json() == {"status": full["status"], "build": full["build"], "down": []}
+    # Ausfall: von außen derselbe Statuscode und der Grund
+    blocker = tmp_path / "keine-verzeichnis"
+    blocker.write_text("")
+    app.config["TV_SALT_DB_PATH"] = str(blocker / "salts.db")
+    resp = client.get("/healthz", headers=headers, environ_base={"REMOTE_ADDR": remote})
+    assert resp.status_code == 503
+    assert resp.get_json() == {"status": "down", "build": full["build"], "down": ["salt_db"]}
+
+
+@pytest.mark.parametrize("remote", ["127.0.0.1", "::1", "::ffff:127.0.0.1"])
+def test_healthz_details_for_every_loopback_address(client, remote):
+    data = client.get("/healthz", environ_base={"REMOTE_ADDR": remote}).get_json()
+    assert "proxy" in data and "salt_db" in data
 
 
 def test_forwarded_header_without_trusted_proxy_warns_once(client, caplog):
@@ -424,6 +621,19 @@ def test_trusted_proxy_groups_ipv6_by_64(tmp_path, clock):
     over = client.post(url, json=body, headers={"X-Forwarded-For": "2001:db8:1:5::1"})
     assert over.status_code == 429 and over.get_json()["detail"] == "net_per_hour"
     assert client.post(url, json=body, headers={"X-Forwarded-For": "198.51.100.7"}).status_code == 201
+
+
+def test_trusted_proxy_limits_one_48_to_its_share(tmp_path, clock):
+    from tatilvakti import create_app
+    app = create_app({"TESTING": True, "TV_DB_PATH": str(tmp_path / "px.db"), "TV_CLOCK": clock, "TV_TRUST_PROXY": 1})
+    client = app.test_client()
+    url = "/api/v1/borders/kapikule/reports"
+    body = {"direction": "to_tr", "bucket": 5}
+    for i in range(B.BLOCK_CAP):  # je ein anderes /56 im selben /48
+        assert client.post(url, json=body, headers={"X-Forwarded-For": f"2001:db8:7:{i:02x}00::1"}).status_code == 201
+    over = client.post(url, json=body, headers={"X-Forwarded-For": "2001:db8:7:ff00::1"})
+    assert over.status_code == 429 and over.get_json()["detail"] == "crossing_busy"
+    assert client.post(url, json=body, headers={"X-Forwarded-For": "2001:db8:8::1"}).status_code == 201
 
 
 def test_maintenance_runs_without_new_reports(client, db, clock):

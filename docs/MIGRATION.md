@@ -128,7 +128,7 @@ Das HTTPS-Request-Log von Pangolin speichert laut [Pangolin-Doku](https://docs.p
 
 ### 2.8 Impressum und Datenschutzhinweise
 
-- [ ] `TV_OPERATOR_NAME`, `TV_OPERATOR_ADDRESS`, `TV_OPERATOR_EMAIL` in `/etc/tatilvakti-v2.env` gesetzt (`/healthz` → `imprint_ok: true`). Das Impressum erscheint nur mit allen drei Angaben, die Anschrift braucht mindestens eine Zeile (Zeilen mit `;` trennen). Fehlt eine Angabe, steht auf der Info-Seite „noch nicht eingerichtet“.
+- [ ] `TV_OPERATOR_NAME`, `TV_OPERATOR_ADDRESS`, `TV_OPERATOR_EMAIL` in `/etc/tatilvakti-v2.env` gesetzt (`/healthz` auf dem Server → `imprint_ok: true`, siehe 6a). Das Impressum erscheint nur mit allen drei Angaben, die Anschrift braucht mindestens eine Zeile (Zeilen mit `;` trennen). Fehlt eine Angabe, steht auf der Info-Seite „noch nicht eingerichtet“.
 - [ ] Empfänger und Log-Frist des Proxys aus 2.6 stehen im Datenschutztext.
 - [ ] Alle Dienste, die nach 2.1–2.6 weiterlaufen, sind in den Hinweisen von v2 abgedeckt.
 - [ ] Alte Impressums- und Datenschutz-URLs stehen in Anhang A (Ziel `/de/info#impressum` bzw. `/de/info#datenschutz`).
@@ -160,7 +160,7 @@ Je nach Ergebnis von 1.1. Sobald v2 oder der Kill-Switch auf einem Gerät aktiv 
 ## 4. v2 installieren und auf einer Test-Subdomain prüfen
 
 1. v2 einrichten wie in README → Betrieb → Einrichten beschrieben. `/etc/tatilvakti-v2.env` enthält von Anfang an `TV_BASE_URL=https://tatilvakti.guenlab.de`: Canonical-Links zeigen damit schon im Test auf die Hauptdomain, es entsteht kein doppelter Suchindex.
-2. In Pangolin eine **neue Ressource** anlegen, z. B. `tatilvakti-test.guenlab.de`, Ziel: Hermes, Port **3096**. Kompression einschalten (README → Reverse-Proxy). Empfohlen: Pangolin-Authentifizierung für diese Ressource, damit sie nicht öffentlich ist.
+2. In Pangolin eine **neue Ressource** anlegen, z. B. `tatilvakti-test.guenlab.de`, Ziel: Hermes, Port **3096**. Kompression einschalten (README → Reverse-Proxy). Empfohlen: Pangolin-Authentifizierung für diese Ressource, damit sie nicht öffentlich ist. **Keinen Health-Check** der Ressource auf `/healthz` einrichten (auch nicht später für die Hauptdomain): `/healthz` liefert HTTP 503 schon, wenn nur das Melden ausfällt (z. B. Schlüssel-DB), die Seiten laufen dann weiter. Ein Health-Check nähme die ganze Seite vom Netz. Falls einer nötig ist, auf `/de/` richten.
 3. Funktionstest auf der Test-Subdomain:
    - [ ] alle Seiten in DE und TR, Sprachwechsel,
    - [ ] offline: DevTools → *Network* → *Offline*, neu laden, gespeicherter Stand mit Alter erscheint,
@@ -180,7 +180,7 @@ Je nach Ergebnis von 1.1. Sobald v2 oder der Kill-Switch auf einem Gerät aktiv 
 **Voraussetzungen:**
 
 - [ ] Abschnitt 2 entschieden, alles, was vorher passieren muss, ist erledigt (Push-Versand und Scraper gestoppt, Hinweise für weiterlaufende Dienste in v2).
-- [ ] `/healthz` auf der Test-Subdomain: `status` `ok`, `imprint_ok` `true`.
+- [ ] `/healthz` wie in 6a: auf dem Server `status` `ok` und `imprint_ok` `true`, über die Test-Subdomain HTTP 200.
 - [ ] `TV_LEGACY_SW_PATHS` gesetzt, falls der alte Worker nicht unter `/sw.js` liegt (Abschnitt 3).
 - [ ] Weiterleitungstabelle aus Anhang A in `tatilvakti/data/redirects.json` eingetragen und ausgeliefert.
 - [ ] Zeitpunkt außerhalb der Reisespitzen (nicht am Wochenende vor Ferienbeginn). Jedes Gerät lädt nach dem Wechsel die Offline-Daten neu.
@@ -212,11 +212,16 @@ Mit `D=https://tatilvakti.guenlab.de` (auf der Test-Subdomain entsprechend).
 
 **a) Status**
 
+Alle Details zeigt `/healthz` nur beim Abruf auf dem Server selbst, von außen kommen nur `status`, `build` und `down` (README → Logs und Monitoring). Deshalb zweimal:
+
 ```bash
-curl -s "$D/healthz" | python3 -m json.tool
+curl -s -o /dev/null -w '%{http_code}\n' "$D/healthz"          # von außen (z. B. Laptop): 200
+curl -s http://127.0.0.1:3096/healthz | python3 -m json.tool      # auf Hermes: alle Details
 ```
 
-Erwartet: `status` `ok`. Bei `attention` stehen die Gründe in `attention`. Außerdem `db` `true`, `build` wie in der Ausgabe von `deploy.sh`, `due_items` leer (sonst sind Daten zu prüfen, README → Datenpflege), `imprint_ok` `true`, `proxy.trust_proxy` `1`, `proxy.forwarded_ignored` `false`.
+Erwartet: von außen HTTP 200; auf dem Server `status` `ok`. Bei `attention` (weiter HTTP 200) stehen die Pflegehinweise in `attention`. Außerdem `down` leer, `db` `true`, `build` wie in der Ausgabe von `deploy.sh`, `due_items` leer (sonst sind Daten zu prüfen, README → Datenpflege), `imprint_ok` `true`, `proxy.trust_proxy` `1`, `proxy.forwarded_ignored` `false`.
+
+HTTP 503 mit `status` `down` heißt: Melden geht nicht, die Gründe stehen in `down` (`db`: Haupt-DB nimmt keine Meldung an; `salt_db`: Schlüssel-DB nicht nutzbar). Ursache: `journalctl -u tatilvakti-v2 -n 50`. Ein externer Uptime-Monitor prüft `$D/healthz` auf den Statuscode (200 gut, alles andere Alarm); Pflegehinweise sind kein Ausfall (README → Logs und Monitoring).
 
 **b) Host-Weitergabe und Canonical**
 
