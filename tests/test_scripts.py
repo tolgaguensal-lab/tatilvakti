@@ -98,6 +98,18 @@ def test_config_check_rejects(env, needle, capsys):
     assert any(needle in e for e in rep.errors)
 
 
+def test_config_check_treats_separator_only_address_as_missing(capsys):
+    """Wie operator_imprint() in der App: Eine Anschrift nur aus „;“ ist keine Anschrift."""
+    pre = load_script("preflight")
+    env = {"TV_OPERATOR_NAME": "Max Muster", "TV_OPERATOR_ADDRESS": " ; ;", "TV_OPERATOR_EMAIL": "a@b.de"}
+    pre.check_config(env, pre.Report())
+    out = capsys.readouterr().out
+    assert "Impressum unvollständig" in out and "TV_OPERATOR_ADDRESS" in out
+    env["TV_OPERATOR_ADDRESS"] = "Musterstr. 1; 12345 Musterstadt"
+    pre.check_config(env, pre.Report())
+    assert "Impressum-Angaben gesetzt" in capsys.readouterr().out
+
+
 def test_parse_env_file_like_systemd():
     pre = load_script("preflight")
     env = pre.parse_env_file('# Kommentar\n; auch\nA=1\nB="zwei Wörter"\nC=x y;z\n'

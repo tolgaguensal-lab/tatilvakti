@@ -99,7 +99,9 @@ def check_config(env: dict[str, str], rep: Report) -> None:
         rep.warn("TV_TRUST_PROXY=0: hinter Pangolin sähe der Spam-Schutz nur eine IP (Limit gilt dann für alle)")
     else:
         rep.ok(f"TV_TRUST_PROXY={hops}")
-    missing = [k for k in ("TV_OPERATOR_NAME", "TV_OPERATOR_ADDRESS", "TV_OPERATOR_EMAIL") if not env.get(k)]
+    # Gleiche Regel wie operator_imprint() in der App: nur Leerzeichen bzw. nur ";" zählt als leer
+    missing = [k for k in ("TV_OPERATOR_NAME", "TV_OPERATOR_ADDRESS", "TV_OPERATOR_EMAIL")
+               if not env.get(k, "").replace(";", "").strip()]
     if missing:
         rep.warn("Impressum unvollständig, vor dem Launch setzen: " + ", ".join(missing))
     else:
