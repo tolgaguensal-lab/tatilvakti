@@ -7,3 +7,7 @@ instance/
 *.db-wal
 *.db-shm
 .env
+.env.*
+!.env.example
+# Audit-Berichte (launchworthy): Karte der Schwachstellen, nie committen
+tmp/
