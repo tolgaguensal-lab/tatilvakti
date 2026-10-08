@@ -16,8 +16,10 @@ Prüft der Reihe nach:
 2. create_app() gegen eine Online-KOPIE der Produktions-DB in einem temporären Verzeichnis:
    Datenvalidierung und Schema. Echte DB und Salts-Datei bleiben unberührt.
 3. Alle GET-Routen (jede Seite, jeder Grenzübergang, /healthz, /sw.js, Sitemap …) und jede URL
-   der Precache-Liste aus /sw.js: kein Status ab 400. Sonst fehlt die Seite offline, bei einem
-   Asset installiert sich der Service Worker gar nicht. Canonical-Links müssen auf TV_BASE_URL zeigen.
+   der Precache-Liste aus /sw.js: kein Status ab 400. Sonst fehlt die Seite offline; bei einem
+   Asset, einer Start- oder Offline-Seite installiert sich der neue Service Worker gar nicht (der
+   alte bleibt aktiv). Kill-Switch-Pfade (TV_LEGACY_SW_PATHS) müssen JavaScript mit Status 200
+   liefern. Canonical-Links müssen auf TV_BASE_URL zeigen.
 4. pytest im Release, ohne TV_*-Variablen aus der Umgebung (--test-python: venv mit pytest,
    damit das Laufzeit-venv ohne Testwerkzeuge auskommt).
 
