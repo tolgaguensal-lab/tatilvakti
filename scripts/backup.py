@@ -7,19 +7,19 @@ gunicorn schreibt.
 
 Datensparsamkeit: Die KOPIE behält nur, was ausdrücklich erlaubt ist (KEEP_TABLES, REPORT_COLUMNS):
 von jeder Meldung Übergang, Richtung, Wartezeit-Bereich und Zeitpunkte. Alles andere wird geleert,
-also die Prüfwerte (reports.client, reports.net), eine evtl. vorhandene Tabelle salts (ältere
-Versionen) und Unbekanntes, danach per VACUUM aus den freien Seiten entfernt. Die eigene
-Salts-Datei (TV_SALT_DB_PATH) wird nie gelesen. Das Original bleibt unverändert.
+also die Prüfwerte (reports.client, reports.net, reports.block), eine evtl. vorhandene Tabelle
+salts (ältere Versionen) und Unbekanntes, danach per VACUUM aus den freien Seiten entfernt. Die
+eigene Salts-Datei (TV_SALT_DB_PATH) wird nie gelesen. Das Original bleibt unverändert.
 
     python scripts/backup.py --db /var/lib/tatilvakti-v2/tatilvakti.db \
         --dest /var/lib/tatilvakti-v2/backups --keep-days 14
 
 Ergebnis: <dest>/tatilvakti-<UTC-Zeit>.db (Modus 0600). Jeder Lauf löscht danach die Sicherungen,
 die --keep-days Tage alt sind: Bei 14 löscht der nächtliche Lauf am 14. Tag die Sicherung von
-damals, auch wenn der Timer an diesem Tag ein paar Minuten früher startet (PRUNE_SLACK_S). Das gilt auch,
-wenn die neue Sicherung scheitert; dann bleibt die neueste vorhandene erhalten, es gibt also
-immer mindestens eine. Exit-Code ≠ 0 bei jedem Fehler (systemd meldet den Lauf dann als
-fehlgeschlagen).
+damals, auch wenn der Timer an diesem Tag etwas früher startet oder die Sommerzeit dazwischen
+begann (PRUNE_SLACK_S). Das gilt auch, wenn die neue Sicherung scheitert; dann bleibt die neueste
+vorhandene erhalten, es gibt also immer mindestens eine. Exit-Code ≠ 0 bei jedem Fehler (systemd
+meldet den Lauf dann als fehlgeschlagen).
 
 Nur als Eigentümer der DB ausführen (in Produktion: tatilvakti-v2-backup.service). Als root
 angelegte -wal/-shm-Dateien könnte der Dienst danach nicht mehr beschreiben; das Skript bricht
@@ -48,11 +48,14 @@ REPORT_COLUMNS = ("id", "crossing", "direction", "bucket", "observed_at", "creat
 # Tagesschlüssel) und die Tagesschlüssel selbst (ältere Versionen hatten sie in der Haupt-DB)
 HASH_COLUMNS = ("client", "net", "block")
 SECRET_TABLES = ("salts",)
-# Spielraum beim Löschen alter Sicherungen: Der Timer startet nachts mit Zufallsverzögerung
-# (RandomizedDelaySec). Ohne Spielraum wäre die Sicherung von vor --keep-days Tagen beim Lauf
-# an diesem Tag oft ein paar Minuten zu jung und bliebe einen Tag länger liegen.
-# test_backup_prune_slack_covers_the_timer hält ihn größer als die Verzögerung im Timer.
-PRUNE_SLACK_S = 3600
+# Spielraum beim Löschen alter Sicherungen. Der Abstand zweier nächtlicher Läufe schwankt:
+# - Der Timer startet mit Zufallsverzögerung (RandomizedDelaySec, 15 Min.).
+# - Sommerzeit: Der Timer läuft in Ortszeit (03:40), die Dateinamen tragen UTC. Liegt die Umstellung
+#   im März dazwischen, ist die Sicherung von vor 14 Tagen beim Lauf 1 h jünger als 14 Tage.
+# Ohne genug Spielraum bliebe sie dann einen Tag länger liegen. 3 h decken beides ab und bleiben
+# weit unter einem Tag, die Sicherung von gestern ist also nie betroffen.
+# test_backup_prune_slack_covers_the_timer hält ihn größer als Verzögerung plus Umstellungsstunde.
+PRUNE_SLACK_S = 3 * 3600
 
 
 def _tables(conn: sqlite3.Connection) -> set[str]:

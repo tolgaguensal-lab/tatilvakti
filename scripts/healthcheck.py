@@ -11,7 +11,9 @@ Der Body zählt auch bei HTTP 503 (status 'down', Gründe in 'down'):
   Ursache liegt meist außerhalb des Releases (/run); ein Rollback änderte daran nichts.
 - unbekannte Gründe (neuere Releases): nicht gesund, lieber einmal zu vorsichtig.
 Ältere Releases (Rollback) antworten ohne 'down', bei kaputter Schlüssel-DB mit HTTP 200 und
-salt_db=false, bei kaputter Haupt-DB mit 503 und db=false; das zählt genauso.
+salt_db=false, bei kaputter Haupt-DB mit 503 und db=false; das zählt genauso. Die knappe Antwort
+für Aufrufe von außen (nur status, build, down) zählt ebenfalls, falls TV_RELEASE_HEALTH_URL
+einmal auf die öffentliche Adresse zeigt.
 
 Exit-Code 0 = gesund (und die erwartete Build-ID), sonst 1. Ausgabe: eine Zeile mit status,
 build, down und attention, bei Fehlern mit Grund; die WARNUNG zur Schlüssel-DB auf stderr.
@@ -23,7 +25,10 @@ import sys
 import urllib.error
 import urllib.request
 
-TIMEOUT_S = 10
+# Wartezeit je Abruf: /healthz wartet bei belegter Schreibsperre bis zu db.BUSY_TIMEOUT_MS (5 s),
+# dazu Spielraum. Nicht mehr, denn wait_healthy versucht es bis zu HEALTH_TRIES-mal: Hängt der
+# Dienst, dauert das bis zu HEALTH_TRIES × (TIMEOUT_S + 1) s. test_healthcheck_timeout_… hält es gleich.
+TIMEOUT_S = 7
 
 
 def fetch(url: str) -> dict:
@@ -42,10 +47,13 @@ def fetch(url: str) -> dict:
 def evaluate(data: dict, expected: str = "") -> tuple[bool, str, list[str]]:
     """(gesund, Zeile für die Ausgabe, Warnungen)."""
     down = data.get("down")
-    if not isinstance(down, list):  # älteres Release
+    has_down = isinstance(down, list)
+    if not has_down:  # älteres Release
         down = [name for name in ("db", "salt_db") if data.get(name) is False]
     fatal = [str(name) for name in down if name != "salt_db"]
-    if data.get("db") is not True and "db" not in fatal:
+    # db zählt immer, wenn die Antwort es nennt; ohne 'down' (älteres Release) muss es true sein.
+    # Die knappe Antwort für Aufrufe von außen nennt nur 'down'.
+    if (not has_down or "db" in data) and data.get("db") is not True and "db" not in fatal:
         fatal.append("db")
     line = (f"/healthz: status={data.get('status')} build={data.get('build')} "
             f"down={down} attention={data.get('attention', [])}")

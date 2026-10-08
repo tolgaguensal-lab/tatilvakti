@@ -12,7 +12,10 @@ SERVICE_USER=${TV_RELEASE_USER:-$APP}
 ENV_FILE=${TV_RELEASE_ENV_FILE:-/etc/$APP.env}
 DB=${TV_RELEASE_DB:-/var/lib/$APP/tatilvakti.db}
 HEALTH_URL=${TV_RELEASE_HEALTH_URL:-http://127.0.0.1:3096/healthz}
-HEALTH_TRIES=${TV_RELEASE_HEALTH_TRIES:-30}  # Versuche im Sekundentakt auf /healthz nach einem Neustart
+# Versuche im Sekundentakt auf /healthz nach einem Neustart. Ein Versuch dauert meist Millisekunden
+# (Dienst startet noch: Verbindung abgelehnt), bei belegter Schreibsperre bis 5 s; hängt der Dienst,
+# bis TIMEOUT_S in healthcheck.py (7 s). Im schlimmsten Fall also rund HEALTH_TRIES × 8 s (4 Min.).
+HEALTH_TRIES=${TV_RELEASE_HEALTH_TRIES:-30}
 # Verzeichnis dieser Datei, healthcheck.py liegt daneben. Physischer Pfad (pwd -P): rollback.sh
 # läuft aus current/scripts, und current zeigt nach dem Umschalten auf ein anderes Release, das
 # healthcheck.py vielleicht noch nicht hat.

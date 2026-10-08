@@ -7,8 +7,9 @@ import shutil
 import sqlite3
 import stat
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -177,18 +178,35 @@ def test_healthcheck_reads_the_body_of_a_503(monkeypatch, capsys):
     ({"status": "degraded", "db": False, "salt_db": True}, False),
     ({"status": "down", "down": [], "db": False}, False),                         # db zählt immer
     ({"status": "attention", "down": [], "db": True, "attention": ["imprint"]}, True),
+    ({"status": "attention", "build": "b", "down": []}, True),                    # knapp, von außen
+    ({"status": "down", "build": "b", "down": ["salt_db"]}, True),
+    ({"status": "down", "build": "b", "down": ["db"]}, False),
+    ({"status": "ok", "build": "b"}, False),                                      # weder down noch db
 ])
 def test_healthcheck_understands_old_and_new_answers(body, healthy):
     hc = load_script("healthcheck")
     assert hc.evaluate(body)[0] is healthy
 
 
+def test_healthcheck_timeout_covers_the_lock_wait():
+    """Ein Abruf darf so lange dauern, wie /healthz auf die Schreibsperre wartet, aber nicht viel
+    länger: wait_healthy wiederholt ihn bis zu HEALTH_TRIES-mal, ein hängender Dienst verzögert den
+    Rollback sonst unnötig (Kommentar zu HEALTH_TRIES in release-lib.sh)."""
+    from tatilvakti.db import BUSY_TIMEOUT_MS
+    hc = load_script("healthcheck")
+    assert BUSY_TIMEOUT_MS / 1000 < hc.TIMEOUT_S <= BUSY_TIMEOUT_MS / 1000 + 2
+    assert f"healthcheck.py ({hc.TIMEOUT_S} s)" in (SCRIPTS / "release-lib.sh").read_text(encoding="utf-8")
+
+
 def test_healthz_from_the_app_passes_the_health_check(app, client):
-    """Schnittstelle zwischen App und deploy.sh: Die echte Antwort von /healthz gilt als gesund."""
+    """Schnittstelle zwischen App und deploy.sh: Die echte Antwort von /healthz gilt als gesund,
+    auch die knappe für Aufrufe von außen."""
     hc = load_script("healthcheck")
     data = client.get("/healthz").get_json()
     healthy, line, warnings = hc.evaluate(data, data["build"])
     assert healthy and warnings == [] and "down=[]" in line
+    public = client.get("/healthz", headers={"X-Forwarded-For": "203.0.113.9"}).get_json()
+    assert "db" not in public and hc.evaluate(public, data["build"])[0] is True
 
 
 def make_db(path: Path) -> None:
@@ -338,7 +356,7 @@ def test_backup_prune_deletes_on_day_14_despite_timer_delay(tmp_path):
     bk = load_script("backup")
     now = datetime(2026, 10, 30, 3, 41, tzinfo=timezone.utc)  # heute: Start nach 1 Min. Verzögerung
     old = backup_name(now - timedelta(days=13, hours=23, minutes=50))  # vor 14 Tagen nach 11 Min.
-    young = backup_name(now - timedelta(days=13, hours=22))  # z. B. von Hand gesichert
+    young = backup_name(now - timedelta(days=13, hours=20))  # z. B. von Hand gesichert
     newest = backup_name(now)
     for name in (old, young, newest):
         (tmp_path / name).write_text("x")
@@ -347,14 +365,41 @@ def test_backup_prune_deletes_on_day_14_despite_timer_delay(tmp_path):
 
 
 def test_backup_prune_slack_covers_the_timer():
-    """Der Spielraum beim Löschen muss die Zufallsverzögerung des Timers abdecken, sonst bleibt die
+    """Der Spielraum beim Löschen muss die Zufallsverzögerung des Timers und die Stunde der
+    Sommerzeit-Umstellung abdecken (Timer in Ortszeit, Dateinamen in UTC), sonst bleibt die
     Sicherung von vor 14 Tagen wieder bis zum 15. Tag liegen."""
     bk = load_script("backup")
     timer = unit("tatilvakti-v2-backup.timer")
-    assert timer["OnCalendar"] == ["*-*-* 03:40:00"]  # einmal am Tag
+    assert timer["OnCalendar"] == ["*-*-* 03:40:00"]  # einmal am Tag, in Ortszeit
     delay = timer["RandomizedDelaySec"][0]
     assert delay.endswith("min")
-    assert int(delay[:-3]) * 60 < bk.PRUNE_SLACK_S < 86400 / 2
+    assert int(delay[:-3]) * 60 + 3600 < bk.PRUNE_SLACK_S < 86400 / 2
+
+
+def test_backup_prune_keeps_14_days_all_year(tmp_path):
+    """Review zu d2-backup-retention-text: Der Timer läuft um 03:40 Ortszeit (Europe/Berlin), die
+    Dateinamen tragen UTC. Für jeden Tag des Jahres, auch über beide Zeitumstellungen, im
+    ungünstigsten Fall der Zufallsverzögerung: Der Lauf am 14. Tag löscht die Sicherung von damals
+    und behält die vom Tag danach. Mit einer Stunde Spielraum blieb im März die Sicherung vom
+    18.03. (02:55 UTC) beim Lauf am 01.04. (01:40 UTC) liegen."""
+    bk = load_script("backup")
+    berlin = ZoneInfo("Europe/Berlin")
+    delay = timedelta(minutes=int(unit("tatilvakti-v2-backup.timer")["RandomizedDelaySec"][0][:-3]))
+
+    def run(day: date, after: timedelta = timedelta(0)) -> datetime:
+        return datetime.combine(day, time(3, 40), tzinfo=berlin).astimezone(timezone.utc) + after
+
+    for offset in range(366):
+        day = date(2026, 1, 1) + timedelta(days=offset)
+        dest = tmp_path / day.isoformat()
+        dest.mkdir()
+        old, nxt = backup_name(run(day, delay)), backup_name(run(day + timedelta(days=1)))
+        for name in (old, nxt):
+            (dest / name).write_text("x")
+        today = day + timedelta(days=14)
+        keep = dest / backup_name(run(today))  # die neue Sicherung dieses Laufs
+        assert [p.name for p in bk.prune(dest, 14, run(today), keep=keep)] == [old], day
+        assert bk.prune(dest, 14, run(today, delay), keep=keep) == [], day
 
 
 def test_backup_failure_still_prunes_and_keeps_the_newest(tmp_path, capsys):

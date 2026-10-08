@@ -1,6 +1,7 @@
 """Seiten (SSR, funktionieren ohne JavaScript) – je Sprache mit eigenen Slugs."""
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 import sqlite3
@@ -682,6 +683,27 @@ def _report_db_problem(now: int) -> str | None:
     return None
 
 
+# Setzt jeder Reverse-Proxy (Traefik/Pangolin): Die Anfrage kam von außen, auch wenn sie über einen
+# Tunnel von 127.0.0.1 eintrifft
+_PROXY_HEADERS = ("X-Forwarded-For", "Forwarded", "X-Real-IP")
+
+
+def _local_call() -> bool:
+    """Kommt die Anfrage direkt vom Server selbst (deploy.sh, curl auf 127.0.0.1:3096)?
+
+    Über Pangolin kommt sie ebenfalls von 127.0.0.1, trägt aber X-Forwarded-For. Mit
+    TV_TRUST_PROXY setzt ProxyFix außerdem die Adresse des Clients ein. Beides zählt als außen,
+    auch bei falsch gesetztem TV_TRUST_PROXY.
+    """
+    try:
+        addr = ipaddress.ip_address(request.remote_addr or "")
+    except ValueError:
+        return False
+    if addr.version == 6 and addr.ipv4_mapped:
+        addr = addr.ipv4_mapped
+    return addr.is_loopback and not any(name in request.headers for name in _PROXY_HEADERS)
+
+
 def healthz():
     """Betriebsstatus für Monitoring und deploy.sh. Nie gecacht (Cache-Control: no-store).
 
@@ -691,8 +713,13 @@ def healthz():
     bei Fehlern die ganze Seite vom Netz nimmt, auf /healthz zeigen.
 
     Sonst HTTP 200: status 'attention', wenn etwas zu pflegen ist (Gründe in 'attention':
-    fällige Datenprüfung, Impressum, Proxy-Einstellung, überfällige Wartung), sonst 'ok'. Ein
-    Uptime-Monitor prüft nur den Statuscode, die Pflegehinweise sind für einen täglichen Blick.
+    fällige Datenprüfung, Impressum, Proxy-Einstellung, überfällige Wartung, Obergrenze für
+    Meldungen in den letzten 24 h erreicht), sonst 'ok'. Ein Uptime-Monitor prüft nur den
+    Statuscode, die Pflegehinweise sind für einen täglichen Blick.
+
+    Alle Details nur für Aufrufe auf dem Server selbst (_local_call). Von außen nur status, build
+    und down mit demselben Statuscode: Proxy-Einstellung, Zustand des Spam-Schutzes und Pflege-
+    hinweise gehen niemanden sonst etwas an.
     """
     content = tv().content
     cfg = current_app.config
@@ -706,8 +733,11 @@ def healthz():
     try:
         maintenance_at = B.last_maintenance(_db())
         maintenance_overdue = maintenance_at is None or now - maintenance_at > 3 * B.MAINTENANCE_EVERY_S
+        cap_at = B.last_crossing_cap(_db())
     except sqlite3.Error:  # DB nicht lesbar: steht schon unter 'down'
-        maintenance_at, maintenance_overdue = None, False
+        maintenance_at, maintenance_overdue, cap_at = None, False, None
+    # Obergrenze oder Netz-Anteil erreicht: möglicher Spam (purge-reports) oder zu knapp bemessen
+    cap_recent = cap_at is not None and 0 <= now - cap_at < B.CAP_ATTENTION_S
     salt_error = check_salt_db(cfg["TV_SALT_DB_PATH"])
     if salt_error and not runtime["salt_db_failed"]:
         current_app.logger.warning("Schlüssel-DB (TV_SALT_DB_PATH) nicht nutzbar, Meldungen scheitern: %s",
@@ -722,7 +752,8 @@ def healthz():
     # heißt: Schreiben scheitert schon länger. Der Grund steht dann auch unter 'down'.
     attention = [reason for reason, active in (("due_items", bool(due)), ("imprint", not imprint_ok),
                                                 ("proxy", forwarded_ignored),
-                                                ("maintenance", maintenance_overdue)) if active]
+                                                ("maintenance", maintenance_overdue),
+                                                ("crossing_cap", cap_recent)) if active]
     data = {
         "status": "down" if down else ("attention" if attention else "ok"),
         "down": down,
@@ -736,9 +767,13 @@ def healthz():
         "imprint_ok": imprint_ok,
         "proxy": {"trust_proxy": cfg["TV_TRUST_PROXY"], "forwarded_ignored": forwarded_ignored},
         "maintenance_at": iso(maintenance_at) if maintenance_at else None,
+        "crossing_cap_at": iso(cap_at) if cap_at else None,
         "attention": attention,
     }
-    return data, (503 if down else 200), {"Cache-Control": "no-store"}
+    code, headers = (503 if down else 200), {"Cache-Control": "no-store"}
+    if not _local_call():
+        return {"status": data["status"], "build": data["build"], "down": down}, code, headers
+    return data, code, headers
 
 
 # Stabile Fehlercodes der JSON-API (Werkzeug-Namen wären sprachlich und versionsabhängig)

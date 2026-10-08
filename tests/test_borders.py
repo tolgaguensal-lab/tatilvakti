@@ -433,25 +433,40 @@ def test_one_48_takes_at_most_its_share_of_the_cap(db, clock, caplog):
     report(db, clock, 5, ip="2001:db8:aa:fe00::1")  # nach dem Fenster wieder offen
 
 
-def test_one_vote_per_48_in_the_median(db, clock):
-    """Zehn Anschlüsse (/56) aus einem /48 melden „über 5 Std.“, drei Reisende „unter 15 Min.“."""
+def test_one_48_gets_at_most_block_votes_in_the_median(db, clock):
+    """Zehn Anschlüsse (/56) aus einem /48 melden „über 5 Std.“, drei Reisende „unter 15 Min.“:
+    Das /48 zählt mit BLOCK_VOTES Stimmen und überstimmt die drei nicht."""
     for i in range(B.BLOCK_CAP):
         report(db, clock, 5, ip=f"2001:db8:aa:{i:02x}00::1")
     for i in range(3):
         report(db, clock, 0, ip=f"10.0.5.{i}")
     st = B.statuses(db, ["kapikule"], clock.ts)["kapikule"]["to_tr"]
-    assert (st["bucket"], st["level"], st["count"]) == (0, "ok", 4)
+    assert 1 < B.BLOCK_VOTES < 3
+    assert (st["bucket"], st["level"], st["count"]) == (0, "ok", 3 + B.BLOCK_VOTES)
 
 
-def test_reporters_sharing_a_48_are_not_locked_out(db, clock):
+def test_reporters_sharing_a_48_keep_several_votes(db, clock):
     """Mobilfunkkunden eines Anbieters können sich ein /48 teilen: Unterhalb des Netz-Anteils wird
-    jede Meldung gespeichert; im Median zählt das Netz einmal, mit der jüngsten Meldung."""
-    for i, bucket in enumerate([1, 1, 2]):
+    jede Meldung gespeichert. Im Median zählen je Anschluss (/56) die jüngste Meldung und je /48
+    die BLOCK_VOTES Anschlüsse mit den jüngsten Meldungen (früher: eine Stimme je /56, keine Grenze
+    je /48; der erste Stand dieser Änderung: eine Stimme je /48)."""
+    assert B.BLOCK_VOTES == 2  # die Erwartungen unten rechnen mit zwei Stimmen
+    for i, bucket in enumerate([5, 1, 1]):
         report(db, clock, bucket, ip=f"2001:db8:cc:{i:02x}00::{i + 1}")
         clock.advance(minutes=1)
     assert db.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 3
     st = B.statuses(db, ["kapikule"], clock.ts)["kapikule"]["to_tr"]
-    assert (st["bucket"], st["count"]) == (2, 1)
+    assert (st["bucket"], st["count"]) == (1, 2)  # die beiden jüngsten Anschlüsse: 1 und 1
+    # Der erste Anschluss meldet neu: Seine Stimme ist jetzt die jüngste und verdrängt die älteste
+    clock.advance(minutes=B.SAME_SPOT_COOLDOWN_MIN)
+    report(db, clock, 2, ip="2001:db8:cc:0::1")
+    st = B.statuses(db, ["kapikule"], clock.ts)["kapikule"]["to_tr"]
+    assert (st["bucket"], st["count"]) == (2, 2)  # Stimmen 1 (dritter Anschluss) und 2
+    # Ein anderes /48 und IPv4 zählen daneben ganz normal
+    report(db, clock, 1, ip="2001:db8:cd:100::1")
+    report(db, clock, 1, ip="198.51.100.31")
+    st = B.statuses(db, ["kapikule"], clock.ts)["kapikule"]["to_tr"]
+    assert (st["bucket"], st["count"]) == (1, 4)
 
 
 def test_one_48_can_neither_take_over_nor_lock_out_honest_reporters(db, clock):
@@ -472,7 +487,40 @@ def test_one_48_can_neither_take_over_nor_lock_out_honest_reporters(db, clock):
     clock.advance(seconds=-1)
     assert honest_ok == 12 and attacker_ok == 6 * B.BLOCK_CAP
     st = B.statuses(db, ["kapikule"], clock.ts)["kapikule"]["to_tr"]
-    assert (st["bucket"], st["level"], st["count"]) == (0, "ok", 13)
+    assert (st["bucket"], st["level"], st["count"]) == (0, "ok", 12 + B.BLOCK_VOTES)
+
+
+def test_full_cap_is_noted_for_healthz(db, clock, caplog):
+    """Audit d3-ratelimit-crossing-cap-48, Erkennung: Eine volle Obergrenze (auch der Anteil eines
+    /48) landet nicht nur im Log, sondern als Zeitpunkt in kv (crossing_cap_at), trotz ROLLBACK der
+    abgewiesenen Meldung. Eine Flut schreibt dabei nicht bei jeder Anfrage."""
+    assert B.last_crossing_cap(db) is None
+    for i in range(B.BLOCK_CAP):
+        report(db, clock, 5, ip=f"2001:db8:ee:{i:02x}00::1")
+    first = clock.ts
+    with caplog.at_level(logging.WARNING, logger="tatilvakti.borders"):
+        with pytest.raises(B.BlockBusy):
+            report(db, clock, 5, ip="2001:db8:ee:ff00::1")
+        assert B.last_crossing_cap(db) == first
+        assert db.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == B.BLOCK_CAP  # abgewiesen
+        assert not db.in_transaction
+        clock.advance(minutes=1)
+        observer = connect(db.path)  # data_version zählt nur Änderungen anderer Verbindungen
+        try:
+            seen = observer.execute("PRAGMA data_version").fetchone()[0]
+            for i in range(5):
+                with pytest.raises(B.BlockBusy):
+                    report(db, clock, 5, ip=f"2001:db8:ee:f{i}00::1")
+            assert B.last_crossing_cap(db) == first  # höchstens alle CROSSING_CAP_MIN Min. je Prozess
+            assert observer.execute("PRAGMA data_version").fetchone()[0] == seen
+        finally:
+            observer.close()
+        # Die Obergrenze für alle zählt genauso
+        for i in range(B.CROSSING_CAP):
+            report(db, clock, 1, ip=f"198.51.100.{i + 1}", direction="to_de")
+        with pytest.raises(B.CrossingBusy):
+            report(db, clock, 1, ip="198.51.100.99", direction="to_de")
+    assert B.last_crossing_cap(db) == clock.ts
 
 
 # --------------------------------------------------------------- strikte Eingaben

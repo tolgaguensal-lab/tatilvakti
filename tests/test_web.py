@@ -530,6 +530,72 @@ def iso_z(ts):
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def test_healthz_flags_a_full_crossing_cap_for_a_day(operated_app, clock):
+    """Audit d3-ratelimit-crossing-cap-48, Erkennung: Ist eine Obergrenze (oder der Anteil eines /48)
+    erreicht, zeigt /healthz einen Tag lang den Pflegehinweis 'crossing_cap' mit Zeitpunkt. Kein
+    Ausfall: HTTP 200, damit der Uptime-Monitor nicht anschlägt; die tägliche Prüfung auf
+    "status":"ok" sieht es."""
+    from tatilvakti.db import connect
+    client = operated_app.test_client()
+    data = client.get("/healthz").get_json()
+    assert (data["status"], data["crossing_cap_at"]) == ("ok", None)
+    conn = connect(operated_app.config["TV_DB_PATH"])
+    try:
+        for i in range(B.CROSSING_CAP):
+            B.add_report(conn, "kapikule", "to_tr", 1, f"198.51.100.{i + 1}", clock.ts)
+        with pytest.raises(B.CrossingBusy):
+            B.add_report(conn, "kapikule", "to_tr", 1, "198.51.100.99", clock.ts)
+    finally:
+        conn.close()
+    at = clock.ts
+    clock.advance(hours=23)
+    resp = client.get("/healthz")
+    data = resp.get_json()
+    assert resp.status_code == 200 and data["down"] == []
+    assert (data["status"], data["attention"], data["crossing_cap_at"]) == ("attention", ["crossing_cap"], iso_z(at))
+    # Von außen nur der Status, nicht der Grund
+    public = client.get("/healthz", environ_base={"REMOTE_ADDR": "198.51.100.7"}).get_json()
+    assert public == {"status": "attention", "build": data["build"], "down": []}
+    clock.advance(hours=1)
+    data = client.get("/healthz").get_json()
+    assert (data["status"], data["attention"], data["crossing_cap_at"]) == ("ok", [], iso_z(at))
+
+
+@pytest.mark.parametrize("trust_proxy, remote, headers", [
+    (1, "127.0.0.1", {"X-Forwarded-For": "203.0.113.9"}),   # Pangolin, richtig eingestellt
+    (0, "127.0.0.1", {"X-Forwarded-For": "203.0.113.9"}),   # Pangolin über den Tunnel, TV_TRUST_PROXY fehlt
+    (0, "127.0.0.1", {"Forwarded": "for=203.0.113.9"}),
+    (0, "127.0.0.1", {"X-Real-IP": "203.0.113.9"}),
+    (0, "198.51.100.7", {}),                                  # Port direkt erreichbar
+], ids=["proxy", "tunnel-ohne-trust", "forwarded", "x-real-ip", "direkt"])
+def test_healthz_shows_details_only_on_the_server(tmp_path, clock, trust_proxy, remote, headers):
+    """Audit d2-healthz-internals / d4-healthz-details-oeffentlich: Von außen nur status, build und
+    down mit demselben Statuscode. Proxy-Einstellung, Zustand des Spam-Schutzes, Pflegehinweise und
+    Prüfdaten sieht nur, wer auf dem Server selbst fragt (deploy.sh, curl auf 127.0.0.1:3096)."""
+    from tatilvakti import create_app
+    app = create_app({"TESTING": True, "TV_DB_PATH": str(tmp_path / "hz.db"), "TV_CLOCK": clock,
+                      "TV_TRUST_PROXY": trust_proxy})
+    client = app.test_client()
+    full = client.get("/healthz").get_json()  # Testclient: 127.0.0.1 ohne Proxy-Header
+    assert {"proxy", "salt_db", "due_items", "attention", "imprint_ok"} <= full.keys()
+    resp = client.get("/healthz", headers=headers, environ_base={"REMOTE_ADDR": remote})
+    assert resp.status_code == 200 and resp.headers["Cache-Control"] == "no-store"
+    assert resp.get_json() == {"status": full["status"], "build": full["build"], "down": []}
+    # Ausfall: von außen derselbe Statuscode und der Grund
+    blocker = tmp_path / "keine-verzeichnis"
+    blocker.write_text("")
+    app.config["TV_SALT_DB_PATH"] = str(blocker / "salts.db")
+    resp = client.get("/healthz", headers=headers, environ_base={"REMOTE_ADDR": remote})
+    assert resp.status_code == 503
+    assert resp.get_json() == {"status": "down", "build": full["build"], "down": ["salt_db"]}
+
+
+@pytest.mark.parametrize("remote", ["127.0.0.1", "::1", "::ffff:127.0.0.1"])
+def test_healthz_details_for_every_loopback_address(client, remote):
+    data = client.get("/healthz", environ_base={"REMOTE_ADDR": remote}).get_json()
+    assert "proxy" in data and "salt_db" in data
+
+
 def test_forwarded_header_without_trusted_proxy_warns_once(client, caplog):
     with caplog.at_level("WARNING"):
         client.get("/de/", headers={"X-Forwarded-For": "203.0.113.9"})
