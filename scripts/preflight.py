@@ -188,7 +188,10 @@ def check_app(env: dict[str, str], db: Path | None, tmp: Path, rep: Report) -> s
     health = client.get("/healthz")
     data = health.get_json(silent=True) or {}
     if health.status_code != 200:
-        rep.error(f"/healthz → {health.status_code} {data}")
+        # 503: Melden ginge nicht. Hier liegen DB-Kopie und Schlüssel-DB im Temp-Verzeichnis,
+        # die Ursache steckt also im Release oder in der kopierten DB, nicht in /run.
+        rep.error(f"/healthz → {health.status_code}, ausgefallen: {', '.join(data.get('down') or []) or '?'} "
+                  "(Grund in der Warnung darüber)")
     else:
         rep.ok(f"/healthz status={data.get('status')} build={data.get('build')}")
         if data.get("status") != "ok":

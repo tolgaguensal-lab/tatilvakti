@@ -4,10 +4,11 @@ Ehrlichkeitsregeln:
 - Wir speichern und zeigen Bereiche (z. B. „30–60 Min.“), keine Scheingenauigkeit.
 - Ein Status gilt nur mit Meldungen aus den letzten WINDOW_MIN Minuten, sonst „keine
   aktuellen Meldungen“ plus Alter der letzten Meldung.
-- Eine Stimme pro Anschluss: Im Median zählt je Übergang und Richtung nur die jüngste Meldung
-  eines Anschlusses im Fenster. Anschluss heißt: dieselbe IPv4-Adresse bzw. dasselbe IPv6-/56
-  (ein Heimanschluss bekommt oft ein /56 mit 256 /64-Netzen), erkannt am Tages-Prüfwert `net`.
-  Wer alle 20 Minuten neu meldet, ersetzt nur seine eigene Stimme.
+- Eine Stimme pro Netz: Im Median zählt je Übergang und Richtung nur die jüngste Meldung eines
+  Netzes im Fenster. Netz heißt: dieselbe IPv4-Adresse bzw. dasselbe IPv6-/48, erkannt am
+  Tages-Prüfwert `block`. Ein /48 enthält 256 /56-Anschlüsse; wer eines hat (z. B. aus einem
+  Tunnel-Angebot), soll den Status nicht mit vielen Stimmen bestimmen. Wer alle 20 Minuten neu
+  meldet, ersetzt nur seine eigene Stimme.
 - Median statt Mittelwert: einzelne Ausreißer und Trolle verschieben den Status kaum. Bei
   gerader Anzahl zählt der höhere Wert (lieber vorsichtig als zu optimistisch).
 
@@ -16,16 +17,24 @@ Limits (Prüfwerte statt IP-Adressen, siehe client_keys):
   und Richtung, höchstens MAX_REPORTS_PER_HOUR Meldungen pro Stunde insgesamt;
 - je Anschluss (IPv4-Adresse bzw. IPv6-/56): höchstens NET_REPORTS_PER_HOUR Meldungen pro
   Stunde je Übergang und Richtung – so viele, wie eine IPv4-Adresse wegen der Sperre ohnehin
-  schafft. Damit füllt ein einzelner Anschluss die Obergrenze nicht allein;
+  schafft;
+- je Netz (IPv6-/48): höchstens BLOCK_CAP Meldungen in CROSSING_CAP_MIN Minuten je Übergang und
+  Richtung, also ein Drittel der Obergrenze. Damit füllt ein einzelnes /48 die Obergrenze nicht
+  allein und sperrt die übrigen Melder nicht aus. Darüber 429 „crossing_busy“ (für die Melder in
+  diesem Netz ist der Übergang voll) und eine Log-Warnung. Eine IPv4-Adresse erreicht diese
+  Grenze nie, sie ist vorher am Limit je Anschluss;
 - je Übergang und Richtung über alle: CROSSING_CAP Meldungen in CROSSING_CAP_MIN Minuten,
   darüber 429 „crossing_busy“ und eine Log-Warnung.
 
-Grenzen des Schutzes (bewusst offen benannt): Wer viele IPv4-Adressen oder viele /56-Netze hat
-(z. B. ein /48 aus einem Tunnel-Angebot), bekommt mehrere Stimmen und kann die Obergrenze
-füllen; dann bekommen auch ehrliche Melder kurz 429. Dagegen helfen die Log-Warnung und das
-Aufräumen per `flask --app tatilvakti purge-reports`. Umgekehrt teilen sich Menschen hinter
-einer gemeinsamen IPv4-Adresse (CGNAT) oder im selben /56 eine Stimme und die Limits. Beim
-Schlüsselwechsel um 00:00 UTC bekommt ein Client einen neuen Prüfwert und kann kurz doppelt zählen.
+Grenzen des Schutzes (bewusst offen benannt): Wer viele IPv4-Adressen oder mehrere /48-Netze hat,
+bekommt mehrere Stimmen und kann die Obergrenze füllen; dann bekommen auch ehrliche Melder kurz
+429. Dagegen helfen die Log-Warnungen und das Aufräumen per `flask --app tatilvakti purge-reports`.
+Umgekehrt teilen sich Menschen hinter einer gemeinsamen IPv4-Adresse (CGNAT) oder im selben /56
+die Limits und im selben /48 eine Stimme: Mobilfunkkunden eines Anbieters können ein /48 teilen.
+Ihre Meldungen werden gespeichert, im Median zählt aber nur die jüngste. Abgewiesen werden sie
+erst, wenn aus ihrem /48 schon BLOCK_CAP Meldungen in CROSSING_CAP_MIN Minuten für denselben
+Übergang und dieselbe Richtung kamen. Beim Schlüsselwechsel um 00:00 UTC bekommt ein Client einen
+neuen Prüfwert und kann kurz doppelt zählen.
 """
 from __future__ import annotations
 
@@ -62,6 +71,8 @@ NET_REPORTS_PER_HOUR = 3
 # Obergrenze je Übergang und Richtung über alle Clients: bremst Fluten aus vielen Adressen
 CROSSING_CAP = 30
 CROSSING_CAP_MIN = 10
+# Anteil eines Netzes (IPv6-/48) an der Obergrenze, im selben Fenster: höchstens ein Drittel
+BLOCK_CAP = CROSSING_CAP // 3
 CLIENT_HASH_TTL_H = 48
 RETENTION_DAYS = 400
 MAINTENANCE_EVERY_S = 600
@@ -69,6 +80,7 @@ STATUS_CACHE_S = 15
 PATTERN_CACHE_S = 300
 IPV6_CLIENT_PREFIX = 64
 IPV6_NET_PREFIX = 56
+IPV6_BLOCK_PREFIX = 48
 _MAX_ABS_INT = 10 ** 12
 _INT_TEXT = re.compile(r"-?[0-9]{1,12}")
 
@@ -88,6 +100,12 @@ class RateLimited(ReportError):
 class CrossingBusy(RateLimited):
     """Obergrenze des Übergangs erreicht – betrifft alle, nicht nur diesen Client."""
     code = "busy"
+
+
+class BlockBusy(CrossingBusy):
+    """Anteil eines Netzes (IPv6-/48) an der Obergrenze erreicht – betrifft alle Melder in diesem
+    Netz. Nach außen wie die Obergrenze („crossing_busy“, Hinweis „gerade sehr viele Meldungen“):
+    Für sie ist der Übergang voll, und die API bekommt keinen neuen Fehlercode."""
 
 
 class StaleReport(ReportError):
@@ -165,6 +183,18 @@ def normalize_net(ip: str) -> str:
     return _ipv6_network(addr, IPV6_NET_PREFIX) if addr.version == 6 else str(addr)
 
 
+def normalize_block(ip: str) -> str:
+    """Das Netz hinter einer Adresse: bei IPv6 das /48 (256 /56-Anschlüsse), bei IPv4 die Adresse.
+
+    Gilt nur für den Anteil an der Obergrenze und die Stimme im Median, nicht für die Limits je
+    Anschluss: Ein /48 kann sich ein Anbieter mit vielen Kunden teilen.
+    """
+    addr = _parse_ip(ip)
+    if addr is None:
+        return str(ip)
+    return _ipv6_network(addr, IPV6_BLOCK_PREFIX) if addr.version == 6 else str(addr)
+
+
 def _day_salt(conn: sqlite3.Connection, now: int) -> bytes:
     """Schlüssel des heutigen UTC-Tages. Wer ihn als Erster anlegt, löscht im selben Zug die
     Schlüssel früherer Tage: Prüfwerte entstehen nur mit dem heutigen, ein älterer hat keinen
@@ -189,14 +219,16 @@ def _digest(salt: bytes, text: str) -> str:
     return hmac.new(salt, text.encode(), hashlib.sha256).hexdigest()[:32]
 
 
-def client_keys(conn: sqlite3.Connection, ip: str, now: int) -> tuple[str, str]:
-    """Prüfwerte (client, net): HMAC von Client und Anschluss mit dem täglich wechselnden Schlüssel.
+def client_keys(conn: sqlite3.Connection, ip: str, now: int) -> tuple[str, str, str]:
+    """Prüfwerte (client, net, block): HMAC von Client, Anschluss und Netz mit dem täglich
+    wechselnden Schlüssel.
 
     Die IP wird nie gespeichert. Der Schlüssel liegt in der eigenen Schlüssel-DB
-    (TV_SALT_DB_PATH), nie in der gesicherten Haupt-DB. Bei IPv4 sind beide Werte gleich.
+    (TV_SALT_DB_PATH), nie in der gesicherten Haupt-DB. Bei IPv4 sind alle drei Werte gleich.
     """
     salt = _day_salt(conn, now)
-    return _digest(salt, normalize_ip(ip)), _digest(salt, normalize_net(ip))
+    return (_digest(salt, normalize_ip(ip)), _digest(salt, normalize_net(ip)),
+            _digest(salt, normalize_block(ip)))
 
 
 def client_key(conn: sqlite3.Connection, ip: str, now: int) -> str:
@@ -235,19 +267,26 @@ def _revision(conn: sqlite3.Connection, key: str = "reports_rev") -> str | None:
     return row[0] if row else None
 
 
-_cap_warned: dict[tuple[str, str, str], int] = {}
+_cap_warned: dict[tuple[str, str, str, str], int] = {}
 
 
-def _warn_crossing_cap(conn, crossing: str, direction: str, now: int) -> None:
-    """Log-Warnung bei voller Obergrenze, je Übergang und Richtung höchstens alle CROSSING_CAP_MIN Minuten."""
-    key = (getattr(conn, "path", ""), crossing, direction)
+def _warn_cap(kind: str, conn, crossing: str, direction: str, now: int) -> None:
+    """Log-Warnung bei voller Obergrenze (kind 'crossing') bzw. vollem Anteil eines Netzes
+    (kind 'block'), je Art, Übergang und Richtung höchstens alle CROSSING_CAP_MIN Minuten.
+    Ohne IP und ohne Prüfwert: Das Log nennt nur Übergang und Richtung."""
+    key = (kind, getattr(conn, "path", ""), crossing, direction)
     last = _cap_warned.get(key)
     if last is not None and 0 <= now - last < CROSSING_CAP_MIN * 60:
         return
     _cap_warned[key] = now
-    log.warning("Obergrenze erreicht: %s Meldungen in %s Min. für crossing=%s direction=%s. "
-                "Möglicher Spam, ggf. mit 'flask --app tatilvakti purge-reports' aufräumen.",
-                CROSSING_CAP, CROSSING_CAP_MIN, crossing, direction)
+    if kind == "block":
+        log.warning("Netz-Anteil an der Obergrenze erreicht: %s Meldungen in %s Min. aus einem IPv6-/48 "
+                    "für crossing=%s direction=%s. Möglicher Spam, ggf. mit 'flask --app tatilvakti "
+                    "purge-reports' aufräumen.", BLOCK_CAP, CROSSING_CAP_MIN, crossing, direction)
+    else:
+        log.warning("Obergrenze erreicht: %s Meldungen in %s Min. für crossing=%s direction=%s. "
+                    "Möglicher Spam, ggf. mit 'flask --app tatilvakti purge-reports' aufräumen.",
+                    CROSSING_CAP, CROSSING_CAP_MIN, crossing, direction)
 
 
 def add_report(conn: sqlite3.Connection, crossing: str, direction: str, bucket, ip: str,
@@ -267,7 +306,7 @@ def add_report(conn: sqlite3.Connection, crossing: str, direction: str, bucket, 
         if observed < now - MAX_REPORT_AGE_MIN * 60:
             raise StaleReport("observed_at")
 
-    client, net = client_keys(conn, ip, now)
+    client, net, block = client_keys(conn, ip, now)
     # Prüfen und Speichern in EINER Schreibtransaktion: BEGIN IMMEDIATE sperrt sofort für
     # andere Schreiber, parallele Requests desselben Clients sehen also die erste Meldung.
     conn.execute("BEGIN IMMEDIATE")
@@ -291,6 +330,15 @@ def add_report(conn: sqlite3.Connection, crossing: str, direction: str, bucket, 
         ).fetchone()[0]
         if per_net >= NET_REPORTS_PER_HOUR:
             raise RateLimited("net_per_hour")
+        # Ebenso ein einzelnes Netz (/48 mit 256 /56-Anschlüssen): höchstens BLOCK_CAP der
+        # CROSSING_CAP Plätze, der Rest bleibt für alle anderen offen
+        per_block = conn.execute(
+            "SELECT COUNT(*) FROM reports WHERE block = ? AND crossing = ? AND direction = ? AND created_at > ?",
+            (block, crossing, direction, now - CROSSING_CAP_MIN * 60),
+        ).fetchone()[0]
+        if per_block >= BLOCK_CAP:
+            _warn_cap("block", conn, crossing, direction, now)
+            raise BlockBusy("crossing_busy")
         # INDEXED BY: nur die Meldungen der letzten Minuten lesen, nie den ganzen Übergang
         busy = conn.execute(
             "SELECT COUNT(*) FROM reports INDEXED BY idx_reports_created "
@@ -298,12 +346,12 @@ def add_report(conn: sqlite3.Connection, crossing: str, direction: str, bucket, 
             (now - CROSSING_CAP_MIN * 60, crossing, direction),
         ).fetchone()[0]
         if busy >= CROSSING_CAP:
-            _warn_crossing_cap(conn, crossing, direction, now)
+            _warn_cap("crossing", conn, crossing, direction, now)
             raise CrossingBusy("crossing_busy")
         cur = conn.execute(
-            "INSERT INTO reports (crossing, direction, bucket, observed_at, created_at, client, net) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (crossing, direction, bucket, observed, now, client, net),
+            "INSERT INTO reports (crossing, direction, bucket, observed_at, created_at, client, net, block) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (crossing, direction, bucket, observed, now, client, net, block),
         )
         _bump_revision(conn)
         conn.execute("COMMIT")
@@ -332,9 +380,10 @@ def maintenance(conn: sqlite3.Connection, now: int, force: bool = False) -> dict
             return None
         # Ein Intervall Vorlauf: Die Wartung läuft nur alle MAINTENANCE_EVERY_S Sekunden, so
         # wird trotzdem kein Prüfwert älter als die zugesagten 48 h. Die Limits brauchen nur 1 h.
-        # net wird nur zusammen mit client gesetzt, also auch zusammen gelöscht.
+        # net und block werden nur zusammen mit client gesetzt, also auch zusammen gelöscht.
+        # (Reste nach einem Rollback auf ein Release, das block nicht kennt: db.init_db.)
         cleared = conn.execute(
-            "UPDATE reports SET client = NULL, net = NULL WHERE client IS NOT NULL AND created_at <= ?",
+            "UPDATE reports SET client = NULL, net = NULL, block = NULL WHERE client IS NOT NULL AND created_at <= ?",
             (now - CLIENT_HASH_TTL_H * 3600 + MAINTENANCE_EVERY_S,)).rowcount
         deleted = conn.execute("DELETE FROM reports WHERE observed_at < ?",
                                (now - RETENTION_DAYS * 86400,)).rowcount
@@ -455,17 +504,20 @@ def _compute_statuses(conn: sqlite3.Connection, ids: tuple[str, ...], now: int) 
         return {}
     since = now - WINDOW_MIN * 60
     marks = ",".join("?" * len(ids))
-    # Eine Stimme pro Anschluss: spätere Meldungen desselben Prüfwerts überschreiben frühere.
-    # Altbestand ohne net zählt je Client, Meldungen ganz ohne Prüfwert (nach 48 h) einzeln.
+    # Eine Stimme pro Netz: spätere Meldungen desselben Prüfwerts überschreiben frühere.
+    # Altbestand ohne block zählt je Anschluss bzw. je Client, Meldungen ganz ohne Prüfwert
+    # (nach 48 h) einzeln.
     # direction IN (…) gehört dazu: Erst damit wird jedes Paar ein Index-Seek auf das Zeitfenster.
     votes: dict[tuple, int] = {}
     for row in conn.execute(
-        f"SELECT id, crossing, direction, bucket, client, net FROM reports "
+        f"SELECT id, crossing, direction, bucket, client, net, block FROM reports "
         f"WHERE crossing IN ({marks}) AND direction IN ({','.join('?' * len(DIRECTIONS))}) "
         f"AND observed_at >= ? AND observed_at <= ? ORDER BY observed_at, id",
         (*ids, *DIRECTIONS, since, now),
     ):
-        if row["net"] is not None:
+        if row["block"] is not None:
+            voter = ("block", row["block"])
+        elif row["net"] is not None:
             voter = ("net", row["net"])
         elif row["client"] is not None:
             voter = ("client", row["client"])

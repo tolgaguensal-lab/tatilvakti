@@ -14,9 +14,12 @@ Salts-Datei (TV_SALT_DB_PATH) wird nie gelesen. Das Original bleibt unverändert
     python scripts/backup.py --db /var/lib/tatilvakti-v2/tatilvakti.db \
         --dest /var/lib/tatilvakti-v2/backups --keep-days 14
 
-Ergebnis: <dest>/tatilvakti-<UTC-Zeit>.db (Modus 0600). Ältere Sicherungen als --keep-days werden
-erst NACH einer erfolgreichen neuen Sicherung gelöscht, die neueste bleibt also immer erhalten.
-Exit-Code ≠ 0 bei jedem Fehler (systemd meldet den Lauf dann als fehlgeschlagen).
+Ergebnis: <dest>/tatilvakti-<UTC-Zeit>.db (Modus 0600). Jeder Lauf löscht danach die Sicherungen,
+die --keep-days Tage alt sind: Bei 14 löscht der nächtliche Lauf am 14. Tag die Sicherung von
+damals, auch wenn der Timer an diesem Tag ein paar Minuten früher startet (PRUNE_SLACK_S). Das gilt auch,
+wenn die neue Sicherung scheitert; dann bleibt die neueste vorhandene erhalten, es gibt also
+immer mindestens eine. Exit-Code ≠ 0 bei jedem Fehler (systemd meldet den Lauf dann als
+fehlgeschlagen).
 
 Nur als Eigentümer der DB ausführen (in Produktion: tatilvakti-v2-backup.service). Als root
 angelegte -wal/-shm-Dateien könnte der Dienst danach nicht mehr beschreiben; das Skript bricht
@@ -41,10 +44,15 @@ TMP_RE = re.compile(r"^\.tatilvakti-\d{8}T\d{6}Z\.db\.tmp$")
 # test_backup_knows_the_app_schema hält die Listen mit dem Schema der App (tatilvakti/db.py) gleich.
 KEEP_TABLES = ("reports", "kv")
 REPORT_COLUMNS = ("id", "crossing", "direction", "bucket", "observed_at", "created_at")
-# Bekannt und bewusst geleert: Prüfwerte gegen Spam (HMAC von IP bzw. Anschluss mit dem
+# Bekannt und bewusst geleert: Prüfwerte gegen Spam (HMAC von IP, Anschluss bzw. Netz mit dem
 # Tagesschlüssel) und die Tagesschlüssel selbst (ältere Versionen hatten sie in der Haupt-DB)
-HASH_COLUMNS = ("client", "net")
+HASH_COLUMNS = ("client", "net", "block")
 SECRET_TABLES = ("salts",)
+# Spielraum beim Löschen alter Sicherungen: Der Timer startet nachts mit Zufallsverzögerung
+# (RandomizedDelaySec). Ohne Spielraum wäre die Sicherung von vor --keep-days Tagen beim Lauf
+# an diesem Tag oft ein paar Minuten zu jung und bliebe einen Tag länger liegen.
+# test_backup_prune_slack_covers_the_timer hält ihn größer als die Verzögerung im Timer.
+PRUNE_SLACK_S = 3600
 
 
 def _tables(conn: sqlite3.Connection) -> set[str]:
@@ -167,23 +175,53 @@ def backup(db: Path, dest: Path, now: datetime) -> tuple[Path, dict]:
     return target, info
 
 
-def prune(dest: Path, keep_days: int, now: datetime, keep: Path) -> list[Path]:
-    """Löscht Sicherungen, die älter als keep_days sind (nach Zeitstempel im Dateinamen),
-    und Reste abgebrochener Läufe (.tatilvakti-….db.tmp)."""
+def _taken(path: Path) -> datetime | None:
+    """Zeitpunkt einer Sicherung laut Dateiname, None bei fremden Dateien (auch bei einem
+    unmöglichen Datum wie Monat 13: die rührt das Aufräumen nicht an)."""
+    match = NAME_RE.match(path.name)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def prune(dest: Path, keep_days: int, now: datetime, keep: Path | None = None) -> list[Path]:
+    """Löscht Sicherungen, die keep_days alt sind (nach Zeitstempel im Dateinamen, mit
+    PRUNE_SLACK_S Spielraum), und Reste abgebrochener Läufe (.tatilvakti-….db.tmp).
+
+    So löscht der nächtliche Lauf am Tag keep_days die Sicherung von damals, statt sie bis zum
+    nächsten Lauf liegen zu lassen. keep wird nie gelöscht (Standard: die neueste vorhandene).
+    """
+    if keep is None:
+        backups = [p for p in dest.iterdir() if _taken(p) is not None]
+        keep = max(backups, key=_taken, default=None)
     removed = []
     for path in sorted(dest.iterdir()):
         if TMP_RE.match(path.name):
             path.unlink()
             removed.append(path)
             continue
-        match = NAME_RE.match(path.name)
-        if not match or path == keep:
+        taken = _taken(path)
+        if taken is None or path == keep:
             continue
-        taken = datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
-        if (now - taken).total_seconds() > keep_days * 86400:
+        if (now - taken).total_seconds() > keep_days * 86400 - PRUNE_SLACK_S:
             path.unlink()
             removed.append(path)
     return removed
+
+
+def _prune_after_failure(dest: Path, keep_days: int, now: datetime) -> None:
+    """Auch ohne neue Sicherung die Frist einhalten: alte löschen, die neueste vorhandene behalten.
+    Ein Fehler dabei (z. B. Zielverzeichnis fehlt) verdeckt nicht den eigentlichen Fehler."""
+    try:
+        removed = prune(dest, keep_days, now)
+    except OSError as exc:
+        print(f"Aufräumen alter Sicherungen nicht möglich: {exc}", file=sys.stderr)
+        return
+    if removed:
+        print(f"trotz Fehler aufgeräumt: removed={len(removed)} (die neueste Sicherung bleibt)", file=sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -209,9 +247,13 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--keep-days muss mindestens 1 sein")
         now = datetime.now(timezone.utc)
         started = time.monotonic()
-        if args.db.exists():
-            check_owner(args.db)
-        target, info = backup(args.db, args.dest, now)
+        try:
+            if args.db.exists():
+                check_owner(args.db)
+            target, info = backup(args.db, args.dest, now)
+        except (OSError, sqlite3.Error, RuntimeError):
+            _prune_after_failure(args.dest, args.keep_days, now)
+            raise
         if info["unknown"]:
             print(f"WARNUNG: unbekannte Tabellen/Spalten in der Kopie geleert: {', '.join(info['unknown'])}. "
                   "scripts/backup.py prüfen (KEEP_TABLES, REPORT_COLUMNS, HASH_COLUMNS).", file=sys.stderr)

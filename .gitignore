@@ -9,5 +9,10 @@ instance/
 .env
 .env.*
 !.env.example
+# Echte Konfiguration nach dem Namensschema der Units (z. B. tatilvakti-v2.env) samt Kopien
+# (tatilvakti-v2.env.bak); einchecken nur Vorlagen (*.env.example)
+*.env
+*.env.*
+!*.env.example
 # Audit-Berichte (launchworthy): Karte der Schwachstellen, nie committen
 tmp/

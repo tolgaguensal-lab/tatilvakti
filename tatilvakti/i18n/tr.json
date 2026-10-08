@@ -212,7 +212,7 @@
   "i_review_after": "bir sonraki kontrol: {date}",
   "i_privacy": "Gizlilik",
   "i_privacy_p1": "tatilvakti üyelik olmadan çalışır ve çerez kullanmaz. Analiz aracı, reklam takibi, harici yazı tipi veya betik yoktur.",
-  "i_privacy_p3": "Sınır kapısını, yönü, bekleme aralığını ve zamanı kaydederiz. Spama karşı IP adresinden (IPv6'da yalnızca ağ kısmından) her gün değişen gizli bir anahtarla iki kontrol değeri oluştururuz. IP adresinin kendisini uygulama kaydetmez. Günlük anahtar bildirimlerden ayrı, kendi dosyasında durur ve günü (UTC) bitince silinir; o olmadan kontrol değerleri artık hiçbir IP adresiyle eşleştirilemez. Kontrol değerlerini de en geç {h} saat sonra sileriz.",
+  "i_privacy_p3": "Sınır kapısını, yönü, bekleme aralığını ve zamanı kaydederiz. Spama karşı IP adresinden (IPv6'da yalnızca ağ kısmından) her gün değişen gizli bir anahtarla üç kontrol değeri oluştururuz. IP adresinin kendisini uygulama kaydetmez. Günlük anahtar bildirimlerden ayrı, kendi dosyasında durur ve günü (UTC) bitince silinir; o olmadan kontrol değerleri artık hiçbir IP adresiyle eşleştirilemez. Kontrol değerlerini de en geç {h} saat sonra sileriz.",
   "i_privacy_p4": "Sayfaları sunmak için sunucumuz ve önündeki proxy sunucusu teknik olarak IP adresini ve açılan adresi işler (AB Genel Veri Koruma Tüzüğü – GDPR, md. 6/1-f). Paylaş düğmeleri WhatsApp'ı veya cihazının paylaşma menüsünü bağlantılı, hazır bir metinle açar. “WhatsApp”a dokunduğunda metin ve bağlantı WhatsApp'a (Meta) iletilir; kişilerine ise ancak orada “Gönder”e dokunduğunda gider. Kurumlara, satış sitelerine veya WhatsApp'a giden bağlantılar kendi gizlilik kuralları olan başka sitelere götürür.",
   "i_imprint": "Künye",
   "i_imprint_missing": "Künye bilgileri henüz eklenmedi.",

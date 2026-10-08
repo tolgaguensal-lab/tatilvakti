@@ -16,7 +16,7 @@ from werkzeug.routing import RequestRedirect
 from . import borders as B
 from . import operator_imprint, today_berlin, utcnow
 from .content import DATASETS, is_due, redirect_key
-from .db import check_salt_db
+from .db import SaltDbError, check_salt_db
 from .holidays import QUIET_MAX
 from .i18n import LANGS, SLUGS, fmt_date, fmt_pct, fmt_range, negotiate
 
@@ -641,40 +641,92 @@ def due_items(content, today: date) -> tuple[list[dict], str | None]:
     return due, (min(upcoming) if upcoming else None)
 
 
-def healthz():
-    """Betriebsstatus für das Monitoring. HTTP 503 nur, wenn die DB nicht antwortet.
+# Prüft das Schreibrecht auf reports, ohne etwas zu schreiben: fügt keine Zeile ein
+_NOOP_REPORT_INSERT = ("INSERT INTO reports (crossing, direction, bucket, observed_at, created_at) "
+                       "SELECT '', 'to_tr', 0, 0, 0 WHERE 0")
 
-    status 'attention' (weiter HTTP 200), wenn etwas zu tun ist; die Gründe stehen in 'attention'.
-    Eine kaputte Schlüssel-DB ('salt_db') legt alle Meldungen lahm, die Seiten laufen aber weiter –
-    deshalb kein 503, sonst nähme ein Health-Check im Proxy die ganze Seite vom Netz.
+
+def _report_db_problem(now: int) -> str | None:
+    """Kann die Haupt-DB jetzt eine Meldung speichern? None, sonst die Fehlermeldung (nur fürs Log).
+
+    Prüft, was B.add_report braucht, ohne bei jedem Abruf zu schreiben:
+    1. Lesen: reports über den Index auf created_at (wie die Obergrenze).
+    2. Schreibsperre und Schreibrecht: BEGIN IMMEDIATE wie add_report, dann ein INSERT in reports,
+       das keine Zeile einfügt, und ROLLBACK. Erst dieses INSERT scheitert an einer schreib-
+       geschützten DB (Dateirechte, -wal/-shm eines anderen Benutzers, read-only eingehängt);
+       BEGIN IMMEDIATE allein gelingt dann noch. Die Dateien bleiben unverändert. Hält ein anderer
+       Prozess die Sperre, wartet die Prüfung so lange wie eine Meldung (db.BUSY_TIMEOUT_MS) und
+       scheitert genau dann, wenn auch die Meldung scheitern würde.
+    3. Echtes Schreiben: Eine volle Platte oder einen E/A-Fehler zeigt erst ein Schreibvorgang.
+       Dafür stößt /healthz die Wartung an. Sie schreibt über alle Prozesse höchstens alle
+       MAINTENANCE_EVERY_S Sekunden in kv (derselbe Schreibvorgang, den sonst der nächste
+       Seitenaufruf oder der Timer auslöst), dazwischen liest sie nur. Scheitert das Schreiben,
+       versucht es der nächste Abruf erneut, bis es wieder klappt. Fehler der Schlüssel-DB
+       (SaltDbError) zählen hier nicht, die prüft check_salt_db.
+    """
+    try:
+        conn = _db()
+        conn.execute("SELECT MAX(created_at) FROM reports").fetchone()
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute(_NOOP_REPORT_INSERT)
+        finally:
+            if conn.in_transaction:  # manche Fehler (z. B. volle Platte) rollen selbst zurück
+                conn.execute("ROLLBACK")
+        try:
+            B.maintenance(conn, now)
+        except SaltDbError:
+            pass
+    except sqlite3.Error as exc:
+        return str(exc) or type(exc).__name__
+    return None
+
+
+def healthz():
+    """Betriebsstatus für Monitoring und deploy.sh. Nie gecacht (Cache-Control: no-store).
+
+    HTTP 503 mit status 'down', sobald Melden nicht geht; die Gründe stehen in 'down': 'db' (die
+    Haupt-DB nimmt keine Meldung an, siehe _report_db_problem) und 'salt_db' (Schlüssel-DB nicht
+    nutzbar). Die Seiten laufen dann meist weiter. Deshalb darf kein Health-Check des Proxys, der
+    bei Fehlern die ganze Seite vom Netz nimmt, auf /healthz zeigen.
+
+    Sonst HTTP 200: status 'attention', wenn etwas zu pflegen ist (Gründe in 'attention':
+    fällige Datenprüfung, Impressum, Proxy-Einstellung, überfällige Wartung), sonst 'ok'. Ein
+    Uptime-Monitor prüft nur den Statuscode, die Pflegehinweise sind für einen täglichen Blick.
     """
     content = tv().content
     cfg = current_app.config
     today = today_berlin(current_app)
     now = now_ts()
+    runtime = tv().runtime
+    db_error = _report_db_problem(now)
+    if db_error and not runtime.get("db_failed"):  # nur beim Wechsel loggen, nicht jede Minute
+        current_app.logger.warning("Haupt-DB (TV_DB_PATH) nimmt keine Meldungen an: %s", db_error)
+    runtime["db_failed"] = db_error is not None
     try:
         maintenance_at = B.last_maintenance(_db())
-        db_ok = True
-    except sqlite3.Error:  # pragma: no cover - DB nicht lesbar
-        maintenance_at, db_ok = None, False
+        maintenance_overdue = maintenance_at is None or now - maintenance_at > 3 * B.MAINTENANCE_EVERY_S
+    except sqlite3.Error:  # DB nicht lesbar: steht schon unter 'down'
+        maintenance_at, maintenance_overdue = None, False
     salt_error = check_salt_db(cfg["TV_SALT_DB_PATH"])
-    runtime = tv().runtime
-    if salt_error and not runtime["salt_db_failed"]:  # nur beim Wechsel loggen, nicht jede Minute
+    if salt_error and not runtime["salt_db_failed"]:
         current_app.logger.warning("Schlüssel-DB (TV_SALT_DB_PATH) nicht nutzbar, Meldungen scheitern: %s",
                                    salt_error)
     runtime["salt_db_failed"] = salt_error is not None
     due, next_review = due_items(content, today)
     imprint_ok = operator_imprint(cfg) is not None  # dieselbe Prüfung wie Info-Seite und Start-Warnung
     forwarded_ignored = runtime["forwarded_ignored"]
-    # Wartung läuft im before_request alle 10 Min.; deutlich älter heißt: Schreiben schlägt fehl
-    maintenance_overdue = maintenance_at is None or now - maintenance_at > 3 * B.MAINTENANCE_EVERY_S
+    down = [reason for reason, failed in (("db", db_error is not None), ("salt_db", salt_error is not None))
+            if failed]
+    # Die Wartung schreibt spätestens alle 10 Min. (Timer, Seitenaufrufe, dieser Abruf); viel älter
+    # heißt: Schreiben scheitert schon länger. Der Grund steht dann auch unter 'down'.
     attention = [reason for reason, active in (("due_items", bool(due)), ("imprint", not imprint_ok),
                                                 ("proxy", forwarded_ignored),
-                                                ("maintenance", db_ok and maintenance_overdue),
-                                                ("salt_db", salt_error is not None)) if active]
+                                                ("maintenance", maintenance_overdue)) if active]
     data = {
-        "status": "degraded" if not db_ok else ("attention" if attention else "ok"),
-        "db": db_ok,
+        "status": "down" if down else ("attention" if attention else "ok"),
+        "down": down,
+        "db": db_error is None,
         "salt_db": salt_error is None,
         "build": tv().build_id,
         "datasets": {n: {"as_of": content.meta(n)["as_of"], "review_due": content.review_due(n, today)}
@@ -686,7 +738,7 @@ def healthz():
         "maintenance_at": iso(maintenance_at) if maintenance_at else None,
         "attention": attention,
     }
-    return data, (200 if db_ok else 503)
+    return data, (503 if down else 200), {"Cache-Control": "no-store"}
 
 
 # Stabile Fehlercodes der JSON-API (Werkzeug-Namen wären sprachlich und versionsabhängig)
@@ -792,7 +844,7 @@ def register(app: Flask) -> None:
         runtime["maintenance_checked_at"] = now
         try:
             B.maintenance(_db(), now)
-        except sqlite3.Error as exc:  # Seite trotzdem ausliefern; /healthz meldet 'maintenance'
+        except sqlite3.Error as exc:  # Seite trotzdem ausliefern; /healthz prüft selbst (down: db)
             current_app.logger.warning("Wartung fehlgeschlagen: %s", exc)
 
     @app.context_processor
