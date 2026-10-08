@@ -372,6 +372,28 @@ def test_start_warns_in_production_without_complete_imprint(tmp_path, clock, cap
 
 # ------------------------------------------------------------------ legal-6: Datenschutz
 
+FOOTER_PAGES = {
+    "de": ["/de/", "/de/ferien", "/de/ferien/sommer-2027", "/de/route", "/de/grenze", "/de/grenze/kapikule", "/de/zoll",
+           "/de/info", "/de/offline", "/de/gibts-nicht"],
+    "tr": ["/tr/", "/tr/tatil", "/tr/tatil/yaz-2027", "/tr/guzergah", "/tr/sinir", "/tr/sinir/kapikule", "/tr/gumruk",
+           "/tr/bilgi", "/tr/cevrimdisi", "/tr/sayfa-yok"],
+}
+
+
+@pytest.mark.parametrize("lang, link", [
+    ("de", '<a href="/de/info#datenschutz">Datenschutz</a> · <a href="/de/info#impressum">Impressum</a>'),
+    ("tr", '<a href="/tr/bilgi#datenschutz">Gizlilik</a> · <a href="/tr/bilgi#impressum">Künye</a>'),
+])
+def test_every_page_links_privacy_in_the_footer(client, lang, link):
+    """Audit d2-privacy-link-label: auf jeder Seite ein als Datenschutz erkennbarer Link (Art. 12 Abs. 1
+    DSGVO), direkt auf den Abschnitt – vorher führte „Impressum & Datenschutz“ zum Impressum."""
+    for path in FOOTER_PAGES[lang]:
+        footer = re.search(r'<footer class="footer">.*?</footer>', client.get(path).get_data(as_text=True), re.S).group(0)
+        assert link in footer, path
+    info = client.get("/de/info" if lang == "de" else "/tr/bilgi").get_data(as_text=True)
+    assert '<section class="card prose" id="datenschutz"' in info
+
+
 # Was app.js im localStorage ablegt (Schlüssel tv.<name>) – der Datenschutztext nennt jeden davon
 DOCUMENTED_KEYS = {"state": "prefs", "mode": "prefs", "checks": "checks", "queue": "queue", "report_pref": "last",
                    "a2hs_off": "a2hs"}

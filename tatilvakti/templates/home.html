@@ -47,12 +47,19 @@
         {%- endif %}
         <p class="muted">{{ t("home_pick_state") }}</p>
       </div>
-      {%- for code, info in next_by_state.items() %}
+      {#- Ein Block je Land, auch ohne künftige Ferien im Datenbestand (sonst stünde dort trotz Wahl
+          „Wähle dein Bundesland“). Unbekannte Kürzel zeigen weiter den Block „none“ (app.js). #}
+      {%- for code in states %}
+      {%- set info = next_by_state.get(code) %}
       <div data-per-state="{{ code }}" hidden>
+        {%- if info %}
         <p class="muted">{{ t("home_next_holiday", state=states[code].name) }}</p>
         <p class="big">{{ info.period.label[lang] }}</p>
         <p>{{ fmt_ranges(info.ranges) }}
           <span class="pill">{{ t("running") if info.running else info.when }}</span></p>
+        {%- else %}
+        <p class="muted">{{ t("home_no_next_holiday", state=states[code].name) }}</p>
+        {%- endif %}
       </div>
       {%- endfor %}
       <a class="cta" href="{{ href('holidays') }}" data-state-link>{{ t("home_holiday_cta") }}{{ icon("chevron", "icon--s") }}</a>

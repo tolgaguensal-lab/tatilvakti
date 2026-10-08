@@ -52,8 +52,10 @@ t.run(async () => {
       await page.click('label.seg__opt:has(input[value="to_tr"])');
       await page.click('label.bucket:has(input[value="2"])');
       await page.click('form[data-report] button[type="submit"]');
-      await L.waitFor(page, () => document.querySelector("[data-report-msg]").textContent.trim().length > 0, null,
-        { label: "Rückmeldung zur Meldung" });
+      await L.waitFor(page, () => {
+        const msg = document.querySelector("[data-report-msg]");
+        return msg.textContent.trim().length > 0 && !msg.classList.contains("flash--sending");
+      }, null, { label: "Rückmeldung zur Meldung" });
       t.check("Kapıkule ?land=\"]: Meldung per JS gesendet", !page.url().includes("gemeldet")
         && (await page.getAttribute("[data-report-msg]", "class")).includes("flash--ok"), page.url());
       // Kleinbuchstaben sind kein Angriff: ?land=nw zeigt NRW (wie der Server)

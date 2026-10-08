@@ -250,20 +250,65 @@
 
   // ---------------------------------------------------------- reports (+ offline queue)
   var MAX_AGE = 90 * 60;
+  // Zeitlimit je Meldung: An der Grenze hängt das Netz oft, ohne dass der Browser offline meldet.
+  // Danach landet die Meldung in der Warteschlange, statt mit dem Schließen der App verloren zu gehen.
+  var REPORT_TIMEOUT_MS = 8000;
+  // Rückmeldungen: auf Übergangsseiten über dem Formular, sonst oben im Inhalt (data-notice in base.html)
   var reportMsg = $("[data-report-msg]");
+  var notice = $("[data-notice]");
   function say(kind, text) {
-    if (!reportMsg) return;
-    reportMsg.className = "flash flash--" + kind;
-    reportMsg.textContent = text;
+    if (reportMsg) {
+      reportMsg.className = "flash flash--" + kind;
+      reportMsg.textContent = text;
+    } else if (notice) {
+      notice.textContent = "";
+      notice.appendChild(el("p", "flash flash--" + kind, text));
+    }
   }
+  // Ohne AbortController (Safari < 12.1) gewinnt nur der Timer; die Anfrage läuft dann im Hintergrund weiter
   function postReport(item) {
-    return fetch("/api/v1/borders/" + encodeURIComponent(item.cid) + "/reports", {
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var timer;
+    var limit = new Promise(function (_, reject) {
+      timer = setTimeout(function () {
+        var err = new Error("timeout");
+        err.name = "TimeoutError";
+        reject(err);  // vor abort(): Das Zeitlimit soll das Rennen gewinnen, nicht der AbortError
+        if (ctrl) ctrl.abort();
+      }, REPORT_TIMEOUT_MS);
+    });
+    var req = fetch("/api/v1/borders/" + encodeURIComponent(item.cid) + "/reports", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ direction: item.direction, bucket: item.bucket, observed_at: item.observed_at })
+      body: JSON.stringify({ direction: item.direction, bucket: item.bucket, observed_at: item.observed_at }),
+      signal: ctrl ? ctrl.signal : undefined
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (data) { return { status: r.status, data: data }; });
     });
+    return Promise.race([req, limit]).then(
+      function (res) { clearTimeout(timer); return res; },
+      function (err) { clearTimeout(timer); throw err; });
+  }
+  // Warteschlange (tv.queue). Merkmal tried: Die Meldung ging schon einmal raus, die Antwort fehlt
+  // (Zeitlimit, Netzfehler, 5xx) – sie kann trotzdem angekommen sein. Kein neuer Speicherschlüssel.
+  function queued() {
+    var queue = store.get("queue", []);
+    return Array.isArray(queue) ? queue : [];
+  }
+  function enqueue(item, tried) {
+    if (tried) item.tried = true;
+    var queue = queued();
+    queue.push(item);
+    store.set("queue", queue);
+  }
+  function sameReport(a, b) {
+    return !!a && a.cid === b.cid && a.direction === b.direction && a.bucket === b.bucket && a.observed_at === b.observed_at;
+  }
+  function unqueue(item) {
+    var queue = queued();
+    for (var i = 0; i < queue.length; i++) {
+      if (sameReport(queue[i], item)) { queue.splice(i, 1); store.set("queue", queue); return; }
+    }
   }
   // Angenommene Meldung (201, direkt oder aus der Warteschlange): Übergang und Richtung merken –
   // die Startseite zeigt ihn zuerst, das Formular schlägt die Richtung vor – und danach den
@@ -273,31 +318,52 @@
     store.set("report_pref", lastReport);
     showA2hs();
   }
-  // Nachliefern: bei Netzfehler oder 5xx zurück in die Warteschlange, bei 4xx verwerfen
-  // (zu alt, Limit, ungültig – ein neuer Versuch ändert daran nichts)
+  // Nachliefern. Jede Meldung bleibt gespeichert, bis ihr Ergebnis feststeht: Wer die App mitten im
+  // Senden schließt, verliert nichts. Bei Zeitlimit, Netzfehler oder 5xx bleibt sie liegen, bei 4xx
+  // fällt sie weg (zu alt, Limit, ungültig – ein neuer Versuch ändert daran nichts). Verworfenes sagen
+  // wir offen, sonst glaubt die Person, ihre Meldung zähle.
   var flushing = false;
   function flushQueue() {
-    var queue = store.get("queue", []);
+    var queue = queued();
     if (flushing || !queue.length || navigator.onLine === false) return;
     var now = Math.floor(Date.now() / 1000);
-    queue = queue.filter(function (q) { return now - q.observed_at < MAX_AGE; });
-    store.set("queue", []);
-    flushing = true;
     var delivered = 0;
-    var requeue = function (item) { var rest = store.get("queue", []); rest.push(item); store.set("queue", rest); };
-    Promise.all(queue.map(function (item) {
+    var dropped = 0;
+    queue = queue.filter(function (item) {
+      if (!item || typeof item.observed_at !== "number") return false;  // kaputter Eintrag: ohne Hinweis weg
+      var fresh = now - item.observed_at < MAX_AGE;
+      if (!fresh) dropped++;
+      return fresh;
+    });
+    // Ab jetzt kann jede Meldung ankommen, auch wenn die Antwort ausbleibt: gespeichert als versucht.
+    // Ob sie es schon vorher war, entscheidet unten über „hier schon gemeldet“.
+    var triedBefore = queue.map(function (item) { var was = item.tried === true; item.tried = true; return was; });
+    store.set("queue", queue);
+    flushing = true;
+    Promise.all(queue.map(function (item, i) {
       return postReport(item).then(function (res) {
+        if (res.status >= 500 || res.status === 0) return;  // Störung: bleibt für den nächsten Versuch
+        unqueue(item);
         if (res.status === 201) {
           delivered++;
           reported(item);
           if (res.data && res.data.crossing) { applyCrossing(res.data.crossing); updateEmpty(); }
-        } else if (res.status >= 500 || res.status === 0) {
-          requeue(item);
+        } else if (res.status === 429 && res.data && res.data.detail === "same_spot" && triedBefore[i]) {
+          // Ein früherer Versuch kam offenbar doch an, nur die Antwort nicht zurück: Die Meldung zählt
+          delivered++;
+          reported(item);
+        } else {
+          dropped++;
         }
-      }, function () { requeue(item); });
+      }, function () { /* Zeitlimit oder Netz: bleibt für den nächsten Versuch */ });
     })).then(function () {
       flushing = false;
-      if (delivered) say("ok", S.b_report_delivered);
+      if (dropped) {
+        var lost = fmt(S[dropped === 1 ? "b_report_dropped_1" : "b_report_dropped_n"], { n: dropped });
+        say("error", delivered ? S.b_report_delivered + " " + lost : lost);
+      } else if (delivered) {
+        say("ok", S.b_report_delivered);
+      }
     });
   }
   window.addEventListener("online", flushQueue);
@@ -310,24 +376,39 @@
     // wiederhergestellt (Zurück-Taste), bleibt sie.
     var lastDir = lastReport.direction && form.querySelector('input[name="direction"][value="' + q(lastReport.direction) + '"]');
     if (lastDir && !form.querySelector('input[name="direction"]:checked')) lastDir.checked = true;
+    var button = form.querySelector('button[type="submit"]');
+    var sending = false;
+    // Sende-Zustand sichtbar (app.css) und vorgelesen. aria-disabled statt disabled: Der Tastaturfokus
+    // bleibt auf dem Knopf; ein zweites Absenden fängt „sending“ ab.
+    function busy(on) {
+      sending = on;
+      if (!button) return;
+      if (on) {
+        button.setAttribute("aria-disabled", "true");
+        button.setAttribute("aria-busy", "true");
+      } else {
+        button.removeAttribute("aria-disabled");
+        button.removeAttribute("aria-busy");
+      }
+    }
     form.addEventListener("submit", function (ev) {
       ev.preventDefault();
+      if (sending) return;
       var dir = form.querySelector('input[name="direction"]:checked');
       var bucket = form.querySelector('input[name="bucket"]:checked');
       var hp = form.querySelector('input[name="website"]');
       if (!dir || !bucket) { form.reportValidity && form.reportValidity(); return; }
       if (hp && hp.value) { say("ok", S.b_report_thanks); return; }
       var item = { cid: form.getAttribute("data-cid"), direction: dir.value, bucket: parseInt(bucket.value, 10), observed_at: Math.floor(Date.now() / 1000) };
-      var button = form.querySelector('button[type="submit"]');
-      if (button) button.disabled = true;
-      function done() { if (button) button.disabled = false; }
-      var queueIt = function () {
-        var queue = store.get("queue", []); queue.push(item); store.set("queue", queue);
-        say("queued", S.b_report_queued); bucket.checked = false; done();
+      var queueIt = function (text, tried) {
+        enqueue(item, tried);
+        say("queued", text); bucket.checked = false; busy(false);
       };
-      if (navigator.onLine === false) { queueIt(); return; }
+      if (navigator.onLine === false) { queueIt(S.b_report_queued, false); return; }
+      busy(true);
+      say("sending", S.b_report_sending);
       postReport(item).then(function (res) {
-        done();
+        busy(false);
         if (res.status === 201) {
           say("ok", S.b_report_thanks);
           bucket.checked = false;
@@ -339,11 +420,14 @@
         } else if (res.status === 422) {
           say("error", S.b_report_stale);
         } else if (res.status >= 500 || res.status === 0) {
-          queueIt();
+          queueIt(S.b_report_retry, true);
         } else {
           say("error", S.b_report_error);
         }
-      }).catch(queueIt);
+      }, function (err) {
+        // Nur Fehler der Anfrage selbst (Zeitlimit, Netz) – nicht Fehler beim Anzeigen einer Antwort
+        queueIt(err && err.name === "TimeoutError" ? S.b_report_slow : S.b_report_queued, true);
+      });
     });
   });
 
@@ -381,6 +465,10 @@
     window.addEventListener("load", uncoverHash);
     var input = $("[data-customs-search]", tools);
     var empty = $("[data-customs-empty]");
+    // Live-Region (customs.html): Trefferzahl bzw. „Nichts gefunden“ erst nach einer Tipppause,
+    // sonst sagt der Screenreader bei jedem Buchstaben eine neue Zahl an
+    var live = $("[data-customs-live]", tools);
+    var announce = null;
     var dirFilter = "all";
     var filter = function () {
       var terms = fold(input.value).split(/\s+/).filter(Boolean);
@@ -398,6 +486,12 @@
         visible += shown;
       });
       if (empty) empty.hidden = visible !== 0;
+      if (live) {
+        clearTimeout(announce);
+        announce = setTimeout(function () {
+          live.textContent = visible ? fmt(S[visible === 1 ? "c_results_1" : "c_results_n"], { n: visible }) : S.c_no_results;
+        }, 600);
+      }
     };
     input.addEventListener("input", filter);
     $$("[data-customs-dir]", tools).forEach(function (btn) {
