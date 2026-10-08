@@ -117,7 +117,7 @@ t.run(async () => {
       await page.click('label.seg__opt:has(input[value="to_tr"])');
       await page.click('label.bucket:has(input[value="1"])');
       await page.click('form[data-report] button[type="submit"]');
-      await L.waitFor(page, () => document.querySelector("[data-report-msg]").textContent.length > 0, null, { label: "Antwort" });
+      await L.waitFor(page, () => /flash--error/.test(document.querySelector("[data-report-msg]").className), null, { label: "Antwort" });
       t.check("iOS: abgelehnte Meldung → kein Hinweis, nichts gemerkt", !(await hintVisible(page)) && (await store(page, "report_pref")) === null);
       await page.unroute("**/api/v1/borders/*/reports");
       await page.click('label.bucket:has(input[value="1"])');

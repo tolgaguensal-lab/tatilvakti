@@ -200,6 +200,15 @@ p { margin: 0 0 .75em; }
 .btn--small { min-height: 40px; padding: 0 14px; font-size: .9rem; }
 .btn--block { width: 100%; }
 .btn:active { transform: translateY(1px); }
+/* Gesperrt bzw. „wird gesendet“ (Meldeformular, app.js setzt aria-disabled und aria-busy):
+   blasser Knopf mit drehendem Ring, damit niemand an der Grenze vor einem scheinbar toten Knopf steht */
+.btn:disabled, .btn[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
+.btn[aria-busy="true"] { cursor: progress; }
+.btn[aria-busy="true"]::before {
+  content: ""; width: 16px; height: 16px; flex: none; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 .cta { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; text-decoration: none; margin-top: 4px; min-height: 44px; }
 /* Teilen: WhatsApp-Link und (nur mit navigator.share) Knopf fürs Teilen-Menü des Geräts */
 .share { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
@@ -399,6 +408,9 @@ body:not(.mode-plane) .only-plane { display: none; }
 .flash--ok { background: var(--ok-soft); color: var(--ink); }
 .flash--error { background: var(--bad-soft); color: var(--ink); }
 .flash--queued { background: var(--mid-soft); color: var(--ink); }
+.flash--sending { background: var(--none-soft); color: var(--ink); }
+/* Rückmeldung zur Warteschlange auf Seiten ohne Meldeformular (base.html) */
+.notice .flash { margin-bottom: var(--gap); }
 .buckets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .buckets legend { margin-bottom: 6px; }
 @media (min-width: 560px) { .buckets { grid-template-columns: repeat(3, 1fr); } }

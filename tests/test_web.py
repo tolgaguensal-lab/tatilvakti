@@ -2,7 +2,7 @@
 import html as htmllib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -63,6 +63,22 @@ def test_hreflang_and_language_switch_keep_the_page(client):
     # Ungültiges Bundesland fällt weg, statt in Links weitergereicht zu werden
     bad = client.get('/de/ferien/sommer-2027?land="]').get_data(as_text=True)
     assert 'class="plate" href="/tr/tatil/yaz-2027"' in bad
+
+
+@pytest.mark.parametrize("path, other, label, name", [
+    ("/de/zoll", "tr", "Sprache wechseln:", "Türkçe"),
+    ("/tr/gumruk", "de", "Dili değiştir:", "Deutsch"),
+])
+def test_language_switch_marks_only_the_language_name_with_its_lang(client, path, other, label, name):
+    """Audit d1-lang-switch-lang-attr: „Sprache wechseln“ liest der Screenreader in der Seitensprache,
+    nur den Namen der Zielsprache in deren Sprache (WCAG 3.1.2). Kein aria-label: Der Name kommt aus
+    dem Inhalt und enthält so den sichtbaren Text (axe label-content-name-mismatch, WCAG 2.5.3)."""
+    html = client.get(path).get_data(as_text=True)
+    tag, inner = re.search(r'(<a class="plate"[^>]*>)(.*?)</a>', html, re.S).groups()
+    assert f'hreflang="{other}"' in tag and " lang=" not in tag and "aria-label" not in tag
+    assert f'<span class="sr-only">{label} </span>' in inner
+    assert f'<span class="plate__txt" lang="{other}">{name}</span>' in inner
+    assert re.search(r'<span class="plate__eu" aria-hidden="true">', inner)
 
 
 def _periods(app):
@@ -259,6 +275,45 @@ def test_home_shows_next_real_holiday_start_during_gap(client, clock):
     html = client.get("/de/").get_data(as_text=True)
     assert "Als Nächstes: Oster-/Frühjahrsferien 2027, Beginn Mo 22.03.2027" in html
     assert "Beginn Mo 01.03.2027" not in html
+
+
+def test_home_says_honestly_when_no_further_holidays_are_listed(app, client, clock):
+    """Audit d1-home-stale-pick-state: Ist für das gewählte Land nichts Künftiges mehr eingetragen,
+    steht dort ein ehrlicher Hinweis statt „Wähle dein Bundesland“.
+
+    Unabhängig vom Datenstand (ein neues Schuljahr in holidays.json darf den Test nicht brechen):
+    Stichtag ist der Tag nach dem letzten freien Zeitraum des Landes, dessen Daten zuerst enden."""
+    states = app.extensions["tv"].radar.states
+    last = {code: max(s.end for p in _periods(app) for s in p.stretches(code)) for code in states}
+    code = min(last, key=lambda c: (last[c], c))
+    name = states[code]["name"]
+
+    def blocks_on(day, lang="de"):
+        clock.now = datetime(day.year, day.month, day.day, 9, 0, tzinfo=timezone.utc)
+        html = client.get(f"/{lang}/").get_data(as_text=True)
+        return dict(re.findall(r'<div data-per-state="(\w+)"(?: hidden)?>(.*?)</div>', html, re.S))
+
+    # Gegenprobe am letzten eingetragenen Tag: Die Ferien laufen noch
+    blocks = blocks_on(last[code])
+    assert f"Nächste Ferien in {name}" in blocks[code] and "noch keine weiteren" not in blocks[code]
+    day = last[code] + timedelta(days=1)
+    blocks = blocks_on(day)
+    assert len(blocks) == 17  # 16 Länder und „none“
+    assert f"Für {name} sind noch keine weiteren Ferien eingetragen." in blocks[code]
+    assert "Wähle dein Bundesland" not in blocks[code] and "Nächste Ferien" not in blocks[code]
+    assert "Wähle dein Bundesland" in blocks["none"]
+    assert f"{name} için sıradaki tatil tarihleri henüz eklenmedi." in blocks_on(day, "tr")[code]
+
+
+def test_customs_search_has_a_permanent_live_region(client):
+    """Audit d1-customs-empty-not-announced: Trefferzahl und Leerzustand gehen über eine Live-Region,
+    die von Anfang an im DOM steht (WCAG 4.1.3); die Texte bekommt app.js aus tv-strings."""
+    for path, results in (("/de/zoll", "{n} Treffer"), ("/tr/gumruk", "{n} sonuç")):
+        html = client.get(path).get_data(as_text=True)
+        tools = re.search(r'<div class="toolbar" data-customs-tools hidden>.*?<div class="seg"', html, re.S).group(0)
+        assert '<p class="sr-only" role="status" aria-live="polite" data-customs-live></p>' in tools
+        strings = json.loads(re.search(r'id="tv-strings">(.*?)</script>', html).group(1))
+        assert strings["c_results_n"] == results and strings["c_results_1"] and strings["c_no_results"]
 
 
 def test_split_holidays_are_shown_as_separate_blocks(client):
@@ -695,6 +750,69 @@ def test_api_errors_are_always_json(client):
     assert resp.status_code == 405 and resp.mimetype == "application/json"
     # Seiten außerhalb der API behalten die normale Fehlerseite
     assert client.post("/de/").mimetype == "text/html"
+
+
+def _title(html):
+    return htmllib.unescape(re.search(r"<title>(.*?)</title>", html).group(1))
+
+
+@pytest.mark.parametrize("lang, path, title", [
+    ("de", "/de/grenze/kapikule/report", "Anfrage nicht möglich – tatilvakti"),
+    ("tr", "/tr/sinir/kapikule/report", "İstek işlenemedi – tatilvakti"),
+])
+def test_method_not_allowed_on_pages_shows_own_error_page(client, lang, path, title):
+    """405 auf Seitenpfaden (Audit d1-http-error-default-page): eigene Fehlerseite in der Sprache des
+    Pfads, mit Navigation und Weg zur Startseite, statt der englischen Standardseite von Werkzeug."""
+    resp = client.get(path)
+    html = resp.get_data(as_text=True)
+    assert resp.status_code == 405 and resp.mimetype == "text/html"
+    assert "POST" in resp.headers["Allow"]  # bleibt erhalten
+    assert f'<html lang="{lang}"' in html and _title(html) == title
+    assert 'class="tabbar"' in html and f'class="btn btn--primary" href="/{lang}/"' in html
+    assert "Method Not Allowed" not in html
+    assert "unsafe-inline" not in resp.headers["Content-Security-Policy"] and "Set-Cookie" not in resp.headers
+    assert "Vary" not in resp.headers  # Sprache aus dem Pfad, nicht aus Accept-Language
+
+
+def test_too_large_form_post_shows_own_error_page(client):
+    resp = client.post("/de/grenze/kapikule/report", headers=SAME_ORIGIN,
+                       data={"direction": "to_tr", "bucket": "1", "website": "x" * 20000})
+    html = resp.get_data(as_text=True)
+    assert resp.status_code == 413 and resp.mimetype == "text/html"
+    assert '<html lang="de"' in html and _title(html) == "Anfrage nicht möglich – tatilvakti"
+    assert "Request Entity Too Large" not in html
+
+
+@pytest.mark.parametrize("path, title, text", [
+    ("/de/info", "Anfrage nicht möglich – tatilvakti", "Diese Anfrage konnten wir nicht verarbeiten."),
+    ("/tr/bilgi", "İstek işlenemedi – tatilvakti", "Bu isteği işleyemedik."),
+])
+def test_bad_request_on_pages_shows_own_error_page_and_keeps_headers(app, client, path, title, text):
+    from werkzeug.exceptions import TooManyRequests, abort
+    endpoint = "info_" + path.split("/")[1]
+    app.view_functions[endpoint] = lambda **_: abort(400)
+    resp = client.get(path)
+    html = resp.get_data(as_text=True)
+    assert resp.status_code == 400 and _title(html) == title and text in html
+
+    def limited(**_):
+        raise TooManyRequests(retry_after=60)
+    app.view_functions[endpoint] = limited
+    resp = client.get(path)
+    assert resp.status_code == 429 and _title(resp.get_data(as_text=True)) == title
+    assert resp.headers["Retry-After"] == "60"  # Kopfzeilen der Ausnahme bleiben, nicht nur Allow
+
+
+def test_error_page_outside_language_paths_follows_accept_language(client):
+    resp = client.post("/healthz", headers={"Accept-Language": "tr-TR,tr;q=0.9,de;q=0.5"})
+    html = resp.get_data(as_text=True)
+    assert resp.status_code == 405 and "GET" in resp.headers["Allow"]
+    assert '<html lang="tr"' in html and _title(html) == "İstek işlenemedi – tatilvakti"
+    assert resp.headers["Vary"] == "Accept-Language"  # Caches dürfen DE und TR nicht mischen
+    assert '<html lang="de"' in client.post("/healthz").get_data(as_text=True)
+    # 404 ebenso
+    missing = client.get("/gibts-nicht", headers={"Accept-Language": "tr"})
+    assert '<html lang="tr"' in missing.get_data(as_text=True) and missing.headers["Vary"] == "Accept-Language"
 
 
 def test_outdated_data_is_flagged_not_hidden(client, clock):

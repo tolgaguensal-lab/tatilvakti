@@ -141,8 +141,10 @@ def official_sources(crossings) -> list[dict]:
 
 def _client_strings() -> dict:
     keys = ["ago_now", "ago_min", "ago_h", "ago_d", "b_no_reports", "b_no_reports_ever", "b_last_report", "b_reports_1",
-            "b_reports_n", "b_report_thanks", "b_report_queued", "b_report_delivered", "b_report_ratelimited", "b_report_busy",
-            "b_report_stale", "b_report_error", "b_level_ok", "b_level_mid", "b_level_bad", "b_level_none", "c_no_results"]
+            "b_reports_n", "b_report_thanks", "b_report_sending", "b_report_queued", "b_report_slow", "b_report_retry",
+            "b_report_delivered", "b_report_dropped_1", "b_report_dropped_n", "b_report_partial_1", "b_report_partial_n",
+            "b_report_ratelimited", "b_report_busy", "b_report_stale", "b_report_error", "b_level_ok", "b_level_mid", "b_level_bad", "b_level_none",
+            "c_no_results", "c_results_1", "c_results_n"]
     keys += [f"b_bucket_{i}" for i in range(B.BUCKET_COUNT)]
     return {k: t(k) for k in keys}
 
@@ -796,16 +798,22 @@ def error_page(code: int) -> str:
     return render_template("error.html", page=None, code=code, alt_urls={}, switch_urls={})
 
 
+def error_response(code: int) -> Response:
+    """Eigene Fehlerseite mit Statuscode. Sprache aus dem Pfad, sonst aus Accept-Language
+    (default_lang) – dann dürfen Caches DE und TR nicht mischen."""
+    resp = make_response(error_page(code), code)
+    if g.get("lang_negotiated"):
+        resp.headers["Vary"] = "Accept-Language"
+    return resp
+
+
 def _legacy_url(entry: dict):
     """Alte URL der Alt-App: dauerhaft weiterleiten (301) oder „gibt es nicht mehr“ (410)."""
     if entry["code"] == 301:
         return redirect(entry["to"], code=301)
     if request.path.startswith("/api/"):
         return {"error": "gone"}, 410
-    resp = make_response(error_page(410), 410)
-    if g.get("lang_negotiated"):  # Sprache aus Accept-Language: Caches dürfen DE und TR nicht mischen
-        resp.headers["Vary"] = "Accept-Language"
-    return resp
+    return error_response(410)
 
 
 # ------------------------------------------------------------- Registrierung
@@ -938,7 +946,7 @@ def register(app: Flask) -> None:
     def forbidden(_exc):
         if request.path.startswith("/api/"):
             return {"error": "forbidden"}, 403
-        return error_page(403), 403
+        return error_response(403)
 
     @app.errorhandler(404)
     def not_found(_exc):
@@ -948,21 +956,24 @@ def register(app: Flask) -> None:
             return _legacy_url(entry)
         if request.path.startswith("/api/"):
             return {"error": "not_found"}, 404
-        return error_page(404), 404
+        return error_response(404)
 
     @app.errorhandler(500)
     def server_error(_exc):  # pragma: no cover - Notfallpfad
         if request.path.startswith("/api/"):
             return {"error": "server_error", "degraded": True}, 500
-        return error_page(500), 500
+        return error_response(500)
 
     @app.errorhandler(HTTPException)
     def http_error(exc):
-        """Alle übrigen HTTP-Fehler (400, 405, 413 …): unter /api/ immer JSON, sonst Standardseite."""
-        if not request.path.startswith("/api/"):
-            return exc
-        resp = jsonify({"error": API_ERRORS.get(exc.code, "http_error")})
-        resp.status_code = exc.code or 500
+        """Alle übrigen HTTP-Fehler (400, 405, 413 …): unter /api/ immer JSON, sonst die eigene
+        zweisprachige Fehlerseite statt der englischen Standardseite von Werkzeug."""
+        code = exc.code or 500
+        if request.path.startswith("/api/"):
+            resp = jsonify({"error": API_ERRORS.get(code, "http_error")})
+            resp.status_code = code
+        else:
+            resp = error_response(code)
         for name, value in exc.get_headers():
             if name.lower() != "content-type":  # z. B. Allow bei 405
                 resp.headers[name] = value

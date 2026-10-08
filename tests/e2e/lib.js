@@ -4,10 +4,10 @@
    Playwright kommt über require.resolve (PLAYWRIGHT_MODULE, Standard "playwright", per NODE_PATH).
 
    Zwischen Browser und App sitzt ein kleiner Proxy. Er simuliert, was sich mit der App allein
-   nicht nachstellen lässt: Netz weg (Verbindung abbrechen), ein Deploy mit neuer Build-ID
-   (Version in /sw.js umschreiben), fehlschlagende Seitenabrufe (503) und alte Service Worker
-   der Alt-App unter eigenen Pfaden. Der Proxy reicht den Host-Header durch, damit der
-   CSRF-Schutz der App den Origin des Browsers als eigenen erkennt. */
+   nicht nachstellen lässt: Netz weg (Verbindung abbrechen), hängendes Netz (nie antworten),
+   ein Deploy mit neuer Build-ID (Version in /sw.js umschreiben), fehlschlagende Seitenabrufe
+   (503) und alte Service Worker der Alt-App unter eigenen Pfaden. Der Proxy reicht den
+   Host-Header durch, damit der CSRF-Schutz der App den Origin des Browsers als eigenen erkennt. */
 "use strict";
 
 const http = require("http");
@@ -30,6 +30,7 @@ function startProxy(upstream) {
   const target = new URL(upstream);
   const state = {
     down: false,          // true: jede Verbindung bricht ab (kein Netz)
+    hang: null,           // (pfad, methode) → true: nie antworten (Netz hängt, der Browser bleibt online)
     swVersion: null,      // neue Build-ID in /sw.js (simulierter Deploy)
     fail: null,           // (pfad) → true: 503 statt Weiterleitung an die App
     serve: {},            // pfad → {type, body}: vom Proxy selbst ausgeliefert (Alt-App)
@@ -39,6 +40,7 @@ function startProxy(upstream) {
     const path = req.url.split("?")[0];
     state.log.push(req.method + " " + req.url);
     if (state.down) { req.socket.destroy(); return; }
+    if (state.hang && state.hang(path, req.method)) { req.resume(); return; }
     const own = state.serve[path];
     if (own) {
       res.writeHead(200, { "Content-Type": own.type, "Cache-Control": "no-store" });
@@ -77,7 +79,7 @@ function startProxy(upstream) {
       resolve({
         url: "http://127.0.0.1:" + server.address().port,
         state,
-        reset() { Object.assign(state, { down: false, swVersion: null, fail: null, serve: {} }); },
+        reset() { Object.assign(state, { down: false, hang: null, swVersion: null, fail: null, serve: {} }); },
         close() { return new Promise((r) => { server.closeAllConnections(); server.close(r); }); },
       });
     });

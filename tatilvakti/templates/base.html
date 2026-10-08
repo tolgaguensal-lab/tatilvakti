@@ -49,9 +49,12 @@
     <span class="brand__name">tatil<span>vakti</span></span>
   </a>
   {%- if alt_urls %}
-  <a class="plate" href="{{ switch_urls[other_lang] }}" hreflang="{{ other_lang }}" lang="{{ other_lang }}" aria-label="{{ t('lang_switch_label') }}">
+  {#- Name aus dem Inhalt statt aria-label: „Sprache wechseln:“ in der Seitensprache, nur der Name der
+      Zielsprache mit deren lang (WCAG 3.1.2); der sichtbare Text steckt im Namen (2.5.3) #}
+  <a class="plate" href="{{ switch_urls[other_lang] }}" hreflang="{{ other_lang }}">
     <span class="plate__eu" aria-hidden="true">{{ "TR" if other_lang == "tr" else "D" }}</span>
-    <span class="plate__txt">{{ t("lang_switch") }}</span>
+    <span class="sr-only">{{ t("lang_switch_label") }} </span>
+    <span class="plate__txt" lang="{{ other_lang }}">{{ t("lang_switch") }}</span>
   </a>
   {%- endif %}
 </header>
@@ -59,6 +62,11 @@
 <div class="offline-banner" data-offline-banner hidden>{{ icon("offline", "icon--s") }}<span>{{ t("offline_banner") }}</span></div>
 
 <main id="main" class="main">
+{%- if page != "crossing" %}
+{#- Rückmeldung von app.js, wenn gespeicherte Meldungen auf einer Seite ohne Meldeformular nachgeliefert
+    werden (angekommen bzw. zählt nicht). Live-Region, darum immer im DOM; leer ohne Höhe. #}
+<div class="notice" role="status" aria-live="polite" data-notice></div>
+{%- endif %}
 {% block main %}{% endblock %}
 </main>
 {%- if page in ("home", "borders", "crossing") %}
@@ -86,7 +94,7 @@
 
 <footer class="footer">
   <p>{{ t("footer_privacy") }}</p>
-  <p><a href="{{ href('info') }}">{{ t("footer_data") }}</a> · <a href="{{ href('info') }}#impressum">{{ t("footer_imprint") }}</a></p>
+  <p><a href="{{ href('info') }}">{{ t("footer_data") }}</a> · <a href="{{ href('info') }}#datenschutz">{{ t("footer_privacy_link") }}</a> · <a href="{{ href('info') }}#impressum">{{ t("footer_imprint") }}</a></p>
 </footer>
 
 <nav class="tabbar" aria-label="{{ t('nav_main') }}">
