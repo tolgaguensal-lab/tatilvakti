@@ -186,11 +186,13 @@ def _is_bilingual(value) -> bool:
     return isinstance(value, dict) and all(isinstance(value.get(l), str) and value[l].strip() for l in LANGS)
 
 
-def _check_date(value, where, problems):
+def _check_date(value, where, problems) -> date | None:
+    """ISO-Datum (JJJJ-MM-TT) prüfen: liefert das Datum, sonst None und einen Eintrag in problems."""
     try:
-        date.fromisoformat(value)
+        return date.fromisoformat(value)
     except (TypeError, ValueError):
         problems.append(f"{where}: ungültiges Datum {value!r}")
+        return None
 
 
 def _check_url(value, where, problems):
@@ -402,6 +404,15 @@ def validate(content: Content) -> list[str]:
         _check_source(country.get("source"), f"transit.{code}.source", problems)
         if country.get("prices") and "prices_valid_until" not in country:
             problems.append(f"transit.{code}: Preise ohne Gültigkeitsdatum")
+        # Beide Daten liest /healthz (due_items), prices_valid_until auch die Routenseite: ein
+        # kaputtes Datum ließe sonst beide abstürzen. review_after (optional) ist ein Prüftermin nur
+        # für /healthz, z. B. für BG, das die Preise zuletzt mitten im Jahr geändert hat (01.08.2026).
+        # Er liegt vor dem Preisablauf: Die Mahnung kommt, bevor die Seite die Preise als veraltet zeigt.
+        valid_until, review = (_check_date(country[f], f"transit.{code}.{f}", problems) if f in country else None
+                               for f in ("prices_valid_until", "review_after"))
+        if valid_until and review and review > valid_until:
+            problems.append(f"transit.{code}.review_after: {review} liegt nach prices_valid_until {valid_until}, "
+                            "/healthz mahnte erst nach dem Preisablauf")
         for price in country.get("prices", []):
             if not _is_bilingual(price.get("label")):
                 problems.append(f"transit.{code}: Preis-Label nicht zweisprachig")

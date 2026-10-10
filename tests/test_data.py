@@ -1,4 +1,5 @@
 """Kuratierte Daten: vollständig, zweisprachig, mit Quellen – sonst startet die App nicht."""
+import html as htmllib
 import re
 
 import pytest
@@ -190,6 +191,71 @@ def test_vignette_prices_name_the_vehicle_class():
     assert "D1" in hu and "D2" in hu
     for price in countries["RO"]["prices"]:  # Rovinieta-Preise gelten nur für Kategorie A
         assert "Kat. A" in price["label"]["de"] and "A kategorisi" in price["label"]["tr"]
+
+
+def _forint(value: str) -> int:
+    assert value.endswith(" Ft"), value
+    return int(value[:-3].replace(".", ""))
+
+
+def test_hungary_lists_the_annual_vignette_and_when_it_ends():
+    """Issue #2: Jahresvignette je Klasse (NÚSZ-Tabelle). Sie gilt nur bis 31.01. des Folgejahres,
+    nicht 12 Monate ab Kauf – Label-Jahr, Hinweis und Preisablauf müssen zusammenpassen."""
+    hu = load_content().transit["countries"]["HU"]
+    year = int(hu["prices_valid_until"][:4])
+    prices = {p["label"]["de"].split(" (")[0]: p for p in hu["prices"]}
+    for cls in ("D1", "D2"):
+        annual = prices[f"Jahr {year} · {cls}"]
+        assert annual["label"]["tr"] == f"{year} yıllık · {cls}"
+        assert _forint(prices[f"10 Tage · {cls}"]["value"]) < _forint(annual["value"])
+    assert _forint(prices[f"Jahr {year} · D1"]["value"]) < _forint(prices[f"Jahr {year} · D2"]["value"])
+    note = next(n for n in hu["notes"] if "Jahresvignette" in n["de"])
+    assert "nicht 12 Monate" in note["de"] and f"31.01.{year + 1}" in note["de"]
+    assert "12 ay değil" in note["tr"] and f"31.01.{year + 1}" in note["tr"]
+    assert note["source"]["url"].startswith("https://nemzetiutdij.hu/")
+
+
+def test_romania_names_the_other_vignette_durations():
+    """Issue #2: Neben der 10-Tages-Vignette gibt es 1, 30 und 60 Tage und 12 Monate (Ordin MTI 888/2026)."""
+    notes = load_content().transit["countries"]["RO"]["notes"]
+    note = next(n for n in notes if "10-Tages-Vignette" in n["de"])
+    assert all(d in note["de"] for d in ("1 Tag", "30 Tage", "60 Tage", "12 Monate"))
+    assert all(d in note["tr"] for d in ("1 günlük", "30 günlük", "60 günlük", "12 aylık"))
+
+
+@pytest.mark.parametrize("field, value, message", [
+    ("prices_valid_until", "31.12.2026", "transit.BG.prices_valid_until: ungültiges Datum"),
+    ("prices_valid_until", None, "transit.BG.prices_valid_until: ungültiges Datum"),
+    ("review_after", "2026-12-32", "transit.BG.review_after: ungültiges Datum"),
+    ("review_after", "2027-02-01", "transit.BG.review_after: 2027-02-01 liegt nach prices_valid_until"),
+])
+def test_validation_checks_the_check_dates_of_a_country(field, value, message):
+    """/healthz und die Routenseite rechnen mit beiden Daten: ein kaputtes Datum fällt beim Start auf."""
+    content = load_content()
+    content.transit["countries"]["BG"][field] = value
+    assert any(message in p for p in validate(content)), validate(content)
+
+
+def test_review_date_without_prices_is_allowed():
+    content = load_content()
+    content.transit["countries"]["HR"]["review_after"] = "2027-02-28"  # z. B. vor dem Start von CroLibertas
+    assert validate(content) == []
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_route_page_shows_all_hungarian_and_romanian_prices_and_notes(client, lang):
+    """Routenseite DE/TR: neue Jahresvignette (HU) und Hinweis auf weitere Laufzeiten (RO) samt Quellen."""
+    page = client.get({"de": "/de/route", "tr": "/tr/guzergah"}[lang]).get_data(as_text=True)
+    countries = load_content().transit["countries"]
+    for code in ("HU", "RO"):
+        section = htmllib.unescape(page.split(f'id="land-{code}"', 1)[1].split("</details>", 1)[0])
+        for price in countries[code]["prices"]:
+            assert price["label"][lang] in section and price["value"] in section
+        for note in countries[code]["notes"]:
+            assert note[lang] in section
+            if "source" in note:
+                assert note["source"]["url"] in section and note["source"]["name"][lang] in section
+        assert countries[code]["source"]["url"] in section
 
 
 def test_car_driver_rule_requires_the_holder_to_be_in_turkey():
