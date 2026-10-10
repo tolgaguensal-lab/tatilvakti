@@ -1,0 +1,89 @@
+# CI: prüft jeden Push (alle Branches) und jeden Pull Request. Was läuft, die Pflicht-Checks für
+# main und wie man alles lokal nachstellt: README → Setup → CI (GitHub Actions). Die CI sieht nur
+# den Code, keine Nutzerdaten, und braucht keine Secrets.
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Ein neuer Push bricht den laufenden Lauf desselben Branches bzw. Pull Requests ab. Auf main hat
+# jeder Commit eine eigene Gruppe und wird zu Ende geprüft: deploy.sh rollt main aus, jeder Stand
+# dort soll ein Ergebnis haben.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash  # mit -eo pipefail
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Mindestversion (deploy.sh prüft auf 3.10) und Entwicklungsversion
+        python: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: venv mit gehashten Abhängigkeiten (wie deploy.sh)
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --disable-pip-version-check --no-input \
+              --require-hashes -r requirements-dev.txt
+      - name: Shell-Skripte (bash -n, shellcheck)
+        run: |
+          for f in scripts/*.sh; do bash -n "$f"; done
+          shellcheck --version
+          # Alle Stufen bis "style". Ausnahmen nur gezielt im Skript mit Begründung
+          # (# shellcheck disable=SCxxxx  # warum), siehe release-lib.sh.
+          shellcheck --external-sources --severity=style scripts/*.sh
+      - name: Python-Syntax (auch mit der Mindestversion)
+        run: .venv/bin/python -m compileall -q scripts tatilvakti tests wsgi.py
+      - name: pytest ohne Browser-Tests
+        run: .venv/bin/python -m pytest -m "not e2e" -ra
+
+  e2e:
+    # Fest auf 24.04: Playwright 1.56.1 kennt Ubuntu nur bis 24.04 (Browser-Downloads und
+    # --with-deps). Beim Update von Playwright prüfen, ob ubuntu-latest wieder passt.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - name: venv mit gehashten Abhängigkeiten (wie deploy.sh)
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --disable-pip-version-check --no-input \
+              --require-hashes -r requirements-dev.txt
+      # Playwright ist keine Abhängigkeit des Projekts: außerhalb des Repos installieren und das
+      # CLI direkt aus diesem Verzeichnis aufrufen (npx könnte sonst eine andere Version laden).
+      - name: Playwright 1.56.1 und Chromium
+        run: |
+          npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/pw" playwright@1.56.1
+          "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Browser-Tests
+        env:
+          TV_E2E: "1"
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+        run: .venv/bin/python -m pytest -m e2e -ra

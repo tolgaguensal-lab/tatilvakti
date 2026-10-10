@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
         *) die "unbekannte Option: $1 (siehe --help)" ;;
     esac
 done
-[[ $KEEP =~ ^[0-9]+$ ]] && [ "$KEEP" -ge 2 ] || die "--keep muss eine Zahl ab 2 sein"
+{ [[ $KEEP =~ ^[0-9]+$ ]] && [ "$KEEP" -ge 2 ]; } || die "--keep muss eine Zahl ab 2 sein"
 
 # Git als root in einem Klon, der einem anderen Benutzer gehört: safe.directory nur für diesen Aufruf
 SRC=$(cd "$HERE/.." && pwd)

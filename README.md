@@ -112,6 +112,7 @@ tatilvakti/
   static/          css/app.css, js/app.js, js/sw.js, Icons, og/ (Vorschaubilder)
 tests/             pytest (Daten, Logik, HTTP, PWA, Teilen, Texte, CSS, Betriebsskripte)
 tests/e2e/         Browser-Tests (Node-Playwright, nur mit TV_E2E=1)
+.github/           workflows/ci.yml: CI auf GitHub Actions (siehe Setup → CI)
 deploy/            systemd-Units (Dienst, Wartung, Backup) und Env-Vorlage
 scripts/           deploy.sh, rollback.sh, release-lib.sh, healthcheck.py, preflight.py, backup.py, tv-flask.sh
 scripts/og/        Vorlage und Render-Skript der Vorschaubilder
@@ -155,6 +156,41 @@ TV_E2E=1 NODE_PATH=/pfad/zu/node_modules .venv/bin/python -m pytest -m e2e   # n
   | `bad_params.js` | präparierte `?land=`-Links und kaputter Gerätespeicher |
   | `toolbar_layout.js` | Sprungziele und Fokus unter der Zoll-Toolbar; jede Seite der Precache-Liste bei 320, 360 und 390 px ohne seitliches Überlaufen |
   | `share_report.js` | Kaltstart ohne Meldungen, Auswahl und Melden, Teilen |
+
+### CI (GitHub Actions)
+
+`.github/workflows/ci.yml` läuft bei jedem Push auf einen Branch und bei jedem Pull Request. Ein neuer Push bricht den noch laufenden Lauf desselben Branches bzw. Pull Requests ab, auf `main` nicht: `deploy.sh` rollt `main` aus, jeder Stand dort bekommt ein Ergebnis. Die CI hat nur Leserechte (`contents: read`), braucht keine Secrets und sieht keine Nutzerdaten.
+
+| Check | Umgebung | prüft |
+|---|---|---|
+| `tests (3.10)`, `tests (3.13)` | `ubuntu-latest`, Python 3.10 (Mindestversion laut `deploy.sh`) und 3.13 | venv wie das Test-venv von `deploy.sh` (`pip install --require-hashes -r requirements-dev.txt`), `bash -n` und `shellcheck` für `scripts/*.sh`, Python-Syntax per `compileall`, dann `pytest -m "not e2e"` |
+| `e2e` | `ubuntu-24.04`, Python 3.13, Node 22, Playwright 1.56.1 mit Chromium | alle Browser-Tests (`pytest -m e2e`) |
+
+- **shellcheck** meldet alle Stufen bis `style` und folgt `source` (`--external-sources`). Ausnahmen nur gezielt im Skript und mit Begründung (`# shellcheck disable=SC…  # warum`, Beispiel in `release-lib.sh`). shellcheck ist auf `ubuntu-latest` vorinstalliert. Die Skripte sind mit 0.9 (Ubuntu 24.04) bis 0.11 ohne Befund.
+- **Playwright** ist keine Abhängigkeit des Projekts: Die CI installiert es außerhalb des Repos und ruft das CLI direkt von dort auf. Der e2e-Job läuft fest auf `ubuntu-24.04`, weil Playwright 1.56.1 neuere Ubuntu-Versionen nicht kennt (Browser-Download, `--with-deps`). Beim Update von Playwright die Version in `ci.yml` und hier anpassen.
+- **`deploy.sh` fragt die CI nicht ab.** Vor `sudo scripts/deploy.sh` prüfen, dass der Commit grün ist (Reiter Actions oder `gh run list --branch main --limit 3`). Der Preflight auf dem Server lässt pytest weiterhin laufen, die Browser-Tests laufen nur in der CI.
+- **Actions-Versionen:** eingebunden über das Major-Tag (`actions/checkout@v7`, `actions/setup-python@v7`, `actions/setup-node@v7`, alle auf der Node-24-Laufzeit von GitHub; ältere Majors wie `checkout@v4` laufen noch auf Node 20, das GitHub für Actions abgekündigt hat). Ein Tag kann der Herausgeber verschieben. Strenger ist ein Pin auf den vollen Commit-SHA mit dem Tag als Kommentar (`uses: actions/checkout@<40-stelliger SHA> # v7`), aktuell gehalten von Dependabot (`.github/dependabot.yml` mit `package-ecosystem: github-actions`).
+
+**Pflicht-Checks für `main`** (Einstellung im Repo, Sache des Betreibers): Wirkung hat die CI erst, wenn nur grüne Pull Requests nach `main` kommen. Dafür auf GitHub unter Settings → Rules → Rulesets eine Regel für `main` anlegen: „Require status checks to pass“ mit den Checks `tests (3.10)`, `tests (3.13)` und `e2e`, dazu „Require a pull request before merging“, „Block force pushes“ und „Restrict deletions“. Die Checks erst eintragen, wenn sie einmal grün gelaufen sind: Ein Pflicht-Check, der nie meldet (z. B. wegen eines Tippfehlers im Namen), blockiert jeden Pull Request. Ändert sich die Python-Matrix, ändern sich auch die Namen der Checks und die Regel muss mit.
+
+**Lokal nachstellen** (im Repo, mit dem venv aus dem Setup):
+
+```bash
+for f in scripts/*.sh; do bash -n "$f"; done
+shellcheck --external-sources --severity=style scripts/*.sh     # ohne Installation: uvx --from shellcheck-py shellcheck …
+.venv/bin/python -m compileall -q scripts tatilvakti tests wsgi.py
+.venv/bin/python -m pytest -m "not e2e"
+# Mindestversion: zweites venv außerhalb des Repos (Python 3.10 z. B. per "uv python install 3.10")
+"$(uv python find 3.10)" -m venv /tmp/tv-py310
+/tmp/tv-py310/bin/pip install --require-hashes -r requirements-dev.txt
+/tmp/tv-py310/bin/python -m pytest -m "not e2e"
+# Browser-Tests wie in der CI (--with-deps installiert Systempakete per apt, braucht root bzw. sudo)
+npm install --no-save --prefix /tmp/tv-pw playwright@1.56.1
+/tmp/tv-pw/node_modules/.bin/playwright install --with-deps chromium
+TV_E2E=1 NODE_PATH=/tmp/tv-pw/node_modules .venv/bin/python -m pytest -m e2e
+# Workflow-Datei prüfen
+uvx --from actionlint-py actionlint
+```
 
 ## Betrieb
 
