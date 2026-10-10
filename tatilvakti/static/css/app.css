@@ -513,8 +513,11 @@ html.has-toolbar .toolbar ~ [id], html.has-toolbar .toolbar ~ * [id] { scroll-ma
 
 .rule { border-left: 6px solid var(--none); }
 .rule--ok { border-left-color: var(--ok); } .rule--limit { border-left-color: var(--brand); } .rule--declare { border-left-color: var(--mid); } .rule--no { border-left-color: var(--bad); }
-.rule__head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
-.rule__title { font-size: 1.05rem; margin: 0 0 6px; }
+/* Chip rechts neben dem Titel. Passt nicht einmal das längste Wort des Titels daneben („Versicherungskarte“
+   bei 320 px, mit breiter Systemschrift wie DejaVu Sans auch bei 360 px), rutscht der Chip in die nächste
+   Zeile statt über den Rand. flex-basis 0: Umbruch nur dann, ein zweizeiliger Titel behält den Chip daneben. */
+.rule__head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 10px; align-items: flex-start; }
+.rule__title { flex: 1 1 0; font-size: 1.05rem; margin: 0 0 6px; }
 .rule__text { font-size: 1rem; }
 .rule__more summary { cursor: pointer; font-weight: 700; color: var(--brand); min-height: 32px; }
 .rule__src { font-size: .8rem; color: var(--ink-2); margin: 8px 0 0; }
