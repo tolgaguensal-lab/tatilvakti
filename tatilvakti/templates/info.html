@@ -59,7 +59,18 @@
   <p>{{ t("i_privacy_p3", h=hash_ttl_h) }}</p>
   <p>{{ t("i_privacy_reports_keep", days=retention_days) }}</p>
   <h3>{{ t("i_privacy_server_title") }}</h3>
-  <p>{{ t("i_privacy_p4") }}</p>
+  {#- Empfänger und Frist des Proxy-Logs aus TV_HOSTING_PROVIDER und TV_PROXY_LOG_DAYS (privacy_details).
+      Fehlt eine Angabe, steht offen da, dass sie folgt – nie ein geratener Wert. #}
+  <p>{{ t("i_privacy_p4") }}
+    {%- if privacy.hosting %} {{ t("i_privacy_host", provider=privacy.hosting) }}{% endif %}
+    {%- if privacy.proxy_log_days == 0 %} {{ t("i_privacy_proxy_nolog") }}
+    {%- elif privacy.proxy_log_days %} {{ plural("i_privacy_proxy_log", privacy.proxy_log_days) }}{% endif %}</p>
+  {%- if privacy.missing %}
+  <p class="due">{{ icon("alert", "icon--xs") }}
+    {%- if not privacy.hosting %} {{ t("i_privacy_host_pending") }}{% endif %}
+    {%- if privacy.proxy_log_days is none %} {{ t("i_privacy_proxy_pending") }}{% endif %}</p>
+  {%- endif %}
+  <p>{{ t("i_privacy_share") }}</p>
 </section>
 
 <section class="card prose" id="impressum" aria-labelledby="imprint-title">

@@ -390,9 +390,9 @@ def test_healthz_reports_data_freshness(client):
     assert data["due_items"] == [] and data["next_review"] > "2026-10-10"
     assert data["proxy"] == {"trust_proxy": 0, "forwarded_ignored": False}
     assert data["maintenance_at"] == "2026-10-06T10:00:00Z"
-    # Test-App ohne Impressum: sichtbar als 'attention', HTTP bleibt 200
-    assert data["imprint_ok"] is False
-    assert (data["status"], data["attention"]) == ("attention", ["imprint"])
+    # Test-App ohne Impressum und ohne Hoster/Proxy-Log-Frist: sichtbar als 'attention', HTTP bleibt 200
+    assert data["imprint_ok"] is False and data["privacy_ok"] is False
+    assert (data["status"], data["attention"]) == ("attention", ["imprint", "privacy"])
 
 
 @pytest.fixture
@@ -400,14 +400,15 @@ def operated_app(tmp_path, clock):
     from tatilvakti import create_app
     return create_app({"TESTING": True, "TV_DB_PATH": str(tmp_path / "op.db"), "TV_CLOCK": clock,
                        "TV_OPERATOR_NAME": "Erika Muster", "TV_OPERATOR_ADDRESS": "Musterweg 1;12345 Musterstadt",
-                       "TV_OPERATOR_EMAIL": "kontakt@example.org"})
+                       "TV_OPERATOR_EMAIL": "kontakt@example.org",
+                       "TV_HOSTING_PROVIDER": "Beispiel Hosting GmbH, Musterstadt", "TV_PROXY_LOG_DAYS": "7"})
 
 
 def test_healthz_is_ok_with_imprint_and_fresh_data(operated_app):
     resp = operated_app.test_client().get("/healthz")
     data = resp.get_json()
     assert resp.status_code == 200
-    assert (data["status"], data["imprint_ok"], data["attention"]) == ("ok", True, [])
+    assert (data["status"], data["imprint_ok"], data["privacy_ok"], data["attention"]) == ("ok", True, True, [])
 
 
 def test_healthz_lists_due_rules_and_prices(operated_app):

@@ -8,12 +8,13 @@ from pathlib import Path
 import pytest
 
 from tatilvakti import borders as B
-from tatilvakti import create_app, operator_imprint
+from tatilvakti import create_app, operator_imprint, privacy_details
 from tatilvakti.content import load_content, validate
 
 ROOT = Path(__file__).parent.parent
 OPERATOR = {"TV_OPERATOR_NAME": "Erika Muster", "TV_OPERATOR_ADDRESS": "Musterweg 1;12345 Musterstadt",
             "TV_OPERATOR_EMAIL": "kontakt@example.org"}
+PRIVACY = {"TV_HOSTING_PROVIDER": "Beispiel Hosting GmbH, Musterstadt", "TV_PROXY_LOG_DAYS": "7"}
 
 
 def page(client, path):
@@ -444,3 +445,112 @@ def test_privacy_text_matches_the_code(client, path, words):
         assert word in plain, word
     # Die alte Pauschalaussage stimmte wegen ?land= nicht
     assert "verlassen dein Gerät nicht" not in plain and "Cihazından çıkmaz" not in plain
+
+
+# ------------------------------------------------------------------ Audit d2-privacy-recipients-proxylog
+
+def privacy_section(tmp_path, clock, path, **config):
+    app = create_app({"TESTING": True, "TV_DB_PATH": str(tmp_path / "p.db"), "TV_CLOCK": clock, **config})
+    client = app.test_client()
+    html = re.search(r'<section class="card prose" id="datenschutz".*?</section>', page(client, path), re.S).group(0)
+    return html, " ".join(text(html).split()), client.get("/healthz").get_json()
+
+
+@pytest.mark.parametrize("path, words", [
+    ("/de/info", ["Hosting: Beispiel Hosting GmbH, Musterstadt (als Auftragsverarbeiter nach Art. 28 DSGVO",
+                  "Der Proxy führt ein Zugriffsprotokoll", "deine IP-Adresse", "auch wenn du eine Wartezeit meldest",
+                  "Betrieb und Sicherheit der Seite (Art. 6 Abs. 1 lit. f DSGVO)", "nach 7 Tagen gelöscht"]),
+    ("/tr/bilgi", ["Barındırma hizmeti: Beispiel Hosting GmbH, Musterstadt (GDPR md. 28 uyarınca veri işleyen",
+                   "Proxy sunucusu bir erişim kaydı tutar", "IP adresin", "bekleme süresi bildirdiğinde de",
+                   "işletilmesi ve güvenliğidir (GDPR md. 6/1-f)", "7 gün sonra silinir"]),
+])
+def test_privacy_text_names_the_hoster_and_the_proxy_log(tmp_path, clock, path, words):
+    """Art. 13 Abs. 1 lit. e und Abs. 2 lit. a DSGVO: Empfänger und Speicherdauer aus TV_HOSTING_PROVIDER
+    und TV_PROXY_LOG_DAYS. Das Proxy-Log verknüpft IP, Übergang und Uhrzeit einer Meldung."""
+    html, plain, health = privacy_section(tmp_path, clock, path, **PRIVACY)
+    for word in words:
+        assert word in plain, word
+    assert 'class="due"' not in html  # nichts mehr offen
+    assert (health["privacy_ok"], "privacy" in health["attention"]) == (True, False)
+
+
+@pytest.mark.parametrize("days, de, tr", [
+    ("1", "Die Einträge werden nach einem Tag gelöscht.", "Kayıtlar 1 gün sonra silinir."),
+    (" 30 ", "Die Einträge werden nach 30 Tagen gelöscht.", "Kayıtlar 30 gün sonra silinir."),
+    (14, "Die Einträge werden nach 14 Tagen gelöscht.", "Kayıtlar 14 gün sonra silinir."),
+    ("0", "Ein Zugriffsprotokoll mit deiner IP-Adresse führt der Proxy nicht.",
+     "Proxy sunucusu, IP adresinin yer aldığı bir erişim kaydı tutmaz."),
+    (0, "Ein Zugriffsprotokoll mit deiner IP-Adresse führt der Proxy nicht.",
+     "Proxy sunucusu, IP adresinin yer aldığı bir erişim kaydı tutmaz."),
+])
+def test_proxy_log_days_in_both_languages(tmp_path, clock, days, de, tr):
+    config = {**PRIVACY, "TV_PROXY_LOG_DAYS": days}
+    _, plain_de, health = privacy_section(tmp_path, clock, "/de/info", **config)
+    _, plain_tr, _ = privacy_section(tmp_path, clock, "/tr/bilgi", **config)
+    assert de in plain_de and tr in plain_tr
+    assert health["privacy_ok"] is True
+    if str(days).strip() == "0":
+        assert "gelöscht. Die Teilen" not in plain_de and "Zugriffsprotokoll: Es enthält" not in plain_de
+
+
+@pytest.mark.parametrize("config, missing", [
+    ({}, ["TV_HOSTING_PROVIDER", "TV_PROXY_LOG_DAYS"]),
+    ({"TV_HOSTING_PROVIDER": "  ", "TV_PROXY_LOG_DAYS": "7"}, ["TV_HOSTING_PROVIDER"]),
+    ({"TV_HOSTING_PROVIDER": "Beispiel Hosting GmbH", "TV_PROXY_LOG_DAYS": "sieben"}, ["TV_PROXY_LOG_DAYS"]),
+    ({"TV_HOSTING_PROVIDER": "Beispiel Hosting GmbH", "TV_PROXY_LOG_DAYS": "-1"}, ["TV_PROXY_LOG_DAYS"]),
+    ({"TV_HOSTING_PROVIDER": "Beispiel Hosting GmbH", "TV_PROXY_LOG_DAYS": "7.5"}, ["TV_PROXY_LOG_DAYS"]),
+    ({"TV_HOSTING_PROVIDER": "Beispiel Hosting GmbH", "TV_PROXY_LOG_DAYS": "²"}, ["TV_PROXY_LOG_DAYS"]),
+    ({"TV_HOSTING_PROVIDER": "Beispiel Hosting GmbH", "TV_PROXY_LOG_DAYS": "12345"}, ["TV_PROXY_LOG_DAYS"]),
+])
+def test_missing_privacy_details_are_shown_as_pending_never_guessed(tmp_path, clock, config, missing):
+    """Fehlt eine Angabe oder ist sie ungültig: ehrlich „folgt noch“, kein Platzhalter, keine geratene
+    Frist; /healthz meldet 'privacy' wie 'imprint' (HTTP 200)."""
+    assert privacy_details(config)["missing"] == missing
+    for path, host_pending, log_pending in (
+            ("/de/info", "Angaben zum Hosting-Anbieter (Auftragsverarbeiter nach Art. 28 DSGVO) folgen noch.",
+             "Angaben dazu, ob und wie lange der Proxy ein Zugriffsprotokoll mit deiner IP-Adresse aufbewahrt, folgen noch."),
+            ("/tr/bilgi", "Barındırma hizmeti sağlayıcısına (GDPR md. 28 uyarınca veri işleyen) dair bilgiler henüz eklenmedi.",
+             "Proxy sunucusunun, IP adresinin yer aldığı bir erişim kaydı tutup tutmadığına")):
+        html, plain, health = privacy_section(tmp_path, clock, path, **config)
+        due = " ".join(text(re.search(r'<p class="due">.*?</p>', html, re.S).group(0)).split())
+        assert (host_pending in due) is ("TV_HOSTING_PROVIDER" in missing)
+        assert (log_pending in due) is ("TV_PROXY_LOG_DAYS" in missing)
+        assert "TV_" not in html and "{" not in plain  # keine Variablennamen, keine offenen Platzhalter
+        if "TV_PROXY_LOG_DAYS" in missing:
+            assert "Tagen gelöscht" not in plain and "gün sonra silinir" not in plain
+            assert "Zugriffsprotokoll: Es enthält" not in plain and "kaydı tutar" not in plain
+    assert health["status"] == "attention" and "privacy" in health["attention"]
+    assert health["privacy_ok"] is False and health["down"] == []
+
+
+def test_hoster_name_is_escaped_and_tidied(tmp_path, clock):
+    config = {**PRIVACY, "TV_HOSTING_PROVIDER": '  <b>Böse</b> & Co.\n  "Hosting"  '}
+    assert privacy_details(config)["hosting"] == '<b>Böse</b> & Co. "Hosting"'
+    html, plain, _ = privacy_section(tmp_path, clock, "/de/info", **config)
+    assert "<b>" not in html and "&lt;b&gt;Böse&lt;/b&gt; &amp; Co." in html
+    assert 'Hosting: <b>Böse</b> & Co. "Hosting" (als Auftragsverarbeiter' in plain
+
+
+def test_privacy_cross_references_point_to_the_server_section(client):
+    """Meldungen und ?land=: Was der Proxy protokolliert, steht an einer Stelle (Beim Aufruf der Seiten)."""
+    de = " ".join(text(page(client, "/de/info")).split())
+    tr = " ".join(text(page(client, "/tr/bilgi")).split())
+    assert de.count("steht unten unter „Beim Aufruf der Seiten“") == 2
+    assert tr.count("aşağıda “Sayfaları açtığında” bölümünde bulabilirsin") == 2
+    assert "Beim Aufruf der Seiten" in de and "Sayfaları açtığında" in tr
+
+
+@pytest.mark.parametrize("base_url, config, warned", [
+    ("https://tatilvakti.example", {}, True),
+    ("https://tatilvakti.example", {**PRIVACY, "TV_PROXY_LOG_DAYS": "sieben-42"}, True),
+    ("https://tatilvakti.example", PRIVACY, False),
+    ("", {}, False),  # Entwicklung ohne öffentliche Adresse
+])
+def test_start_warns_in_production_without_privacy_details(tmp_path, clock, caplog, base_url, config, warned):
+    with caplog.at_level("WARNING"):
+        create_app({"TESTING": True, "TV_DB_PATH": str(tmp_path / "w.db"), "TV_CLOCK": clock,
+                    "TV_BASE_URL": base_url, **config})
+    messages = [r.getMessage() for r in caplog.records if "Datenschutztext unvollständig" in r.getMessage()]
+    assert bool(messages) is warned
+    if warned:
+        assert "TV_PROXY_LOG_DAYS" in messages[0] and "sieben-42" not in messages[0]  # Namen, keine Werte
