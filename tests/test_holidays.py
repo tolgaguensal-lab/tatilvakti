@@ -277,6 +277,8 @@ def test_radar_works_with_minimal_data_and_empty_lists():
 
 @pytest.mark.parametrize("path, text", [
     ("/de/ferien/winter-2027?land=NW", "Nordrhein-Westfalen hat in diesem Zeitraum keine längeren Ferien."),
+    # NI hat laut KMK reguläre Winterferien 01.–02.02.2027 – mit Wochenende nur 4 Tage, Radar führt sie nicht
+    ("/de/ferien/winter-2027?land=NI", "Niedersachsen hat in diesem Zeitraum keine längeren Ferien."),
     ("/de/ferien/pfingsten-2027?land=HE", "Hessen hat in diesem Zeitraum keine längeren Ferien."),
     ("/tr/tatil/mayis-2027?land=HE", "Hessen bu dönemde uzun bir tatilde değil."),
     ("/de/ferien/pfingsten-2027?land=BW", "Deine Ferien in Baden-Württemberg"),
@@ -522,3 +524,26 @@ def test_month_label_close_to_the_right_edge_is_left_out(client):
     assert 'class="tl__grid" x1="96.552%"' in html  # die Gitterlinie zum Monatswechsel bleibt
     summer = client.get("/de/ferien/sommer-2027").get_data(as_text=True)
     assert all(f">{m}<" in summer for m in ("Juli", "Aug", "Sep"))
+
+
+# ------------------------------------------------ Kursive Tage der KMK (Issue #2: eine Regel für alle)
+
+def test_kursiv_days_count_toward_full_blocks(radar):
+    """Unterrichtsfreie Tage (KMK kursiv) zählen mit, sobald ihr Block ≥ 8 Tage frei ist.
+
+    Kursiv im KMK-Schuljahr 2026/27: BW 31.10.2026, BW 25.03.2027, BY 02.11.–06.11.2026,
+    BE und SN 07.05.2027. Die ersten drei bilden mit Wochenende und Feiertagen Blöcke ab
+    8 Tagen und sind enthalten; BE/SN bleiben raus (Strecken unter 8 Tagen, meta.note).
+    """
+    assert radar.by_id["herbst-2026"].stretches("BY") == [Range(date(2026, 10, 31), date(2026, 11, 8))]
+    assert radar.by_id["winter-2027"].stretches("BY") == [Range(date(2027, 2, 6), date(2027, 2, 14))]
+    assert "BY" in radar.states_on_holiday(date(2026, 11, 3))
+    assert "BW" in radar.states_on_holiday(date(2027, 3, 25))
+
+
+def test_short_winter_holidays_stay_out(radar):
+    """KMK-reguläre Winterferien von 1–2 Tagen (HB, HH, NI 2027): Strecken unter 8 Tagen,
+    bewusst nicht im Radar – anders als BE/BB/ST/TH, deren Winterblock 9 Tage frei ergibt."""
+    on = radar.states_on_holiday(date(2027, 2, 1))
+    assert "BE" in on and not ("HB" in on or "NI" in on)
+    assert "HH" not in radar.states_on_holiday(date(2027, 1, 29))

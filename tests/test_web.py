@@ -385,9 +385,9 @@ def test_healthz_reports_data_freshness(client):
     data = resp.get_json()
     assert resp.headers["Cache-Control"] == "no-store"  # nie aus einem Cache (Audit d4-healthz-…)
     assert data["db"] is True and data["salt_db"] is True and data["down"] == []
-    assert data["datasets"]["holidays"]["as_of"] == "2026-10-06"
+    assert data["datasets"]["holidays"]["as_of"] == "2026-10-10"
     assert data["datasets"]["holidays"]["review_due"] is False
-    assert data["due_items"] == [] and data["next_review"] > "2026-10-06"
+    assert data["due_items"] == [] and data["next_review"] > "2026-10-10"
     assert data["proxy"] == {"trust_proxy": 0, "forwarded_ignored": False}
     assert data["maintenance_at"] == "2026-10-06T10:00:00Z"
     # Test-App ohne Impressum: sichtbar als 'attention', HTTP bleibt 200
