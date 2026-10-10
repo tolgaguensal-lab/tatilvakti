@@ -2,7 +2,8 @@
 # Sicherung der Haupt-DB von tatilvakti v2 zurückspielen (als root):
 #
 #   sudo /opt/tatilvakti-v2/current/scripts/restore.sh /var/lib/tatilvakti-v2/backups/tatilvakti-<zeit>.db
-#   sudo /opt/tatilvakti-v2/current/scripts/restore.sh --check [<sicherung>]   # Probe, ändert nichts
+#   sudo /opt/tatilvakti-v2/current/scripts/restore.sh --start <sicherung>    # danach alles starten
+#   sudo /opt/tatilvakti-v2/current/scripts/restore.sh --check [<sicherung>]  # Probe, ändert nichts
 #
 # 1. Sicherung als Kopie neben die DB legen (Dienstbenutzer, 0600), mit backup.py --verify prüfen.
 #    Ist sie fehlerhaft, endet das Skript hier, Dienst und DB bleiben unverändert.
@@ -11,8 +12,12 @@
 #    Eine liegengebliebene -wal (Absturz, SIGKILL) legte SQLite sonst über die Sicherung: alte Daten
 #    oder eine beschädigte DB, und /healthz merkt das nicht.
 # 4. Geprüfte Kopie an ihren Platz (rename), dort erneut prüfen: integrity_check, Meldungszahl.
-# 5. Dienst und Timer starten, auf /healthz warten (scripts/healthcheck.py wie bei deploy.sh).
-# Scheitert ein Schritt ab 2, nennt die Ausgabe die Befehle zurück auf den alten Stand.
+# 5. Wieder starten, was vorher lief, und auf /healthz warten (scripts/healthcheck.py wie bei
+#    deploy.sh). Wie bei rollback.sh bleibt ein bewusst gestoppter Dienst gestoppt; --start startet
+#    Dienst und Timer in jedem Fall.
+# Scheitert ein Schritt ab 2 oder wird das Skript abgebrochen (Strg-C, kill, Verbindung weg), nennt
+# die Ausgabe die Befehle zurück auf den alten Stand. Ab Schritt 3 stehen sie auch in
+# pre-restore-<UTC-Zeit>/zurueck.txt, falls niemand mehr die Ausgabe liest.
 #
 # --check: nur Schritt 1, dazu der Preflight des aktiven Releases gegen die Kopie (create_app,
 # /healthz, alle Seiten). Ohne Angabe die neueste Sicherung. Für den Restore-Drill (README).
@@ -29,6 +34,7 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # Python für backup.py (nur Standardbibliothek, wie healthcheck.py). Die Variable ist für Tests.
 PYTHON=${TV_RESTORE_PYTHON:-python3}
 DATA_DIR=$(dirname "$DB")
+NAME=${DB##*/}
 BACKUP_DIR=$DATA_DIR/backups
 TIMERS=("$APP-maintenance.timer" "$APP-backup.timer")
 JOBS=("$APP-maintenance.service" "$APP-backup.service")
@@ -36,15 +42,18 @@ JOBS=("$APP-maintenance.service" "$APP-backup.service")
 SUFFIXES=("" -wal -shm -journal)
 
 CHECK=0
+START=0
 SRC=
 while [ $# -gt 0 ]; do
     case $1 in
         --check) CHECK=1; shift ;;
-        -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+        --start) START=1; shift ;;
+        -h|--help) sed -n '2,/^set -/{/^#/p}' "$0"; exit 0 ;;
         -*) die "unbekannte Option: $1 (siehe --help)" ;;
         *) [ -z "$SRC" ] || die "nur eine Sicherung angeben"; SRC=$1; shift ;;
     esac
 done
+[ "$CHECK" = 0 ] || [ "$START" = 0 ] || die "--check ändert nichts, --start passt nicht dazu"
 
 if [ "$(id -u)" -ne 0 ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
     die "als root ausführen (sudo)"
@@ -54,8 +63,10 @@ SERVICE_GROUP=$(id -gn "$SERVICE_USER")
 [ -d "$DATA_DIR" ] || die "$DATA_DIR fehlt. Erst den Dienst einmal starten: systemctl start $SERVICE"
 if [ -z "$SRC" ]; then
     [ "$CHECK" = 1 ] || die "Sicherung angeben, z. B. $BACKUP_DIR/tatilvakti-<zeit>.db (siehe --help)"
+    [ -d "$BACKUP_DIR" ] || die "$BACKUP_DIR fehlt, es lief noch keine Sicherung." \
+        "Jetzt sichern: systemctl start $APP-backup.service"
     # Die Dateinamen tragen die UTC-Zeit, die neueste steht also sortiert am Ende
-    SRC=$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'tatilvakti-*.db' 2>/dev/null | sort | tail -n 1)
+    SRC=$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'tatilvakti-*.db' | sort | tail -n 1)
     [ -n "$SRC" ] || die "keine Sicherung in $BACKUP_DIR"
 fi
 [ -f "$SRC" ] || die "Sicherung nicht gefunden: $SRC"
@@ -82,48 +93,91 @@ verify_reports() {  # $1 = Datei
     printf '%s\n' "$n"
 }
 
+listed() {  # $1 = Wert, weitere Argumente = Liste; Erfolg, wenn der Wert darin steht
+    local want=$1 item
+    shift
+    for item in "$@"; do [ "$item" != "$want" ] || return 0; done
+    return 1
+}
+
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 # Arbeitskopie mit PID: Ein zweiter Aufruf in derselben Sekunde scheitert an der Sperre und
 # räumt beim Beenden nur seine eigene Kopie weg
 STAGE=$DATA_DIR/.restore-$TS-$$.db
 OLD=$DATA_DIR/pre-restore-$TS
 PHASE=prepare  # prepare → stopped → moving → installed → started
-MOVED=()       # nach OLD verschobene Dateien
+RUNNING=()     # Units, die vor dem Restore liefen; der Weg zurück startet genau diese
+UNITS=()       # Units, die das Skript nach dem Restore startet
+OLD_FILES=()
+SIGNAL=        # INT, TERM oder HUP, wenn das Skript per Signal abbricht
+REASON=        # letzte Fehlermeldung, für zurueck.txt
 
-# Bei einem Fehler: Kopie wegräumen und den Weg zurück nennen, mit den echten Pfaden zum Kopieren
+# Wie die Fassung in release-lib.sh, merkt sich aber die Meldung für zurueck.txt
+die() { REASON=$*; printf 'FEHLER: %s\n' "$*" >&2; exit 1; }
+
+# Was in OLD liegt, aus dem Verzeichnis gelesen statt mitgezählt: Ein Signal kann zwischen einem
+# mv und jeder Buchführung danach kommen.
+old_files() {
+    local s
+    OLD_FILES=()
+    for s in "${SUFFIXES[@]}"; do
+        if [ -e "$OLD/$NAME$s" ] || [ -L "$OLD/$NAME$s" ]; then OLD_FILES+=("$OLD/$NAME$s"); fi
+    done
+}
+
+# Befehle zurück auf den Stand vor dem Restore, mit den echten Pfaden zum Kopieren
+way_back() {
+    local f
+    old_files
+    if [ -n "$SIGNAL" ]; then echo "Abgebrochen durch SIG$SIGNAL."; else echo "Abgebrochen."; fi
+    [ ${#OLD_FILES[@]} -eq 0 ] || echo "Der bisherige Stand liegt in $OLD."
+    if [ "$PHASE" = started ] && [ -n "$SIGNAL" ]; then
+        echo "Die Sicherung war schon eingespielt und geprüft, offen war nur der Start bzw. /healthz:"
+        echo "  systemctl is-active ${UNITS[*]}; curl -s $HEALTH_URL"
+        echo "Laufen alle und meldet /healthz \"db\": true, ist der Restore fertig. Sonst:"
+    fi
+    echo "Zurück auf den Stand vor dem Restore:"
+    if [ "$PHASE" = started ]; then
+        echo "  systemctl stop ${TIMERS[*]}"
+        echo "  systemctl stop ${JOBS[*]} $SERVICE"
+    fi
+    if [ "$PHASE" = installed ] || [ "$PHASE" = started ]; then
+        # Die zurückgespielte DB ist eine Kopie, die Sicherung selbst bleibt in backups/
+        echo "  rm -f -- $(for f in "${SUFFIXES[@]}"; do printf '%q ' "$DB$f"; done)"
+        [ ${#OLD_FILES[@]} -gt 0 ] || echo "  # vor dem Restore gab es keine $DB, die App legt eine leere an"
+    fi
+    if [ ${#OLD_FILES[@]} -gt 0 ]; then
+        echo "  mv -- $(printf '%q ' "${OLD_FILES[@]}")$(printf '%q' "$DATA_DIR")/"
+    fi
+    if listed "$SERVICE" "${RUNNING[@]}"; then echo "  systemctl reset-failed $SERVICE"; fi
+    if [ ${#RUNNING[@]} -gt 0 ]; then echo "  systemctl start ${RUNNING[*]}"; fi
+}
+
+# Beim Beenden: Kopie wegräumen; bei einem Fehler oder Abbruch den Weg zurück nennen
 on_exit() {
-    local rc=$? f moved=()
+    local rc=$? text why
+    trap '' INT TERM HUP PIPE  # das Aufräumen nicht selbst unterbrechen lassen
     rm -f -- "$STAGE" "$STAGE-wal" "$STAGE-shm" "$STAGE-journal"
     [ "$rc" -ne 0 ] || return 0
-    for f in "${MOVED[@]}"; do moved+=("$OLD/$f"); done
-    {
-        if [ "$PHASE" = prepare ]; then
-            echo "Abgebrochen, nichts geändert."
-            return 0
-        fi
-        if [ ${#moved[@]} -gt 0 ]; then
-            echo "Abgebrochen. Der bisherige Stand liegt in $OLD."
-        else
-            echo "Abgebrochen."
-        fi
-        echo "Zurück auf den Stand vor dem Restore:"
-        if [ "$PHASE" = started ]; then
-            echo "  systemctl stop ${TIMERS[*]}"
-            echo "  systemctl stop ${JOBS[*]} $SERVICE"
-        fi
-        if [ "$PHASE" = installed ] || [ "$PHASE" = started ]; then
-            # Die zurückgespielte DB ist eine Kopie, die Sicherung selbst bleibt in backups/
-            echo "  rm -f -- $(for f in "${SUFFIXES[@]}"; do printf '%q ' "$DB$f"; done)"
-            [ ${#moved[@]} -gt 0 ] || echo "  # vor dem Restore gab es keine $DB, die App legt eine leere an"
-        fi
-        if [ ${#moved[@]} -gt 0 ]; then
-            echo "  mv -- $(printf '%q ' "${moved[@]}")$(printf '%q' "$DATA_DIR")/"
-        fi
-        echo "  systemctl reset-failed $SERVICE"
-        echo "  systemctl start $SERVICE ${TIMERS[*]}"
-    } >&2
+    if [ "$PHASE" = prepare ]; then
+        echo "Abgebrochen, nichts geändert." >&2 || true
+        return 0
+    fi
+    text=$(way_back)
+    # Zuerst in die Datei: Nach einem Verbindungsabbruch (SIGHUP) liest die Ausgabe niemand mehr
+    why="Exit $rc"
+    [ -z "$REASON" ] || why="FEHLER: $REASON"
+    [ -z "$SIGNAL" ] || why="Signal SIG$SIGNAL"
+    if [ -d "$OLD" ] && printf 'restore.sh %s, %s, %s\n%s\n' "$SRC" "$(date '+%F %T %Z')" "$why" "$text" \
+            2>/dev/null >"$OLD/zurueck.txt"; then
+        text+=$'\n'"Diese Befehle stehen auch in $OLD/zurueck.txt."
+    fi
+    printf '%s\n' "$text" >&2 || true
 }
 trap on_exit EXIT
+trap 'SIGNAL=INT; exit 130' INT
+trap 'SIGNAL=TERM; exit 143' TERM
+trap 'SIGNAL=HUP; exit 129' HUP
 
 take_lock
 
@@ -144,27 +198,32 @@ if [ "$CHECK" = 1 ]; then
     exit 0
 fi
 
+[ ! -e "$OLD" ] || die "$OLD existiert bereits"
+# Vor dem Stoppen festhalten, was laufen soll (wie bei rollback.sh: läuft, startet gerade oder ist
+# abgestürzt). Genau das startet das Skript danach wieder, mit --start alles.
+for unit in "$SERVICE" "${TIMERS[@]}"; do
+    if service_wanted "$unit"; then RUNNING+=("$unit"); fi
+done
+if [ "$START" = 1 ]; then UNITS=("$SERVICE" "${TIMERS[@]}"); else UNITS=("${RUNNING[@]}"); fi
+
 PHASE=stopped
-log "Stoppe ${TIMERS[*]} ${JOBS[*]} $SERVICE"
+log "Stoppe ${TIMERS[*]} ${JOBS[*]} $SERVICE (vorher aktiv: ${RUNNING[*]:-keine})"
 systemctl stop "${TIMERS[@]}"
 systemctl stop "${JOBS[@]}" "$SERVICE"
 
-[ ! -e "$OLD" ] || die "$OLD existiert bereits"
 install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_GROUP" -- "$OLD"
 PHASE=moving
 for suffix in "${SUFFIXES[@]}"; do
-    if [ -e "$DB$suffix" ] || [ -L "$DB$suffix" ]; then
-        mv -- "$DB$suffix" "$OLD/"
-        MOVED+=("${DB##*/}$suffix")
-    fi
+    if [ -e "$DB$suffix" ] || [ -L "$DB$suffix" ]; then mv -- "$DB$suffix" "$OLD/"; fi
 done
 for suffix in "${SUFFIXES[@]}"; do
     if [ -e "$DB$suffix" ] || [ -L "$DB$suffix" ]; then
         die "$DB$suffix ist nach dem Verschieben wieder da. Öffnet ein anderer Prozess die DB?"
     fi
 done
-if [ ${#MOVED[@]} -gt 0 ]; then
-    log "Bisheriger Stand nach $OLD: ${MOVED[*]}"
+old_files
+if [ ${#OLD_FILES[@]} -gt 0 ]; then
+    log "Bisheriger Stand nach $OLD: ${OLD_FILES[*]##*/}"
 else
     log "Keine bisherige Datenbank vorhanden"
 fi
@@ -175,17 +234,29 @@ AFTER=$(verify_reports "$DB") || die "Die zurückgespielte $DB ist fehlerhaft"
 [ "$AFTER" = "$REPORTS" ] || die "$DB enthält $AFTER statt $REPORTS Meldungen"
 log "$DB: integrity_check ok, $AFTER Meldungen wie in der Sicherung"
 
-PHASE=started
-log "Starte $SERVICE ${TIMERS[*]}"
-systemctl reset-failed "$SERVICE" 2>/dev/null || true
-systemctl start "$SERVICE" "${TIMERS[@]}" || die "Start fehlgeschlagen: journalctl -u $SERVICE -n 50"
-wait_healthy "" || die "$SERVICE nach dem Restore nicht gesund: journalctl -u $SERVICE -n 50"
+if [ ${#UNITS[@]} -gt 0 ]; then
+    PHASE=started
+    log "Starte ${UNITS[*]}"
+    if listed "$SERVICE" "${UNITS[@]}"; then systemctl reset-failed "$SERVICE" 2>/dev/null || true; fi
+    systemctl start "${UNITS[@]}" || die "Start fehlgeschlagen: journalctl -u $SERVICE -n 50"
+fi
+if listed "$SERVICE" "${UNITS[@]}"; then
+    wait_healthy "" || die "$SERVICE nach dem Restore nicht gesund: journalctl -u $SERVICE -n 50"
+fi
 
 log "Restore fertig: ${SRC##*/}, $AFTER Meldungen"
-if [ ${#MOVED[@]} -gt 0 ]; then
+STOPPED=()
+for unit in "$SERVICE" "${TIMERS[@]}"; do
+    listed "$unit" "${UNITS[@]}" || STOPPED+=("$unit")
+done
+if [ ${#STOPPED[@]} -gt 0 ]; then
+    log "Gestoppt wie vor dem Restore: ${STOPPED[*]}. Starten: systemctl start ${STOPPED[*]}"
+    listed "$SERVICE" "${UNITS[@]}" || log "/healthz ist ungeprüft, solange $SERVICE nicht läuft."
+fi
+if [ ${#OLD_FILES[@]} -gt 0 ]; then
     log "Bisheriger Stand: $OLD"
     log "Löschen, sobald die Seite geprüft ist, spätestens nach 48 h (die alte DB enthält Prüfwerte,"
-    log "die die Wartung sonst nach 48 h löscht): rm -r -- $OLD"
+    log "die die Wartung sonst nach 48 h löscht): rm -r -- $(printf '%q' "$OLD")"
 else
     rmdir -- "$OLD"
 fi

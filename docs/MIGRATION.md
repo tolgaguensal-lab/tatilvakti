@@ -173,7 +173,8 @@ Je nach Ergebnis von 1.1. Sobald v2 oder der Kill-Switch auf einem Gerät aktiv 
    3. Ziel auf **3096** umstellen. Mit der installierten App prüfen, ob nach höchstens einem Neuladen v2 erscheint. DevTools → *Application*: Registriert ist nur noch `/sw.js`, es gibt nur Caches `tv2-*`.
    4. Ziel zurück auf **3095** (Rollback) und beobachten, was das Gerät zeigt.
    5. Ergebnis in Anhang B eintragen. Davon hängt ab, welche Pfade in `TV_LEGACY_SW_PATHS` gehören.
-5. Testmeldungen löschen (6e, letzter Punkt). Sie landen in der echten Datenbank von v2.
+5. **Restore-Drill:** einmal eine Sicherung mit `scripts/restore.sh` echt zurückspielen, wie in README → Backup und Restore → Restore-Drill, Schritt 1. Ergebnis in Anhang B eintragen. Nach dem Launch kostet ein echter Restore die Meldungen seit der Sicherung, deshalb jetzt.
+6. Testmeldungen löschen (6e, letzter Punkt). Sie landen in der echten Datenbank von v2.
 
 ## 5. Umschalten
 
@@ -290,7 +291,7 @@ curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' "$D/alter/pfad"
 ```bash
 systemctl list-timers 'tatilvakti-v2*'
 sudo /opt/tatilvakti-v2/current/scripts/tv-flask.sh maintenance
-sudo systemctl start tatilvakti-v2-backup.service && journalctl -u tatilvakti-v2-backup -n 3 -o cat
+sudo systemctl start tatilvakti-v2-backup.service && sudo journalctl -t tatilvakti-v2-backup -n 1 -o cat   # ok … reports=…
 ```
 
 **i) Logs ohne IP:** `journalctl -u tatilvakti-v2 -n 100 -o cat` enthält App- und gunicorn-Meldungen, aber keine Client-IPs.
@@ -380,5 +381,6 @@ Neue Ziele in v2: `/de/` · `/de/ferien` · `/de/ferien/<zeitraum>` · `/de/rout
 | Entscheidung Manifest-id (2.7) | |
 | Weiterleitungstabelle (Anhang A) | |
 | Ergebnis der Generalprobe (4.4) | |
+| Restore-Drill (4.5): Datum, Sicherung, Meldungen laut Sicherung / danach, `/healthz` (`status`, `db`, `salt_db`) | |
 | Weiterlaufende Dienste für die Datenschutzhinweise (2.1–2.6) | |
 | Pangolin: Version, Aufbewahrung der Request-Logs (Organisation), Hoster, AVV | |

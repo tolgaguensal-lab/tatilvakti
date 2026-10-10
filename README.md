@@ -113,7 +113,7 @@ tatilvakti/
 tests/             pytest (Daten, Logik, HTTP, PWA, Teilen, Texte, CSS, Betriebsskripte)
 tests/e2e/         Browser-Tests (Node-Playwright, nur mit TV_E2E=1)
 deploy/            systemd-Units (Dienst, Wartung, Backup) und Env-Vorlage
-scripts/           deploy.sh, rollback.sh, release-lib.sh, healthcheck.py, preflight.py, backup.py, tv-flask.sh
+scripts/           deploy.sh, rollback.sh, restore.sh, release-lib.sh, healthcheck.py, preflight.py, backup.py, tv-flask.sh
 scripts/og/        Vorlage und Render-Skript der Vorschaubilder
 docs/MIGRATION.md  Ablösung der Alt-App: Entscheidungen, Umschalten, Prüfliste, Rollback
 ```
@@ -287,25 +287,26 @@ sudo /opt/tatilvakti-v2/current/scripts/tv-flask.sh purge-reports --crossing kap
   sudo /opt/tatilvakti-v2/current/scripts/restore.sh /var/lib/tatilvakti-v2/backups/tatilvakti-<zeit>.db
   ```
 
-  `restore.sh` prüft die Sicherung an einer Kopie neben der DB (`backup.py --verify`: `integrity_check`, Meldungszahl, keine Prüfwerte). Ist sie fehlerhaft, bricht es ab, bevor es etwas anhält. Sonst stoppt es Timer, Wartung, Backup und Dienst (die Wartung legte in der Lücke sonst eine leere DB an), verschiebt `tatilvakti.db` samt `-wal`, `-shm` und `-journal` nach `/var/lib/tatilvakti-v2/pre-restore-<UTC-Zeit>/`, legt die geprüfte Kopie an ihren Platz (Dienstbenutzer, `0600`) und prüft sie dort noch einmal. Dann startet es Dienst und Timer und wartet wie `deploy.sh` auf `/healthz`. Das Verschieben ist der wichtigste Schritt: Eine nach einem Absturz liegengebliebene `-wal` legte SQLite sonst über die Sicherung, mit alten Meldungen oder einer beschädigten DB, und `/healthz` bemerkt das nicht. Scheitert ein Schritt, nachdem der Dienst gestoppt ist, nennt die Ausgabe die Befehle zurück auf den alten Stand, mit den echten Pfaden. `--check` ändert nichts: Es prüft die Sicherung ebenso und startet die App des aktiven Releases auf einer Kopie (Preflight ohne pytest: `create_app`, `/healthz`, alle Seiten); ohne Dateinamen nimmt es die neueste Sicherung.
+  `restore.sh` prüft die Sicherung an einer Kopie neben der DB (`backup.py --verify`: `integrity_check`, Meldungszahl, keine Prüfwerte). Ist sie fehlerhaft, bricht es ab, bevor es etwas anhält. Sonst stoppt es Timer, Wartung, Backup und Dienst (die Wartung legte in der Lücke sonst eine leere DB an), verschiebt `tatilvakti.db` samt `-wal`, `-shm` und `-journal` nach `/var/lib/tatilvakti-v2/pre-restore-<UTC-Zeit>/`, legt die geprüfte Kopie an ihren Platz (Dienstbenutzer, `0600`) und prüft sie dort noch einmal. Dann startet es wieder, was vorher lief, und wartet wie `deploy.sh` auf `/healthz`. Wie bei `rollback.sh` gilt ein abgestürzter Dienst (`failed`) als laufend, ein bewusst gestoppter Dienst oder Timer bleibt gestoppt (die Ausgabe nennt ihn und den Befehl zum Starten); `--start` startet Dienst und beide Timer in jedem Fall. Das Verschieben ist der wichtigste Schritt: Eine nach einem Absturz liegengebliebene `-wal` legte SQLite sonst über die Sicherung, mit alten Meldungen oder einer beschädigten DB, und `/healthz` bemerkt das nicht. `--check` ändert nichts: Es prüft die Sicherung ebenso und startet die App des aktiven Releases auf einer Kopie (Preflight ohne pytest: `create_app`, `/healthz`, alle Seiten); ohne Dateinamen nimmt es die neueste Sicherung.
+- **Fehler und Abbruch:** Scheitert ein Schritt, nachdem der Dienst gestoppt ist, oder wird `restore.sh` abgebrochen (Strg-C, `kill`, Verbindungsabbruch per SSH), nennt die Ausgabe die Befehle zurück auf den alten Stand, mit den echten Pfaden und nur mit den Dateien, die schon in `pre-restore-<zeit>/` liegen. Sobald es dieses Verzeichnis gibt, stehen dieselben Befehle samt Grund auch in `pre-restore-<zeit>/zurueck.txt`. Nach einem Verbindungsabbruch zuerst dort nachsehen und den Dienst nicht einfach starten: Liegt nur `tatilvakti.db` schon in `pre-restore-<zeit>/` und die `-wal` noch daneben, legt die App beim Start eine leere DB an und SQLite löscht dabei die alte `-wal` samt der Meldungen darin. Bricht das Skript erst beim Start bzw. beim Warten auf `/healthz` ab, ist die Sicherung schon eingespielt und geprüft; läuft dann alles und meldet `/healthz` `db` `true`, ist der Restore fertig.
 - Zurückspielen lassen sich nur Sicherungen von `backup.py`, auch deren Kopien von außerhalb. Eine Dateikopie der laufenden DB (WAL-Modus) lehnt `restore.sh` ab, ihr fehlen oft die jüngsten Meldungen aus der `-wal`.
-- `pre-restore-<zeit>/` löscht `restore.sh` nie. Solange es da ist, geht es zurück auf den alten Stand: Timer und Dienste stoppen, die zurückgespielte `tatilvakti.db` samt `-wal`, `-shm` und `-journal` löschen, die Dateien aus `pre-restore-<zeit>/` zurück nach `/var/lib/tatilvakti-v2/` verschieben, Dienst und Timer starten (Meldungen seit dem Restore gehen dabei verloren). Löschen, sobald die Seite geprüft ist, spätestens nach 48 h: Die alte DB enthält Prüfwerte, die die Wartung sonst nach 48 h löscht. Die Sicherung enthält keine, die Limits je Anschluss und Netz beginnen nach einem Restore also neu.
+- `pre-restore-<zeit>/` löscht `restore.sh` nie. Solange es da ist, geht es zurück auf den alten Stand: Timer und Dienste stoppen, die zurückgespielte `tatilvakti.db` samt `-wal`, `-shm` und `-journal` löschen, die Dateien aus `pre-restore-<zeit>/` zurück nach `/var/lib/tatilvakti-v2/` verschieben, starten, was vorher lief (Meldungen seit dem Restore gehen dabei verloren). Löschen, sobald die Seite geprüft ist, spätestens nach 48 h: Die alte DB enthält Prüfwerte, die die Wartung sonst nach 48 h löscht. Die Sicherung enthält keine, die Limits je Anschluss und Netz beginnen nach einem Restore also neu.
 - Die Schlüssel-DB (`/run/tatilvakti-v2/salts.db`) gehört nicht zum Restore. Sie wird nie gesichert und bleibt, wie sie ist; fehlt sie, legt die App sie neu an.
 - `restore.sh` nimmt dieselbe Sperre wie `deploy.sh` und `rollback.sh` (`/opt/tatilvakti-v2/.lock`). Während des Restores darf kein anderer Prozess die DB offen halten (z. B. `tv-flask.sh` oder eine `sqlite3`-Sitzung).
 - Neue Tabellen oder Spalten im Schema (`tatilvakti/db.py`) muss `scripts/backup.py` kennen: als Inhalt (`KEEP_TABLES`, `REPORT_COLUMNS`) oder als Prüfwert bzw. Schlüssel (`HASH_COLUMNS`, `SECRET_TABLES`). Sonst schlägt `tests/test_scripts.py` fehl und damit auch der Preflight von `deploy.sh`.
 - `backup.py` und `preflight.py` öffnen die Produktions-DB nur als deren Eigentümer (`restore.sh` ruft beide als Dienstbenutzer auf). Als root angelegte `-wal`/`-shm`-Dateien könnte der Dienst sonst nicht mehr beschreiben.
 
-**Restore-Drill.** Eine Sicherung ist erst belegt, wenn sie einmal zurückgespielt wurde. Automatisch geschieht das bei jedem Testlauf, also auch im Preflight von `deploy.sh`: `tests/test_scripts.py` erzeugt eine echte Sicherung mit `backup.py`, spielt sie mit `restore.sh` über eine DB mit liegengebliebener `-wal` zurück (systemctl-Attrappe), startet die App darauf und setzt eine Meldung ab; dazu kaputte Sicherungen und ein Ausfall nach dem Start. Was nur auf Hermes zu sehen ist (Benutzer, Rechte, Pfade, Units), zeigt der Drill:
+**Restore-Drill.** Eine Sicherung ist erst belegt, wenn sie einmal zurückgespielt wurde. Automatisch geschieht das bei jedem Testlauf, also auch im Preflight von `deploy.sh`: `tests/test_scripts.py` erzeugt eine echte Sicherung mit `backup.py`, spielt sie mit `restore.sh` über eine DB mit liegengebliebener `-wal` zurück (systemctl-Attrappe), startet die App darauf und setzt eine Meldung ab; dazu kaputte Sicherungen, ein Ausfall nach dem Start und Abbrüche per Signal an mehreren Stellen, jeweils samt Weg zurück. Was nur auf Hermes zu sehen ist (Benutzer, Rechte, Pfade, Units), zeigt der Drill:
 
 1. **Vor dem Launch einmal mit echtem Restore**, solange v2 nur über die Test-Subdomain erreichbar ist. Vorher eine Testmeldung absetzen, damit die Sicherung nicht leer ist:
 
    ```bash
-   sudo systemctl start tatilvakti-v2-backup.service && journalctl -u tatilvakti-v2-backup -n 1 -o cat
+   sudo systemctl start tatilvakti-v2-backup.service && sudo journalctl -t tatilvakti-v2-backup -n 1 -o cat
    sudo /opt/tatilvakti-v2/current/scripts/restore.sh /var/lib/tatilvakti-v2/backups/tatilvakti-<zeit>.db
    curl -s http://127.0.0.1:3096/healthz
    ```
 
-   Prüfen: Das Skript endet mit „Restore fertig“ und derselben Meldungszahl wie `reports=…` im Backup-Journal. `/healthz` zeigt `db` und `salt_db` `true`, `status` ist nicht `down`. Eine Seite über die Test-Subdomain laden. Danach `pre-restore-<zeit>/` und die Testmeldung löschen (MIGRATION.md, Prüfliste e, Schritt 5).
+   `-t` zeigt nur die Zeilen von `backup.py` (`SyslogIdentifier` der Unit), `-u` auch die Meldungen von systemd zur Unit, die danach kommen. Prüfen: Das Skript endet mit „Restore fertig“ und derselben Meldungszahl wie `reports=…` aus `backup.py`. `/healthz` zeigt `db` und `salt_db` `true`, `status` ist nicht `down`. Eine Seite über die Test-Subdomain laden. Danach `pre-restore-<zeit>/` und die Testmeldung löschen (MIGRATION.md, Prüfliste e, Schritt 5).
 2. **Nach dem Launch monatlich** und nach jeder Änderung an `scripts/backup.py`, am Schema (`tatilvakti/db.py`) oder an den Units, ohne Eingriff in den Betrieb:
 
    ```bash
@@ -313,7 +314,7 @@ sudo /opt/tatilvakti-v2/current/scripts/tv-flask.sh purge-reports --crossing kap
    ```
 
    Prüfen: „preflight ok“ und als letzte Zeile „Restore-Probe ok: <sicherung>, N Meldungen“. Ein echter Restore kostet nach dem Launch die Meldungen seit der Sicherung, deshalb nur im Ernstfall.
-3. **Dokumentieren:** je Drill eine Zeile in diese Tabelle und committen. Bei einem Fehlschlag die Ausgabe des Skripts aufheben.
+3. **Dokumentieren:** Den Drill vor dem Launch in [docs/MIGRATION.md](docs/MIGRATION.md) Anhang B eintragen (Datum, Sicherung, Meldungszahl laut Sicherung und danach, `/healthz` mit `status`, `db`, `salt_db`), jede spätere Probe als Zeile in diese Tabelle, jeweils committen. Bei einem Fehlschlag die Ausgabe des Skripts aufheben.
 
    | Datum | Art (Restore oder `--check`) | Sicherung | Meldungen laut Sicherung / danach | `/healthz` (`status`, `db`, `salt_db`) | Ergebnis |
    |---|---|---|---|---|---|
@@ -389,6 +390,7 @@ Die Entwicklungsumgebung hatte keinen direkten Zugriff auf die offiziellen Seite
 10. **Impressum** (alle drei `TV_OPERATOR_*`), `TV_BASE_URL` und `TV_TRUST_PROXY` gesetzt: `/healthz` auf dem Server (`curl -s http://127.0.0.1:3096/healthz`) → `status` `ok`, `imprint_ok` `true`.
 11. **Datenschutztext:** Empfänger (Hoster, Pangolin) und die konkrete Log-Frist des Proxys fehlen noch. Der Betreiber muss sie liefern (MIGRATION.md 2.6), danach in `de.json` und `tr.json` nachtragen.
 12. **Ablösung der Alt-App:** Bestandsaufnahme und Entscheidungen aus [docs/MIGRATION.md](docs/MIGRATION.md) (Newsletter, Push, alte URLs, Service Worker, Proxy-Logs).
+13. **Restore-Drill** auf der Test-Subdomain: einmal eine Sicherung mit `restore.sh` echt zurückspielen (Betrieb → Backup und Restore → Restore-Drill, Schritt 1), Ergebnis in MIGRATION.md Anhang B.
 
 **Offene Rückfragen an den Betreiber**
 
@@ -396,6 +398,7 @@ Die Entwicklungsumgebung hatte keinen direkten Zugriff auf die offiziellen Seite
 - Stimmen je IPv6-/48 im Median (`BLOCK_VOTES` in `tatilvakti/borders.py`, jetzt 2, nicht gemessen): Ohne diese Grenze zählte jeder Anschluss (/56) eines /48 einzeln, ein /48 aus einem Tunnel-Angebot hatte also so viele Stimmen, wie es Meldungen durch die Limits brachte. 1 wäre gegen ein solches /48 am strengsten, ließe aber Mobilfunkkunden, die sich ein /48 teilen, nur eine gemeinsame Stimme; mehr ist fairer für sie, gibt aber auch einem Troll mit eigenem /48 mehr Gewicht. Bei 2 bestimmt ein /48 den Status nur, solange höchstens zwei andere Stimmen da sind. Passt das?
 - Deploy-Weg: `deploy.sh` baut aus einem Git-Klon auf Hermes und braucht dort Zugriff auf PyPI. Passt das, oder soll von außen deployt werden?
 - Welche Pangolin-Version läuft, und ist das Request-Log für die Ressource aktiv (MIGRATION.md 2.6)?
+- Restore-Probe automatisch? `restore.sh --check` läuft bisher von Hand (monatlich, Restore-Drill). Als eigene Timer-Unit (z. B. `OnCalendar=monthly`, später `OnFailure=` auf einen Alarm) wäre es eine Änderung an den systemd-Units, deshalb erst nach Freigabe.
 - `scripts/tv-flask.sh` (systemd-run) ist nur syntaktisch geprüft: auf Hermes einmal `sudo /opt/tatilvakti-v2/current/scripts/tv-flask.sh maintenance` ausführen.
 - Pflichtausstattung und Lichtpflicht fehlen einzeln für AT, SI, HR, HU, RO und BG. Die App verweist dafür allgemein auf die ÖAMTC-Übersicht.
 
