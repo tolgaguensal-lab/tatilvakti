@@ -80,8 +80,10 @@ check_header() {
     local write='' read=''
     [ "$(head -c 15 -- "$1" | tr -d '\0')" = "SQLite format 3" ] || die "$1 ist keine SQLite-Datenbank"
     read -r write read < <(od -An -tu1 -j18 -N2 -- "$1") || true
-    [ "$write" = 1 ] && [ "$read" = 1 ] || die "$1 steht nicht im Rollback-Journal-Modus (WAL?), ist also" \
-        "keine Sicherung von scripts/backup.py, sondern z. B. eine Dateikopie der laufenden DB."
+    if [ "$write" != 1 ] || [ "$read" != 1 ]; then
+        die "$1 steht nicht im Rollback-Journal-Modus (WAL?), ist also" \
+            "keine Sicherung von scripts/backup.py, sondern z. B. eine Dateikopie der laufenden DB."
+    fi
 }
 
 # Meldungszahl aus "ok <datei> reports=<n>" (backup.py --verify); prüft dabei Integrität und Inhalt

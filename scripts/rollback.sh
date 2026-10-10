@@ -62,7 +62,7 @@ fi
 
 # Vor dem Umschalten festhalten, ob der Dienst laufen soll (siehe activate_release)
 WANTED=$START
-if service_wanted; then WANTED=1; fi
+if service_wanted "$SERVICE"; then WANTED=1; fi
 set_link "$TARGET" current
 set_link "$CUR" previous
 log "current → $TARGET (vorher: $CUR)"

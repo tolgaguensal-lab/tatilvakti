@@ -119,7 +119,7 @@ activate_release() {  # $1 = releases/<name>, $2 = erwartete Build-ID
     old_prev=$(link_target previous)
     # Vor dem Umschalten festhalten: Nach einem Fehlstart des neuen Releases steht der Dienst auf
     # 'activating' (Neustart-Takt) oder 'failed' (start-limit-hit) und sagt das nicht mehr.
-    if service_wanted; then wanted=1; fi
+    if service_wanted "$SERVICE"; then wanted=1; fi
     set_link "$new" current
     [ -z "$prev" ] || set_link "$prev" previous
     log "current → $new (vorher: ${prev:-keins}), Build $build"
