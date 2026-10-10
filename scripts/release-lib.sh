@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Gemeinsame Funktionen für scripts/deploy.sh und scripts/rollback.sh.
+# Gemeinsame Funktionen für scripts/deploy.sh, scripts/rollback.sh und scripts/restore.sh.
 # Wird per "source" geladen, nicht direkt ausführen.
 #
 # Standardwerte passen zu deploy/tatilvakti-v2.service. Die TV_RELEASE_*-Variablen sind nur für
@@ -44,23 +44,25 @@ link_target() {  # $1 = Linkname in BASE; leer, wenn es ihn nicht gibt
     readlink "$BASE/$1" 2>/dev/null || true
 }
 
-# Nur ein deploy.sh/rollback.sh zur Zeit: beide setzen current/previous und räumen releases/ auf.
-# Die Sperre gilt bis zum Ende des Skripts (fd 9 bleibt offen).
+# Nur ein deploy.sh/rollback.sh/restore.sh zur Zeit: deploy.sh und rollback.sh setzen
+# current/previous und räumen releases/ auf, alle drei starten den Dienst neu, restore.sh tauscht
+# die DB aus. Die Sperre gilt bis zum Ende des Skripts (fd 9 bleibt offen).
 take_lock() {
     [ -d "$BASE" ] || die "$BASE fehlt"
     exec 9>"$BASE/.lock"
-    flock -n 9 || die "deploy.sh oder rollback.sh läuft bereits (Sperre $BASE/.lock)"
+    flock -n 9 || die "deploy.sh, rollback.sh oder restore.sh läuft bereits (Sperre $BASE/.lock)"
 }
 
 # Zustand laut systemd: active, activating, reloading, deactivating, inactive, failed …
-service_state() {
-    systemctl is-active "$SERVICE" 2>/dev/null || true
+service_state() {  # $1 = Unit, Standard ist der Dienst
+    systemctl is-active "${1:-$SERVICE}" 2>/dev/null || true
 }
 
 # Soll der Dienst laufen? Ja, wenn er läuft, gerade (neu) startet oder abgestürzt ist, auch nach
 # zu vielen Fehlstarts (failed/start-limit-hit). 'inactive' heißt: bewusst gestoppt oder nie gestartet.
-service_wanted() {
-    case $(service_state) in
+# restore.sh fragt so auch die Timer ab.
+service_wanted() {  # $1 = Unit, Standard ist der Dienst
+    case $(service_state "${1:-}") in
         active|activating|reloading|failed) return 0 ;;
         *) return 1 ;;
     esac

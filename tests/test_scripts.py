@@ -4,11 +4,14 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
+import signal
 import sqlite3
 import stat
 import subprocess
+import sys
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
+from time import monotonic, sleep
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -643,3 +646,438 @@ def test_rollback_refuses_while_locked(releases):
         res = releases.rollback("--no-preflight")
     assert res.returncode == 1 and "läuft bereits" in res.stderr
     assert releases.link("current") == "releases/r2" and releases.calls() == []
+
+
+# ---------------------------------------------------------------- restore.sh mit systemctl-Attrappe
+
+# Für Abbruch-Tests in den Attrappen: meldet über $STUB/waiting, dass restore.sh gerade hier wartet,
+# und hält an, bis der Test $STUB/go anlegt (höchstens 30 s)
+HOLD = r"""
+hold() {
+    touch "$STUB/waiting"
+    for _ in $(seq 1 600); do [ -e "$STUB/go" ] && return 0; sleep 0.05; done
+}
+"""
+
+RESTORE_STUB = "#!/usr/bin/env bash" + HOLD + r"""
+# systemctl-Attrappe für restore.sh: jeder Aufruf mit allen Argumenten in $STUB/calls. Units sind
+# 'active', außer $STUB/state-<unit> nennt einen anderen Zustand. Nach dem Start liegt /healthz als
+# Datei $STUB/healthz.json bereit (urllib liest file://-URLs), mit der Datei $STUB/unhealthy als
+# Ausfall der Haupt-DB. Mit $STUB/hold-stop bzw. $STUB/hold-start halten das Stoppen des Dienstes
+# bzw. der Start an (hold).
+echo "$*" >>"$STUB/calls"
+case $1 in
+    is-active)
+        state=active
+        [ ! -e "$STUB/state-$2" ] || state=$(cat "$STUB/state-$2")
+        echo "$state"
+        [ "$state" = active ] ;;
+    stop)
+        case " $* " in *" tatilvakti-v2.service "*) [ ! -e "$STUB/hold-stop" ] || hold ;; esac
+        rm -f "$STUB/healthz.json" ;;
+    reset-failed) ;;
+    start)
+        [ ! -e "$STUB/hold-start" ] || hold
+        if [ -e "$STUB/unhealthy" ]; then
+            echo '{"status": "down", "down": ["db"], "db": false, "salt_db": true, "build": "b"}' >"$STUB/healthz.json"
+        else
+            echo '{"status": "ok", "down": [], "db": true, "salt_db": true, "build": "b"}' >"$STUB/healthz.json"
+        fi ;;
+    *) echo "unerwartet: $*" >&2; exit 1 ;;
+esac
+"""
+
+SERVICE_AND_TIMERS = ["tatilvakti-v2.service", "tatilvakti-v2-maintenance.timer", "tatilvakti-v2-backup.timer"]
+
+RESTORE_STOP_START = [
+    *(f"is-active {name}" for name in SERVICE_AND_TIMERS),
+    "stop tatilvakti-v2-maintenance.timer tatilvakti-v2-backup.timer",
+    "stop tatilvakti-v2-maintenance.service tatilvakti-v2-backup.service tatilvakti-v2.service",
+    "reset-failed tatilvakti-v2.service",
+    "start tatilvakti-v2.service tatilvakti-v2-maintenance.timer tatilvakti-v2-backup.timer",
+]
+
+
+def db_state(path: Path) -> tuple[str, int | None]:
+    """(integrity_check, Zahl der Meldungen), so wie SQLite die Datei samt -wal liest."""
+    conn = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+    try:
+        try:
+            return (conn.execute("PRAGMA integrity_check").fetchone()[0],
+                    conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0])
+        except sqlite3.DatabaseError as exc:
+            return str(exc), None
+    finally:
+        conn.close()
+
+
+class Restore:
+    """Testaufbau für restore.sh unter tmp_path: opt/ (nur für die Sperre), lib/ als
+    /var/lib/tatilvakti-v2 mit backups/, Dienstbenutzer ist der aufrufende Benutzer (kein root
+    nötig), systemctl-Attrappe."""
+
+    def __init__(self, tmp_path: Path):
+        import pwd
+        self.tmp = tmp_path
+        self.base = tmp_path / "opt"
+        self.data = tmp_path / "lib"
+        self.db = self.data / "tatilvakti.db"
+        self.backups = self.data / "backups"
+        self.stub = tmp_path / "stub"
+        self.base.mkdir()
+        self.backups.mkdir(parents=True)
+        (self.stub / "bin").mkdir(parents=True)
+        systemctl = self.stub / "bin" / "systemctl"
+        systemctl.write_text(RESTORE_STUB)
+        systemctl.chmod(0o755)
+        self.env = {**os.environ, "PATH": f"{self.stub / 'bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+                    "STUB": str(self.stub), "TV_RELEASE_BASE": str(self.base), "TV_RELEASE_DB": str(self.db),
+                    "TV_RELEASE_USER": pwd.getpwuid(os.getuid()).pw_name,
+                    "TV_RELEASE_HEALTH_URL": (self.stub / "healthz.json").as_uri(),
+                    "TV_RELEASE_HEALTH_TRIES": "1", "TV_RESTORE_PYTHON": sys.executable}
+
+    def backup(self, when: datetime = datetime(2026, 10, 7, 3, 40, tzinfo=timezone.utc)) -> Path:
+        """Echte Sicherung mit scripts/backup.py aus einer App-DB mit 20 Meldungen (make_db)."""
+        src = self.tmp / "app" / when.strftime("%Y%m%dT%H%M%SZ") / "tatilvakti.db"
+        make_db(src)
+        target, info = load_script("backup").backup(src, self.backups, when)
+        assert info["reports"] == 20
+        return target
+
+    def crash(self) -> dict[str, bytes]:
+        """Absturz nachstellen (Audit d5-restore-stale-wal): tatilvakti.db mit 200 Meldungen in einer
+        -wal, die kein Checkpoint mehr erreicht hat, weil der Prozess ohne close endete (wie nach
+        SIGKILL). Gibt den Inhalt aller Dateien im Datenverzeichnis zurück."""
+        from tatilvakti.db import init_db
+        init_db(str(self.db))  # legt auch die Schlüssel-DB daneben an (tatilvakti-salts.db)
+        code = ("import os, sqlite3, sys\n"
+                "c = sqlite3.connect(sys.argv[1], isolation_level=None)\n"
+                "c.execute('PRAGMA journal_mode=WAL')\n"
+                "c.execute('PRAGMA wal_autocheckpoint=0')\n"
+                "for i in range(200):\n"
+                "    c.execute(\"INSERT INTO reports (crossing, direction, bucket, observed_at, created_at, client)\"\n"
+                "              \" VALUES ('kapikule', 'to_de', 2, ?, ?, 'alt')\", (i, i))\n"
+                "os._exit(0)\n")
+        subprocess.run([sys.executable, "-c", code, str(self.db)], check=True, timeout=60)
+        assert db_state(self.db) == ("ok", 200)  # vor dem Abbild: Leser schreiben in die -shm
+        files = self.files()
+        assert {"tatilvakti.db", "tatilvakti.db-wal", "tatilvakti.db-shm"} <= set(files)
+        return files
+
+    def files(self) -> dict[str, bytes]:
+        return {p.name: p.read_bytes() for p in self.data.iterdir() if p.is_file()}
+
+    def pre_restore(self) -> list[Path]:
+        return sorted(self.data.glob("pre-restore-*"))
+
+    def calls(self) -> list[str]:
+        path = self.stub / "calls"
+        return path.read_text().splitlines() if path.exists() else []
+
+    def run(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["bash", str(SCRIPTS / "restore.sh"), *args], env=self.env,
+                              capture_output=True, text=True, timeout=180)
+
+    def go_back(self, commands: list[str]) -> None:
+        """Den ausgegebenen Weg zurück Zeile für Zeile ausführen, wie ihn jemand kopiert."""
+        for command in commands:
+            subprocess.run(["bash", "-c", command], env=self.env, check=True, timeout=30)
+
+
+def way_back_commands(stderr: str) -> list[str]:
+    """Die Befehle unter „Zurück auf den Stand vor dem Restore:“ in der Ausgabe von restore.sh."""
+    way_back = stderr.split("Zurück auf den Stand vor dem Restore:\n", 1)[1]
+    return [line.strip() for line in way_back.splitlines() if line.startswith("  ")]
+
+
+def assert_note(old: Path, stderr: str, why: str) -> None:
+    """pre-restore-*/zurueck.txt nennt den Grund und genau den ausgegebenen Weg zurück."""
+    note = old / "zurueck.txt"
+    assert stat.S_IMODE(note.stat().st_mode) == 0o600
+    head, text = note.read_text().split("\n", 1)
+    assert head.startswith("restore.sh ") and head.endswith(why), head
+    assert stderr.endswith(f"{text}Diese Befehle stehen auch in {note}.\n"), stderr
+
+
+@pytest.fixture
+def restore(tmp_path):
+    if not (shutil.which("bash") and shutil.which("flock")):
+        pytest.skip("bash oder flock fehlt")
+    return Restore(tmp_path)
+
+
+def test_restore_moves_a_stale_wal_aside(restore, clock):
+    """Audit d5-restore-stale-wal und d5-restore-untested: Nach einem Absturz liegt eine -wal neben
+    der DB. Wer die Sicherung nur über die .db legt, bekommt alte Meldungen oder eine beschädigte DB.
+    restore.sh verschiebt die alten Dateien, spielt die Sicherung zurück und startet den Dienst; die
+    App läuft danach auf der Sicherung und nimmt Meldungen an."""
+    backup = restore.backup()
+    before = restore.crash()
+
+    # Das Szenario aus dem Bericht: Sicherung über die .db gelegt, die alte -wal liegt noch da
+    naive = restore.tmp / "naive"
+    naive.mkdir()
+    for name in ("tatilvakti.db", "tatilvakti.db-wal", "tatilvakti.db-shm"):
+        (naive / name).write_bytes(before[name])
+    shutil.copyfile(backup, naive / "tatilvakti.db")
+    assert db_state(naive / "tatilvakti.db") != ("ok", 20)
+
+    res = restore.run(str(backup))
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert db_state(restore.db) == ("ok", 20)
+    assert stat.S_IMODE(restore.db.stat().st_mode) == 0o600 and restore.db.stat().st_uid == os.getuid()
+    assert restore.db.read_bytes() == backup.read_bytes()
+    # Der bisherige Stand liegt vollständig und unverändert unter pre-restore-*, nichts gelöscht
+    [old] = restore.pre_restore()
+    assert stat.S_IMODE(old.stat().st_mode) == 0o700
+    assert {p.name: p.read_bytes() for p in old.iterdir()} == {
+        name: data for name, data in before.items() if name.startswith("tatilvakti.db")}
+    # Keine -wal/-shm neben der zurückgespielten DB, keine Arbeitskopie, Schlüssel-DB unberührt
+    after = restore.files()
+    assert sorted(after) == ["tatilvakti-salts.db", "tatilvakti.db"]
+    assert after["tatilvakti-salts.db"] == before["tatilvakti-salts.db"]
+    assert restore.calls() == RESTORE_STOP_START
+    assert "Sicherung geprüft: integrity_check ok, 20 Meldungen" in res.stdout
+    assert "/healthz: status=ok" in res.stdout and f"Bisheriger Stand: {old}" in res.stdout
+    assert "Restore fertig: tatilvakti-20261007T034000Z.db, 20 Meldungen" in res.stdout
+    assert f"rm -r -- {old}\n" in res.stdout and "Gestoppt wie vor dem Restore" not in res.stdout
+
+    # Die App startet auf der zurückgespielten Sicherung, zeigt die Meldungen und nimmt neue an
+    from tatilvakti import create_app
+    client = create_app({"TESTING": True, "TV_DB_PATH": str(restore.db), "TV_CLOCK": clock}).test_client()
+    health = client.get("/healthz")
+    assert health.status_code == 200 and health.get_json()["db"] is True
+    assert client.get("/api/v1/borders/kapikule").get_json()["directions"]["to_tr"]["count"] == 20
+    resp = client.post("/api/v1/borders/kapikule/reports", json={"direction": "to_tr", "bucket": 3})
+    assert resp.status_code == 201
+    assert resp.get_json()["crossing"]["directions"]["to_tr"]["count"] == 21
+
+
+def test_restore_without_previous_db(restore):
+    """Neuer Host: Es gibt noch keine DB. Kein leeres pre-restore-Verzeichnis bleibt zurück."""
+    backup = restore.backup()
+    res = restore.run(str(backup))
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "Keine bisherige Datenbank vorhanden" in res.stdout
+    assert db_state(restore.db) == ("ok", 20) and restore.pre_restore() == []
+    assert restore.calls() == RESTORE_STOP_START
+
+
+def _broken(restore: Restore, kind: str) -> Path:
+    path = restore.tmp / f"{kind}.db"
+    if kind == "kaputt":  # echte Sicherung, alle Seiten nach der ersten beschädigt
+        raw = restore.backup().read_bytes()
+        path.write_bytes(raw[:4096] + b"\xff" * (len(raw) - 4096))
+        assert load_script("backup").main(["--verify", str(path)]) == 1
+    elif kind == "pruefwerte":  # Kopie ohne Bereinigung, etwa von Hand gezogen
+        src = restore.tmp / "app.db"
+        make_db(src)
+        source, target = sqlite3.connect(str(src)), sqlite3.connect(str(path))
+        try:
+            source.backup(target)
+            target.execute("PRAGMA journal_mode=DELETE")
+        finally:
+            source.close()
+            target.close()
+    elif kind == "wal":  # Dateikopie einer laufenden DB: WAL-Modus, die -wal fehlt
+        src = restore.tmp / "app.db"
+        make_db(src)
+        shutil.copyfile(src, path)
+    else:
+        path.write_text("keine Datenbank\n")
+    return path
+
+
+@pytest.mark.parametrize("kind, needle", [
+    ("kaputt", "Sicherung fehlerhaft"),
+    ("pruefwerte", "noch Prüfwerte"),
+    ("wal", "nicht im Rollback-Journal-Modus"),
+    ("fremd", "keine SQLite-Datenbank"),
+])
+def test_restore_refuses_a_bad_backup_without_changes(restore, kind, needle):
+    """Fehlerhafte Sicherung: Abbruch, bevor irgendetwas gestoppt oder verschoben ist."""
+    bad = _broken(restore, kind)
+    before = restore.crash()
+    res = restore.run(str(bad))
+    assert res.returncode == 1, res.stdout + res.stderr
+    assert needle in res.stderr and "Abgebrochen, nichts geändert." in res.stderr
+    assert restore.files() == before and restore.pre_restore() == []
+    assert restore.calls() == []
+
+
+def test_restore_names_the_way_back_when_unhealthy(restore):
+    """Meldet /healthz nach dem Restore einen Ausfall, endet das Skript mit Fehler, lässt den Restore
+    stehen und nennt die Befehle zurück. Genau diese Befehle stellen den alten Stand wieder her."""
+    backup = restore.backup()
+    before = restore.crash()
+    (restore.stub / "unhealthy").touch()
+    res = restore.run(str(backup))
+    assert res.returncode == 1, res.stdout + res.stderr
+    assert "nach dem Restore nicht gesund" in res.stderr and "Ausfall: db" in res.stdout
+    assert db_state(restore.db) == ("ok", 20)
+    [old] = restore.pre_restore()
+    assert f"Abgebrochen.\nDer bisherige Stand liegt in {old}.\n" in res.stderr
+    assert_note(old, res.stderr, f"FEHLER: tatilvakti-v2.service nach dem Restore nicht gesund: "
+                                 "journalctl -u tatilvakti-v2.service -n 50")
+
+    commands = way_back_commands(res.stderr)
+    assert commands[:2] == ["systemctl " + c for c in RESTORE_STOP_START[3:5]]
+    assert all(f"{restore.db}{suffix}" in commands[2] for suffix in ("-wal", "-shm", "-journal"))
+    assert commands[-2:] == ["systemctl " + c for c in RESTORE_STOP_START[-2:]]
+    restore.go_back(commands)
+    assert restore.files() == before and db_state(restore.db) == ("ok", 200)
+    assert [p.name for p in old.iterdir()] == ["zurueck.txt"]
+    assert restore.calls()[-2:] == RESTORE_STOP_START[-2:]
+
+
+@pytest.mark.parametrize("where, sig, group, moved", [
+    # kill (SIGTERM) an das Skript, während es den Dienst stoppt: noch nichts verschoben
+    ("stop", signal.SIGTERM, False, []),
+    # Verbindung weg (SIGHUP) beim Verschieben der -wal: dieses mv läuft noch zu Ende
+    ("mv", signal.SIGHUP, False, ["tatilvakti.db", "tatilvakti.db-wal"]),
+    # Strg-C (SIGINT an die ganze Prozessgruppe) an derselben Stelle: das mv der -wal stirbt mit
+    ("mv", signal.SIGINT, True, ["tatilvakti.db"]),
+    # kill beim Start: Die Sicherung ist schon eingespielt, der Weg zurück räumt sie wieder weg
+    ("start", signal.SIGTERM, False, ["tatilvakti.db", "tatilvakti.db-wal", "tatilvakti.db-shm"]),
+])
+def test_restore_names_the_way_back_when_interrupted(restore, where, sig, group, moved):
+    """Review: Ein Abbruch per Signal nach dem Stoppen nannte keinen Weg zurück (die EXIT-Falle sah
+    Exit 0), und mitten im Verschieben blieb die DB ohne jeden Hinweis halb verschoben. Ein
+    `systemctl start` hätte dann die alte -wal gelöscht. Jetzt endet das Skript mit 128 + Signal und
+    nennt den Weg zurück, ab dem Verschieben auch in zurueck.txt; welche Dateien verschoben sind,
+    liest es aus pre-restore-* selbst. Die Befehle stellen den alten Stand wieder her."""
+    backup = restore.backup()
+    before = restore.crash()
+    stub_mv = restore.stub / "bin" / "mv"
+    if where in ("stop", "start"):
+        (restore.stub / f"hold-{where}").touch()
+    else:
+        stub_mv.write_text("#!/usr/bin/env bash" + HOLD + 'case "$*" in *tatilvakti.db-wal*) hold ;; esac\n'
+                           f'exec {shutil.which("mv")} "$@"\n')
+        stub_mv.chmod(0o755)
+    proc = subprocess.Popen(["bash", str(SCRIPTS / "restore.sh"), str(backup)], env=restore.env,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        deadline = monotonic() + 60
+        while not (restore.stub / "waiting").exists():
+            assert proc.poll() is None and monotonic() < deadline, "restore.sh erreicht die Attrappe nicht"
+            sleep(0.02)
+        if group:
+            os.killpg(proc.pid, sig)
+        else:
+            proc.send_signal(sig)
+        (restore.stub / "go").touch()
+        out, err = proc.communicate(timeout=60)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+    assert proc.returncode == 128 + sig, out + err
+    assert f"Abgebrochen durch {sig.name}.\n" in err
+    assert restore.calls() == RESTORE_STOP_START[:None if where == "start" else 5]
+    # Erst beim Start abgebrochen: Die zurückgespielte DB liegt geprüft da, nur /healthz ist offen
+    assert ("offen war nur der Start bzw. /healthz" in err) is (where == "start")
+
+    commands = way_back_commands(err)
+    start = ["systemctl " + c for c in RESTORE_STOP_START[-2:]]
+    if moved:
+        [old] = restore.pre_restore()
+        assert f"Der bisherige Stand liegt in {old}.\n" in err
+        assert sorted(p.name for p in old.iterdir()) == sorted([*moved, "zurueck.txt"])
+        expected = [f"mv -- {' '.join(str(old / name) for name in moved)} {restore.data}/", *start]
+        if where == "start":
+            assert db_state(restore.db) == ("ok", 20)
+            expected[:0] = ["systemctl " + c for c in RESTORE_STOP_START[3:5]] + [
+                "rm -f -- " + " ".join(f"{restore.db}{suffix}" for suffix in ("", "-wal", "-shm", "-journal"))]
+        assert commands == expected
+        assert_note(old, err, f"Signal {sig.name}")
+        stub_mv.unlink(missing_ok=True)
+    else:
+        # Vor dem Verschieben: kein pre-restore-Verzeichnis, die Dateien liegen unverändert da
+        assert restore.pre_restore() == [] and restore.files() == before
+        assert commands == start
+    restore.go_back(commands)
+    assert restore.files() == before and db_state(restore.db) == ("ok", 200)
+    assert restore.calls()[-2:] == RESTORE_STOP_START[-2:]
+
+
+@pytest.mark.parametrize("states, args, started", [
+    # Dienst und Wartung bewusst gestoppt: danach läuft nur der Backup-Timer wieder
+    ({"tatilvakti-v2.service": "inactive", "tatilvakti-v2-maintenance.timer": "inactive"}, [],
+     ["tatilvakti-v2-backup.timer"]),
+    # --start startet alles
+    ({"tatilvakti-v2.service": "inactive", "tatilvakti-v2-maintenance.timer": "inactive"}, ["--start"],
+     SERVICE_AND_TIMERS),
+    # Ein abgestürzter Dienst (failed) soll laufen, wie bei rollback.sh
+    ({"tatilvakti-v2.service": "failed", "tatilvakti-v2-maintenance.timer": "inactive",
+      "tatilvakti-v2-backup.timer": "inactive"}, [], ["tatilvakti-v2.service"]),
+])
+def test_restore_starts_what_ran_before(restore, states, args, started):
+    """Nach dem Restore startet restore.sh nur, was vorher lief oder abgestürzt war; ein bewusst
+    gestoppter Dienst bleibt gestoppt (wie bei rollback.sh), mit --start läuft alles."""
+    backup = restore.backup()
+    restore.crash()
+    for name, state in states.items():
+        (restore.stub / f"state-{name}").write_text(state)
+    res = restore.run(*args, str(backup))
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert db_state(restore.db) == ("ok", 20)
+    service = "tatilvakti-v2.service" in started
+    assert restore.calls() == [*RESTORE_STOP_START[:5], *(["reset-failed tatilvakti-v2.service"] if service else []),
+                               f"start {' '.join(started)}"]
+    assert ("/healthz: status=ok" in res.stdout) is service
+    stopped = [name for name in SERVICE_AND_TIMERS if name not in started]
+    if stopped:
+        assert (f"Gestoppt wie vor dem Restore: {' '.join(stopped)}. "
+                f"Starten: systemctl start {' '.join(stopped)}") in res.stdout
+    assert ("/healthz ist ungeprüft" in res.stdout) is not service
+
+
+def test_restore_refuses_while_locked(restore):
+    import fcntl
+    backup = restore.backup()
+    before = restore.crash()
+    with open(restore.base / ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        res = restore.run(str(backup))
+    assert res.returncode == 1 and "restore.sh läuft bereits" in res.stderr
+    assert restore.files() == before and restore.calls() == []
+
+
+def test_restore_check_starts_the_app_on_the_newest_backup(restore):
+    """Restore-Drill ohne Eingriff: --check prüft die neueste Sicherung und lässt den Preflight des
+    aktiven Releases gegen eine Kopie laufen. Dienst, Timer und DB bleiben unberührt."""
+    older = restore.backup(datetime(2026, 10, 6, 3, 40, tzinfo=timezone.utc))
+    restore.backup()
+    older.write_bytes(older.read_bytes()[:4096] + b"\xff" * 4096)  # die ältere ist kaputt
+    before = restore.crash()
+    release = restore.base / "releases" / "r1"
+    (release / ".venv" / "bin").mkdir(parents=True)
+    python = release / ".venv" / "bin" / "python"
+    python.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    python.chmod(0o755)
+    (release / "scripts").symlink_to(SCRIPTS)
+    os.symlink("releases/r1", restore.base / "current")
+    env_file = restore.tmp / "tatilvakti-v2.env"
+    env_file.write_text("TV_BASE_URL=https://tatilvakti.guenlab.de\nTV_TRUST_PROXY=1\n")
+    restore.env["TV_RELEASE_ENV_FILE"] = str(env_file)
+
+    res = restore.run("--check")
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "preflight ok build=" in res.stdout
+    assert "Restore-Probe ok: tatilvakti-20261007T034000Z.db, 20 Meldungen" in res.stdout
+    res = restore.run("--check", str(older))
+    assert res.returncode == 1 and "Sicherung fehlerhaft" in res.stderr
+    assert "Abgebrochen, nichts geändert." in res.stderr
+    assert restore.files() == before and restore.pre_restore() == [] and restore.calls() == []
+
+
+def test_restore_check_without_backups(restore):
+    """Neuer Host ohne backups/: --check sagt, was fehlt (endete vorher stumm mit Exit 1)."""
+    restore.backups.rmdir()
+    res = restore.run("--check")
+    assert res.returncode == 1 and "es lief noch keine Sicherung" in res.stderr
+    assert "systemctl start tatilvakti-v2-backup.service" in res.stderr
+    res = restore.run("--check", "--start")
+    assert res.returncode == 1 and "--start passt nicht dazu" in res.stderr
+    assert restore.calls() == []
