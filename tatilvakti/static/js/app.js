@@ -7,6 +7,13 @@
   var $ = function (sel, root) { return (root || document).querySelector(sel); };
   var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
   var fmt = function (str, vars) { return String(str || "").replace(/\{(\w+)\}/g, function (_, k) { return vars[k] != null ? vars[k] : ""; }); };
+  // Wert für einen Attribut-Selektor ['…"' + q(v) + '"']: Fremdwerte (URL, Speicher, API) dürfen
+  // querySelector nie werfen lassen, sonst fällt das ganze Skript aus
+  var q = function (value) {
+    value = String(value);
+    if (window.CSS && CSS.escape) return CSS.escape(value);
+    return value.replace(/[^\w-]/g, function (ch) { return "\\" + ch.charCodeAt(0).toString(16) + " "; });
+  };
 
   // ---------------------------------------------------------- local storage
   // Only per-device conveniences. Never required for the page to work.
@@ -16,8 +23,15 @@
     },
     set: function (key, value) {
       try { window.localStorage.setItem("tv." + key, JSON.stringify(value)); } catch (e) { /* private mode */ }
+    },
+    remove: function (key) {
+      try { window.localStorage.removeItem("tv." + key); } catch (e) { /* private mode */ }
     }
   };
+  // Besuchszähler und Zeitpunkt des letzten Aufrufs gibt es nicht mehr (Datensparsamkeit,
+  // § 25 TDDDG): Werte älterer Versionen beim Laden entfernen
+  store.remove("visits");
+  store.remove("seen_at");
 
   $$(".js-hide").forEach(function (el) { el.hidden = true; });
   $$(".chips__item.is-active").forEach(function (chip) {
@@ -47,9 +61,14 @@
   onlineState();
 
   // ---------------------------------------------------------- preferences
+  // Bundesland nur als Kürzel aus zwei Buchstaben übernehmen (?land= kommt aus geteilten Links)
+  function stateCode(value) {
+    var code = typeof value === "string" ? value.toUpperCase() : "";
+    return /^[A-Z]{2}$/.test(code) ? code : "";
+  }
   var params = new URLSearchParams(window.location.search);
-  var urlState = (params.get("land") || "").toUpperCase();
-  var state = urlState || store.get("state", "");
+  var urlState = stateCode(params.get("land"));
+  var state = urlState || stateCode(store.get("state", ""));
   var mode = store.get("mode", "car");
 
   function applyState(code) {
@@ -57,7 +76,7 @@
       var key = el.getAttribute("data-per-state");
       el.hidden = code ? key !== code : key !== "none";
     });
-    if (code && !$('[data-per-state="' + code + '"]')) {
+    if (code && !$('[data-per-state="' + q(code) + '"]')) {
       var none = $('[data-per-state="none"]');
       if (none) none.hidden = false;
     }
@@ -83,6 +102,7 @@
       state = sel.value;
       store.set("state", state);
       applyState(state);
+      showA2hs();
       if (window.history && window.history.replaceState && $(".tl")) {
         var url = new URL(window.location.href);
         if (state) url.searchParams.set("land", state); else url.searchParams.delete("land");
@@ -98,13 +118,36 @@
   });
 
   // ---------------------------------------------------------- share
-  $$("[data-share]").forEach(function (a) {
-    a.addEventListener("click", function (ev) {
-      if (!navigator.share) return; // fall back to the WhatsApp link
-      ev.preventDefault();
-      navigator.share({ text: a.getAttribute("data-share-text"), url: a.getAttribute("data-share-url") }).catch(function () {});
+  // WhatsApp-Knopf ist ein normaler wa.me-Link. Das Teilen-Menü des Geräts bekommt einen eigenen
+  // Knopf, sichtbar nur, wo es navigator.share gibt (Abbrechen durch den Nutzer ist kein Fehler).
+  if (navigator.share) {
+    $$("[data-share]").forEach(function (btn) {
+      btn.hidden = false;
+      btn.addEventListener("click", function () {
+        navigator.share({ text: btn.getAttribute("data-share-text"), url: btn.getAttribute("data-share-url") }).catch(function () {});
+      });
     });
-  });
+  }
+
+  // ---------------------------------------------------------- letzte Meldung (Übergang, Richtung)
+  // Nur Übergang und Richtung der letzten Meldung: Die Startseite zeigt diesen Übergang zuerst,
+  // das Formular schlägt die Richtung vor. Werte aus dem Speicher nur in bekannter Form übernehmen.
+  var DIRECTIONS = ["to_tr", "to_de"];
+  var lastReport = (function () {
+    var v = store.get("report_pref", null) || {};
+    return {
+      cid: typeof v.cid === "string" && /^[a-z0-9-]{1,40}$/.test(v.cid) ? v.cid : "",
+      direction: DIRECTIONS.indexOf(v.direction) !== -1 ? v.direction : ""
+    };
+  })();
+  var picker = $("[data-picker]");
+  var picked = lastReport.cid && picker && $('[data-pick="' + q(lastReport.cid) + '"]', picker);
+  if (picked) {
+    picked.hidden = false;
+    picker.insertBefore(picked, picker.firstChild);
+    var lastLabel = $(".picker__last", picked);
+    if (lastLabel) lastLabel.hidden = false;
+  }
 
   // ---------------------------------------------------------- checklist
   var checks = store.get("checks", {});
@@ -124,6 +167,7 @@
   function renderStatus(box, st) {
     var compact = box.classList.contains("status--compact");
     box.className = "status status--" + st.level + (compact ? " status--compact" : "");
+    box.setAttribute("data-live", st.state === "live" ? "1" : "0");
     var body = $(".status__body", box);
     body.textContent = "";
     var main = st.state === "live" ? S["b_bucket_" + st.bucket]
@@ -163,15 +207,24 @@
   function applyCrossing(c) {
     Object.keys(c.directions).forEach(function (dir) {
       var st = c.directions[dir];
-      $$('[data-status][data-cid="' + c.id + '"][data-dir="' + dir + '"]').forEach(function (box) { renderStatus(box, st); });
-      $$('[data-node][data-cid="' + c.id + '"]').forEach(function (node) { node.setAttribute("data-l-" + dir, st.level); });
+      $$('[data-status][data-cid="' + q(c.id) + '"][data-dir="' + q(dir) + '"]').forEach(function (box) { renderStatus(box, st); });
+      $$('[data-node][data-cid="' + q(c.id) + '"]').forEach(function (node) { node.setAttribute("data-l-" + dir, st.level); });
+    });
+  }
+  // Leerzustand nachziehen: Übergang ohne aktuelle Meldung (data-dirs) bzw. ganze Liste (data-live-list)
+  function updateEmpty() {
+    $$("[data-dirs]").forEach(function (box) {
+      box.classList.toggle("is-empty", !$('[data-status][data-live="1"]', box));
+    });
+    $$("[data-live-list]").forEach(function (list) {
+      list.classList.toggle("is-empty", !$("[data-dirs]:not(.is-empty)", list));
     });
   }
   function refreshBorders() {
     if (!$("[data-status]") || document.hidden || navigator.onLine === false) return;
     fetch("/api/v1/borders", { headers: { Accept: "application/json" } })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) { if (data && data.crossings) data.crossings.forEach(applyCrossing); })
+      .then(function (data) { if (data && data.crossings) { data.crossings.forEach(applyCrossing); updateEmpty(); } })
       .catch(function () {});
   }
   if ($("[data-status]")) {
@@ -197,72 +250,188 @@
 
   // ---------------------------------------------------------- reports (+ offline queue)
   var MAX_AGE = 90 * 60;
+  // Zeitlimit je Meldung: An der Grenze hängt das Netz oft, ohne dass der Browser offline meldet.
+  // Danach landet die Meldung in der Warteschlange, statt mit dem Schließen der App verloren zu gehen.
+  var REPORT_TIMEOUT_MS = 8000;
+  // Rückmeldungen: auf Übergangsseiten über dem Formular, sonst oben im Inhalt (data-notice in base.html)
+  var reportMsg = $("[data-report-msg]");
+  var notice = $("[data-notice]");
+  function say(kind, text) {
+    if (reportMsg) {
+      reportMsg.className = "flash flash--" + kind;
+      reportMsg.textContent = text;
+    } else if (notice) {
+      notice.textContent = "";
+      notice.appendChild(el("p", "flash flash--" + kind, text));
+    }
+  }
+  // Ohne AbortController (Safari < 12.1) gewinnt nur der Timer; die Anfrage läuft dann im Hintergrund weiter
   function postReport(item) {
-    return fetch("/api/v1/borders/" + encodeURIComponent(item.cid) + "/reports", {
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var timer;
+    var limit = new Promise(function (_, reject) {
+      timer = setTimeout(function () {
+        var err = new Error("timeout");
+        err.name = "TimeoutError";
+        reject(err);  // vor abort(): Das Zeitlimit soll das Rennen gewinnen, nicht der AbortError
+        if (ctrl) ctrl.abort();
+      }, REPORT_TIMEOUT_MS);
+    });
+    var req = fetch("/api/v1/borders/" + encodeURIComponent(item.cid) + "/reports", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ direction: item.direction, bucket: item.bucket, observed_at: item.observed_at })
+      body: JSON.stringify({ direction: item.direction, bucket: item.bucket, observed_at: item.observed_at }),
+      signal: ctrl ? ctrl.signal : undefined
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (data) { return { status: r.status, data: data }; });
     });
+    return Promise.race([req, limit]).then(
+      function (res) { clearTimeout(timer); return res; },
+      function (err) { clearTimeout(timer); throw err; });
   }
-  function flushQueue() {
+  // Warteschlange (tv.queue). Merkmal tried: Die Meldung ging schon einmal raus, die Antwort fehlt
+  // (Zeitlimit, Netzfehler, 5xx) – sie kann trotzdem angekommen sein. Kein neuer Speicherschlüssel.
+  function queued() {
     var queue = store.get("queue", []);
-    if (!queue.length || navigator.onLine === false) return;
+    return Array.isArray(queue) ? queue : [];
+  }
+  function enqueue(item, tried) {
+    if (tried) item.tried = true;
+    var queue = queued();
+    queue.push(item);
+    store.set("queue", queue);
+  }
+  function sameReport(a, b) {
+    return !!a && a.cid === b.cid && a.direction === b.direction && a.bucket === b.bucket && a.observed_at === b.observed_at;
+  }
+  function unqueue(item) {
+    var queue = queued();
+    for (var i = 0; i < queue.length; i++) {
+      if (sameReport(queue[i], item)) { queue.splice(i, 1); store.set("queue", queue); return; }
+    }
+  }
+  // Angenommene Meldung (201, direkt oder aus der Warteschlange): Übergang und Richtung merken –
+  // die Startseite zeigt ihn zuerst, das Formular schlägt die Richtung vor – und danach den
+  // Hinweis zum Startbildschirm anbieten. Abgelehnte Meldungen zählen nicht.
+  function reported(item) {
+    lastReport = { cid: item.cid, direction: item.direction };
+    store.set("report_pref", lastReport);
+    showA2hs();
+  }
+  // Nachliefern. Jede Meldung bleibt gespeichert, bis ihr Ergebnis feststeht: Wer die App mitten im
+  // Senden schließt, verliert nichts. Bei Zeitlimit, Netzfehler oder 5xx bleibt sie liegen, bei 4xx
+  // fällt sie weg (zu alt, Limit, ungültig – ein neuer Versuch ändert daran nichts). Verworfenes sagen
+  // wir offen, sonst glaubt die Person, ihre Meldung zähle.
+  var flushing = false;
+  function flushQueue() {
+    var queue = queued();
+    if (flushing || !queue.length || navigator.onLine === false) return;
     var now = Math.floor(Date.now() / 1000);
-    queue = queue.filter(function (q) { return now - q.observed_at < MAX_AGE; });
-    store.set("queue", []);
-    queue.forEach(function (item) {
-      postReport(item).then(function (res) {
-        if (res.data && res.data.crossing) applyCrossing(res.data.crossing);
-      }).catch(function () {
-        var rest = store.get("queue", []); rest.push(item); store.set("queue", rest);
-      });
+    var delivered = 0;
+    var dropped = 0;
+    queue = queue.filter(function (item) {
+      if (!item || typeof item.observed_at !== "number") return false;  // kaputter Eintrag: ohne Hinweis weg
+      var fresh = now - item.observed_at < MAX_AGE;
+      if (!fresh) dropped++;
+      return fresh;
+    });
+    // Ab jetzt kann jede Meldung ankommen, auch wenn die Antwort ausbleibt: gespeichert als versucht.
+    // Ob sie es schon vorher war, entscheidet unten über „hier schon gemeldet“.
+    var triedBefore = queue.map(function (item) { var was = item.tried === true; item.tried = true; return was; });
+    store.set("queue", queue);
+    flushing = true;
+    Promise.all(queue.map(function (item, i) {
+      return postReport(item).then(function (res) {
+        if (res.status >= 500 || res.status === 0) return;  // Störung: bleibt für den nächsten Versuch
+        unqueue(item);
+        if (res.status === 201) {
+          delivered++;
+          reported(item);
+          if (res.data && res.data.crossing) { applyCrossing(res.data.crossing); updateEmpty(); }
+        } else if (res.status === 429 && res.data && res.data.detail === "same_spot" && triedBefore[i]) {
+          // Ein früherer Versuch kam offenbar doch an, nur die Antwort nicht zurück: Die Meldung zählt
+          delivered++;
+          reported(item);
+        } else {
+          dropped++;
+        }
+      }, function () { /* Zeitlimit oder Netz: bleibt für den nächsten Versuch */ });
+    })).then(function () {
+      flushing = false;
+      var one = dropped === 1 ? "_1" : "_n";
+      if (dropped && delivered) {
+        // Gemischt: ein eigener Text, sonst läse es sich, als sei dieselbe Meldung angekommen und zähle
+        // doch nicht. Gelb (queued) statt rot: Ein Teil hat ja geklappt.
+        say("queued", fmt(S["b_report_partial" + one], { n: dropped }));
+      } else if (dropped) {
+        say("error", fmt(S["b_report_dropped" + one], { n: dropped }));
+      } else if (delivered) {
+        say("ok", S.b_report_delivered);
+      }
     });
   }
   window.addEventListener("online", flushQueue);
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) flushQueue(); });
+  setInterval(flushQueue, 60000);
   flushQueue();
 
   $$("form[data-report]").forEach(function (form) {
-    var msg = $("[data-report-msg]");
-    function say(kind, text) {
-      if (!msg) return;
-      msg.className = "flash flash--" + kind;
-      msg.textContent = text;
+    // Richtung der letzten Meldung vorschlagen, sonst nichts vorbelegen. Hat der Browser eine Auswahl
+    // wiederhergestellt (Zurück-Taste), bleibt sie.
+    var lastDir = lastReport.direction && form.querySelector('input[name="direction"][value="' + q(lastReport.direction) + '"]');
+    if (lastDir && !form.querySelector('input[name="direction"]:checked')) lastDir.checked = true;
+    var button = form.querySelector('button[type="submit"]');
+    var sending = false;
+    // Sende-Zustand sichtbar (app.css) und vorgelesen. aria-disabled statt disabled: Der Tastaturfokus
+    // bleibt auf dem Knopf; ein zweites Absenden fängt „sending“ ab.
+    function busy(on) {
+      sending = on;
+      if (!button) return;
+      if (on) {
+        button.setAttribute("aria-disabled", "true");
+        button.setAttribute("aria-busy", "true");
+      } else {
+        button.removeAttribute("aria-disabled");
+        button.removeAttribute("aria-busy");
+      }
     }
     form.addEventListener("submit", function (ev) {
       ev.preventDefault();
+      if (sending) return;
       var dir = form.querySelector('input[name="direction"]:checked');
       var bucket = form.querySelector('input[name="bucket"]:checked');
       var hp = form.querySelector('input[name="website"]');
       if (!dir || !bucket) { form.reportValidity && form.reportValidity(); return; }
       if (hp && hp.value) { say("ok", S.b_report_thanks); return; }
       var item = { cid: form.getAttribute("data-cid"), direction: dir.value, bucket: parseInt(bucket.value, 10), observed_at: Math.floor(Date.now() / 1000) };
-      var button = form.querySelector('button[type="submit"]');
-      if (button) button.disabled = true;
-      function done() { if (button) button.disabled = false; }
-      var queueIt = function () {
-        var queue = store.get("queue", []); queue.push(item); store.set("queue", queue);
-        say("queued", S.b_report_queued); bucket.checked = false; done();
+      var queueIt = function (text, tried) {
+        enqueue(item, tried);
+        say("queued", text); bucket.checked = false; busy(false);
       };
-      if (navigator.onLine === false) { queueIt(); return; }
+      if (navigator.onLine === false) { queueIt(S.b_report_queued, false); return; }
+      busy(true);
+      say("sending", S.b_report_sending);
       postReport(item).then(function (res) {
-        done();
+        busy(false);
         if (res.status === 201) {
           say("ok", S.b_report_thanks);
           bucket.checked = false;
-          if (res.data && res.data.crossing) applyCrossing(res.data.crossing);
+          reported(item);
+          if (res.data && res.data.crossing) { applyCrossing(res.data.crossing); updateEmpty(); }
         } else if (res.status === 429) {
           // crossing_busy: the crossing-wide cap is full – affects everyone, not just this client
           say("error", res.data && res.data.detail === "crossing_busy" ? S.b_report_busy : S.b_report_ratelimited);
         } else if (res.status === 422) {
           say("error", S.b_report_stale);
         } else if (res.status >= 500 || res.status === 0) {
-          queueIt();
+          queueIt(S.b_report_retry, true);
         } else {
           say("error", S.b_report_error);
         }
-      }).catch(queueIt);
+      }, function (err) {
+        // Nur Fehler der Anfrage selbst (Zeitlimit, Netz) – nicht Fehler beim Anzeigen einer Antwort
+        queueIt(err && err.name === "TimeoutError" ? S.b_report_slow : S.b_report_queued, true);
+      });
     });
   });
 
@@ -274,8 +443,36 @@
   var tools = $("[data-customs-tools]");
   if (tools) {
     tools.hidden = false;
+    // Sticky-Toolbar: Sprungziele landen darunter (scroll-margin in app.css). Den Tastaturfokus
+    // (z. B. Shift+Tab zurück in die Liste) schieben wir selbst darunter, denn scroll-margin beachten
+    // Browser beim Fokussieren nicht. Sofort und noch einmal im nächsten Frame, falls der Browser
+    // erst danach scrollt. Dasselbe nach einem Sprung, für Browser ohne scroll-margin (Safari < 14.1).
+    document.documentElement.classList.add("has-toolbar");
+    var later = window.requestAnimationFrame || setTimeout;
+    var behindTools = function (el) { return !!el && !tools.contains(el) && !!(tools.compareDocumentPosition(el) & 4); };
+    var uncover = function (el) {
+      var bottom = tools.getBoundingClientRect().bottom;
+      var top = el.getBoundingClientRect().top;
+      if (top < bottom) window.scrollBy(0, top - bottom - 14);
+    };
+    document.addEventListener("focusin", function (ev) {
+      var target = ev.target;
+      if (!target.getBoundingClientRect || !behindTools(target)) return;
+      uncover(target);
+      later(function () { uncover(target); });
+    });
+    var uncoverHash = function () {
+      var target = window.location.hash.length > 1 && document.getElementById(window.location.hash.slice(1));
+      if (behindTools(target)) later(function () { uncover(target); });
+    };
+    window.addEventListener("hashchange", uncoverHash);
+    window.addEventListener("load", uncoverHash);
     var input = $("[data-customs-search]", tools);
     var empty = $("[data-customs-empty]");
+    // Live-Region (customs.html): Trefferzahl bzw. „Nichts gefunden“ erst nach einer Tipppause,
+    // sonst sagt der Screenreader bei jedem Buchstaben eine neue Zahl an
+    var live = $("[data-customs-live]", tools);
+    var announce = null;
     var dirFilter = "all";
     var filter = function () {
       var terms = fold(input.value).split(/\s+/).filter(Boolean);
@@ -293,6 +490,12 @@
         visible += shown;
       });
       if (empty) empty.hidden = visible !== 0;
+      if (live) {
+        clearTimeout(announce);
+        announce = setTimeout(function () {
+          live.textContent = visible ? fmt(S[visible === 1 ? "c_results_1" : "c_results_n"], { n: visible }) : S.c_no_results;
+        }, 600);
+      }
     };
     input.addEventListener("input", filter);
     $$("[data-customs-dir]", tools).forEach(function (btn) {
@@ -307,6 +510,98 @@
       });
     });
   }
+
+  // ---------------------------------------------------------- Startbildschirm-Hinweis
+  // Nur außerhalb der installierten App und erst, wenn die Person ein Bundesland gewählt oder
+  // erfolgreich eine Wartezeit gemeldet hat – ohne Besuchszähler. Die Karte gibt es nur auf
+  // Startseite, Grenz-Übersicht und Übergangsseiten (base.html).
+  // Chromium: eigener Button (beforeinstallprompt), iOS: Kurzanleitung über „Teilen“.
+  function isStandalone() {
+    var mm = window.matchMedia;
+    return navigator.standalone === true || !!(mm && ["standalone", "fullscreen", "minimal-ui"].some(function (m) {
+      return mm("(display-mode: " + m + ")").matches;
+    }));
+  }
+  var a2hs = $("[data-a2hs]");
+  var installEvent = null;
+  var isIos = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+  function a2hsWanted() {
+    return !!a2hs && !isStandalone() && !store.get("a2hs_off", false)
+      && (!!stateCode(store.get("state", "")) || !!lastReport.cid);
+  }
+  function showA2hs() {
+    var ios = !installEvent && isIos;
+    if (!a2hsWanted() || !(installEvent || ios)) return;
+    $("[data-a2hs-install]", a2hs).hidden = !installEvent;
+    $("[data-a2hs-ios]", a2hs).hidden = !ios;
+    a2hs.hidden = false;
+    document.documentElement.classList.add("has-a2hs");
+  }
+  function hideA2hs(remember) {
+    if (!a2hs) return;
+    a2hs.hidden = true;
+    document.documentElement.classList.remove("has-a2hs");
+    if (remember) store.set("a2hs_off", true);
+  }
+  // Speicher dauerhaft machen – nur in der installierten App, dort ohne Rückfrage an den Nutzer.
+  // Mehrfaches Anfragen schadet nicht; ist er schon dauerhaft, passiert nichts.
+  function persistStorage() {
+    var st = navigator.storage;
+    if (!st || !st.persist || !st.persisted) return;
+    st.persisted().then(function (done) { return done || st.persist(); }).catch(function () {});
+  }
+
+  window.addEventListener("beforeinstallprompt", function (ev) {
+    installEvent = ev;
+    // Chromes eigene Infoleiste nur unterdrücken, wenn stattdessen unsere Karte erscheint
+    if (a2hsWanted()) { ev.preventDefault(); showA2hs(); }
+  });
+  window.addEventListener("appinstalled", function () {
+    installEvent = null;
+    hideA2hs(true);
+    persistStorage();
+  });
+  if (a2hs) {
+    $("[data-a2hs-close]", a2hs).addEventListener("click", function () { hideA2hs(true); });
+    $("[data-a2hs-install]", a2hs).addEventListener("click", function () {
+      var ev = installEvent;
+      installEvent = null;
+      if (!ev) { hideA2hs(false); return; }
+      // Abgelehnt oder installiert: nicht noch einmal fragen
+      Promise.resolve().then(function () { return ev.prompt(); })
+        .then(function () { return ev.userChoice; })
+        .then(function () { hideA2hs(true); }, function () { hideA2hs(false); });
+    });
+    // Niedrige Bildschirme: die iOS-Schritte erst auf „So geht's“ (app.css blendet sie sonst aus)
+    var how = $("[data-a2hs-how]", a2hs);
+    how.addEventListener("click", function () {
+      var open = !a2hs.classList.contains("is-open");
+      a2hs.classList.toggle("is-open", open);
+      how.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    document.addEventListener("keydown", function (ev) {
+      if ((ev.key === "Escape" || ev.key === "Esc") && !a2hs.hidden) hideA2hs(true);
+    });
+    // Die Karte liegt fest über der Tabbar: Was den Tastaturfokus bekommt, schieben wir darüber
+    // (scroll-padding-bottom in app.css wirkt nur bei Sprungzielen, nicht beim Fokussieren)
+    var raise = function (el) {
+      if (a2hs.hidden) return;
+      var top = a2hs.getBoundingClientRect().top;
+      var r = el.getBoundingClientRect();
+      // Noch ganz unterhalb des Fensters: erst scrollt der Browser, dann der zweite Aufruf
+      if (r.bottom > top && r.top < window.innerHeight) window.scrollBy(0, r.bottom - top + 14);
+    };
+    var later = window.requestAnimationFrame || setTimeout;
+    document.addEventListener("focusin", function (ev) {
+      var target = ev.target;
+      if (!target.getBoundingClientRect || a2hs.contains(target) || target.closest(".tabbar, .topbar, .skip")) return;
+      raise(target);
+      later(function () { raise(target); });
+    });
+    showA2hs();
+  }
+  if (isStandalone()) persistStorage();
 
   // ---------------------------------------------------------- service worker
   if ("serviceWorker" in navigator && window.location.protocol !== "file:") {

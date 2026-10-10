@@ -1,9 +1,12 @@
 """Seiten, API, PWA und Datenschutz-Garantien über HTTP."""
+import html as htmllib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
+
+from tatilvakti import borders as B
 
 PAGES = {
     "de": ["/de/", "/de/ferien", "/de/route", "/de/grenze", "/de/grenze/kapikule", "/de/zoll", "/de/info", "/de/offline"],
@@ -44,13 +47,122 @@ def test_root_redirects_by_browser_language(client):
 
 
 def test_hreflang_and_language_switch_keep_the_page(client):
-    html = client.get("/de/ferien?zeitraum=sommer-2027&land=NW").get_data(as_text=True)
-    assert 'hreflang="tr-TR" href="https://tatilvakti.example/tr/tatil?zeitraum=sommer-2027&amp;land=NW"' in html
-    assert 'href="/tr/tatil?zeitraum=sommer-2027&amp;land=NW"' in html  # Nummernschild-Umschalter
+    html = client.get("/de/ferien/sommer-2027?land=NW").get_data(as_text=True)
+    # Canonical, hreflang und og:url ohne ?land= (keine 16 fast gleichen Seiten je Zeitraum)
+    assert '<link rel="canonical" href="https://tatilvakti.example/de/ferien/sommer-2027">' in html
+    assert '<link rel="alternate" hreflang="de" href="https://tatilvakti.example/de/ferien/sommer-2027">' in html
+    assert '<link rel="alternate" hreflang="tr" href="https://tatilvakti.example/tr/tatil/yaz-2027">' in html
+    assert '<link rel="alternate" hreflang="x-default" href="https://tatilvakti.example/de/ferien/sommer-2027">' in html
+    assert '<meta property="og:url" content="https://tatilvakti.example/de/ferien/sommer-2027">' in html
+    assert "de-DE" not in html.split("</head>")[0].replace('content="de_DE"', "") and "tr-TR" not in html
+    # Der Nummernschild-Umschalter behält das Bundesland
+    assert 'class="plate" href="/tr/tatil/yaz-2027?land=NW"' in html
+    tr = client.get("/tr/tatil/yaz-2027?land=nw").get_data(as_text=True)
+    assert '<link rel="canonical" href="https://tatilvakti.example/tr/tatil/yaz-2027">' in tr
+    assert 'class="plate" href="/de/ferien/sommer-2027?land=NW"' in tr
+    # Ungültiges Bundesland fällt weg, statt in Links weitergereicht zu werden
+    bad = client.get('/de/ferien/sommer-2027?land="]').get_data(as_text=True)
+    assert 'class="plate" href="/tr/tatil/yaz-2027"' in bad
+
+
+@pytest.mark.parametrize("path, other, label, name", [
+    ("/de/zoll", "tr", "Sprache wechseln:", "Türkçe"),
+    ("/tr/gumruk", "de", "Dili değiştir:", "Deutsch"),
+])
+def test_language_switch_marks_only_the_language_name_with_its_lang(client, path, other, label, name):
+    """Audit d1-lang-switch-lang-attr: „Sprache wechseln“ liest der Screenreader in der Seitensprache,
+    nur den Namen der Zielsprache in deren Sprache (WCAG 3.1.2). Kein aria-label: Der Name kommt aus
+    dem Inhalt und enthält so den sichtbaren Text (axe label-content-name-mismatch, WCAG 2.5.3)."""
+    html = client.get(path).get_data(as_text=True)
+    tag, inner = re.search(r'(<a class="plate"[^>]*>)(.*?)</a>', html, re.S).groups()
+    assert f'hreflang="{other}"' in tag and " lang=" not in tag and "aria-label" not in tag
+    assert f'<span class="sr-only">{label} </span>' in inner
+    assert f'<span class="plate__txt" lang="{other}">{name}</span>' in inner
+    assert re.search(r'<span class="plate__eu" aria-hidden="true">', inner)
+
+
+def _periods(app):
+    return app.extensions["tv"].radar.periods
+
+
+@pytest.mark.parametrize("lang, base", [("de", "/de/ferien"), ("tr", "/tr/tatil")])
+def test_every_period_has_its_own_page_with_title_and_h1(app, client, lang, base):
+    titles, h1s = set(), set()
+    for period in _periods(app):
+        resp = client.get(f"{base}/{period.slug[lang]}")
+        assert resp.status_code == 200
+        html = resp.get_data(as_text=True)
+        title = re.search(r"<title>(.*?)</title>", html).group(1)
+        h1 = re.sub(r"<[^>]+>", "", re.search(r"<h1>(.*?)</h1>", html, re.S).group(1)).strip()
+        assert period.label[lang] in title and period.label[lang] in h1, (title, h1)
+        assert f'aria-current="page">{period.label[lang]}</a>' in html  # Zeitraum-Chip aktiv
+        titles.add(title)
+        h1s.add(h1)
+    assert len(titles) == len(h1s) == len(_periods(app))
+
+
+def test_period_titles_follow_search_terms(client):
+    html = htmllib.unescape(client.get("/tr/tatil/yaz-2027").get_data(as_text=True))
+    assert "<title>Almanya okul tatilleri: 2027 yaz tatili, tüm eyaletler – tatilvakti</title>" in html
+    assert "Almanya'da 2027 yaz tatili – tüm eyaletler</h1>" in html
+    html = client.get("/de/ferien/sommer-2027").get_data(as_text=True)
+    assert "<title>Sommerferien 2027: Termine aller 16 Bundesländer – tatilvakti</title>" in html
+    assert "Sommerferien 2027 – alle Bundesländer</h1>" in html
+    kapikule = client.get("/tr/sinir/kapikule").get_data(as_text=True)
+    assert "<title>Kapıkule bekleme süresi – yolculardan canlı bildirim – tatilvakti</title>" in kapikule
+    # Die allgemeine Seite behält ihren Titel und zeigt den laufenden oder nächsten Zeitraum
+    plain = client.get("/de/ferien").get_data(as_text=True)
+    assert "<title>Ferien-Radar: Schulferien aller 16 Bundesländer – tatilvakti</title>" in plain
+    assert '<link rel="canonical" href="https://tatilvakti.example/de/ferien">' in plain
+
+
+@pytest.mark.parametrize("path, location", [
+    ("/de/ferien?zeitraum=sommer-2027", "/de/ferien/sommer-2027"),
+    ("/de/ferien?zeitraum=sommer-2027&land=NW", "/de/ferien/sommer-2027?land=NW"),
+    ("/de/ferien?land=nw&zeitraum=pfingsten-2027", "/de/ferien/pfingsten-2027?land=NW"),
+    ("/tr/tatil?zeitraum=sommer-2027&land=BY", "/tr/tatil/yaz-2027?land=BY"),
+    ("/tr/tatil?zeitraum=weihnachten-2026", "/tr/tatil/yilbasi-2026-27"),
+    ("/de/ferien?zeitraum=sommer-2027&land=XX", "/de/ferien/sommer-2027"),  # ungültiges Land fällt weg
+    # Slug der anderen Sprache oder alte id im Pfad: auf den Slug dieser Sprache
+    ("/tr/tatil/sommer-2027?land=NW", "/tr/tatil/yaz-2027?land=NW"),
+    ("/de/ferien/yaz-2027", "/de/ferien/sommer-2027"),
+])
+def test_old_period_links_redirect_permanently(client, path, location):
+    resp = client.get(path)
+    assert resp.status_code == 301
+    assert resp.headers["Location"] == location
+
+
+@pytest.mark.parametrize("path, location", [
+    # abgelaufener Zeitraum aus einem geteilten Link: zur Übersicht, das Bundesland bleibt
+    ("/de/ferien/sommer-2026?land=NW", "/de/ferien?land=NW"),
+    ("/tr/tatil/yok", "/tr/tatil"),
+    ("/de/ferien/sommer-1999?land=XX", "/de/ferien"),
+])
+def test_unknown_period_leads_to_the_radar(client, path, location):
+    """Review: Zeitraumseiten stehen in der Sitemap und in WhatsApp-Links – nach der Datenpflege
+    endeten sie dauerhaft in 404. 302 statt 301: Gibt es den Slug später, darf kein Browser die
+    Umleitung gespeichert haben."""
+    resp = client.get(path)
+    assert resp.status_code == 302 and resp.headers["Location"] == location
+    assert client.get(location).status_code == 200
+
+
+def test_unknown_query_shows_the_radar(client):
+    resp = client.get("/de/ferien?zeitraum=sommer-1999")
+    assert resp.status_code == 200 and "Ferien-Radar</h1>" in resp.get_data(as_text=True)
+
+
+def test_internal_period_links_use_paths(client):
+    for path in ("/de/ferien", "/de/ferien/sommer-2027?land=NW", "/tr/tatil/yaz-2027?land=NW"):
+        html = client.get(path).get_data(as_text=True)
+        assert "zeitraum" not in html, path
+    html = client.get("/de/ferien/sommer-2027").get_data(as_text=True)
+    assert 'action="/de/ferien/sommer-2027"' in html  # Bundesland-Auswahl ohne JS bleibt im Zeitraum
 
 
 def test_holiday_page_personalises_server_side(client):
-    html = client.get("/de/ferien?zeitraum=sommer-2027&land=NW").get_data(as_text=True)
+    html = client.get("/de/ferien/sommer-2027?land=NW").get_data(as_text=True)
     assert "Deine Ferien in Nordrhein-Westfalen" in html
     assert "02.08.–06.08.2027" in html  # alle 16 Länder gleichzeitig
     assert re.search(r'data-per-state="NW">', html)  # sichtbar (ohne hidden)
@@ -102,10 +214,11 @@ def test_report_form_works_without_javascript(client):
     ("de", "/de/grenze/kapikule", "kommen gerade sehr viele Meldungen an"),
     ("tr", "/tr/sinir/kapikule", "çok fazla bildirim geliyor"),
 ])
-def test_full_crossing_gets_its_own_message(client, monkeypatch, lang, path, text):
-    """Obergrenze voll: nicht „Du hast hier gerade schon gemeldet“, das stimmt für Erstmelder nicht."""
-    from tatilvakti import borders as B
-    monkeypatch.setattr(B, "CROSSING_CAP", 0)
+@pytest.mark.parametrize("cap", ["CROSSING_CAP", "BLOCK_CAP"])
+def test_full_crossing_gets_its_own_message(client, monkeypatch, lang, path, text, cap):
+    """Obergrenze voll: nicht „Du hast hier gerade schon gemeldet“, das stimmt für Erstmelder nicht.
+    Ebenso, wenn das eigene Netz (/48) seinen Anteil an der Obergrenze ausgeschöpft hat."""
+    monkeypatch.setattr(B, cap, 0)
     api = client.post("/api/v1/borders/kapikule/reports", json={"direction": "to_tr", "bucket": 1})
     assert api.status_code == 429 and api.get_json() == {"error": "ratelimited", "detail": "crossing_busy"}
     form = client.post(f"{path}/report", data={"direction": "to_tr", "bucket": "1"}, headers=SAME_ORIGIN)
@@ -164,8 +277,47 @@ def test_home_shows_next_real_holiday_start_during_gap(client, clock):
     assert "Beginn Mo 01.03.2027" not in html
 
 
+def test_home_says_honestly_when_no_further_holidays_are_listed(app, client, clock):
+    """Audit d1-home-stale-pick-state: Ist für das gewählte Land nichts Künftiges mehr eingetragen,
+    steht dort ein ehrlicher Hinweis statt „Wähle dein Bundesland“.
+
+    Unabhängig vom Datenstand (ein neues Schuljahr in holidays.json darf den Test nicht brechen):
+    Stichtag ist der Tag nach dem letzten freien Zeitraum des Landes, dessen Daten zuerst enden."""
+    states = app.extensions["tv"].radar.states
+    last = {code: max(s.end for p in _periods(app) for s in p.stretches(code)) for code in states}
+    code = min(last, key=lambda c: (last[c], c))
+    name = states[code]["name"]
+
+    def blocks_on(day, lang="de"):
+        clock.now = datetime(day.year, day.month, day.day, 9, 0, tzinfo=timezone.utc)
+        html = client.get(f"/{lang}/").get_data(as_text=True)
+        return dict(re.findall(r'<div data-per-state="(\w+)"(?: hidden)?>(.*?)</div>', html, re.S))
+
+    # Gegenprobe am letzten eingetragenen Tag: Die Ferien laufen noch
+    blocks = blocks_on(last[code])
+    assert f"Nächste Ferien in {name}" in blocks[code] and "noch keine weiteren" not in blocks[code]
+    day = last[code] + timedelta(days=1)
+    blocks = blocks_on(day)
+    assert len(blocks) == 17  # 16 Länder und „none“
+    assert f"Für {name} sind noch keine weiteren Ferien eingetragen." in blocks[code]
+    assert "Wähle dein Bundesland" not in blocks[code] and "Nächste Ferien" not in blocks[code]
+    assert "Wähle dein Bundesland" in blocks["none"]
+    assert f"{name} için sıradaki tatil tarihleri henüz eklenmedi." in blocks_on(day, "tr")[code]
+
+
+def test_customs_search_has_a_permanent_live_region(client):
+    """Audit d1-customs-empty-not-announced: Trefferzahl und Leerzustand gehen über eine Live-Region,
+    die von Anfang an im DOM steht (WCAG 4.1.3); die Texte bekommt app.js aus tv-strings."""
+    for path, results in (("/de/zoll", "{n} Treffer"), ("/tr/gumruk", "{n} sonuç")):
+        html = client.get(path).get_data(as_text=True)
+        tools = re.search(r'<div class="toolbar" data-customs-tools hidden>.*?<div class="seg"', html, re.S).group(0)
+        assert '<p class="sr-only" role="status" aria-live="polite" data-customs-live></p>' in tools
+        strings = json.loads(re.search(r'id="tv-strings">(.*?)</script>', html).group(1))
+        assert strings["c_results_n"] == results and strings["c_results_1"] and strings["c_no_results"]
+
+
 def test_split_holidays_are_shown_as_separate_blocks(client):
-    html = client.get("/de/ferien?zeitraum=ostern-2027&land=BW").get_data(as_text=True)
+    html = client.get("/de/ferien/ostern-2027?land=BW").get_data(as_text=True)
     assert "Do 25.03.2027 + Di 30.03.2027 – Sa 03.04.2027" in html
     assert "6 Ferientage" in html
     assert "Frei inkl. Wochenenden und bundesweiter Feiertage: Do 25.03.2027 – So 04.04.2027" in html
@@ -176,6 +328,17 @@ def test_unknown_pages_are_404(client):
     assert client.get("/api/v1/borders/atlantis").get_json() == {"error": "not_found"}
 
 
+@pytest.mark.parametrize("path, code", [("/de/grenze/atlantis", 404), ("/tr/sinir/atlantis", 404), ("/gibts-nicht", 404)])
+def test_error_pages_have_no_canonical_or_language_switch(client, path, code):
+    """Review: Unter einem bekannten Endpunkt zeigten Canonical, og:url, hreflang und der
+    Sprachwechsel auf eine URL, die es nicht gibt (/tr/sinir/atlantis → wieder 404)."""
+    resp = client.get(path)
+    html = resp.get_data(as_text=True)
+    assert resp.status_code == code
+    assert 'rel="canonical"' not in html and "hreflang" not in html and 'property="og:url"' not in html
+    assert 'class="plate"' not in html
+
+
 def test_service_worker_precaches_all_pages(client):
     resp = client.get("/sw.js")
     assert resp.status_code == 200 and resp.mimetype == "application/javascript"
@@ -184,7 +347,7 @@ def test_service_worker_precaches_all_pages(client):
     config = json.loads(body.split("self.TV_CONFIG = ", 1)[1].split(";\n", 1)[0])
     for path in ALL_PAGES:
         assert path in config["pages"]
-    assert "/de/ferien?zeitraum=sommer-2027" in config["pages"]
+    assert "/de/ferien/sommer-2027" in config["pages"]
     assert all("?v=" in a for a in config["assets"])
     for asset in config["assets"]:
         assert client.get(asset).status_code == 200
@@ -218,8 +381,10 @@ def test_manifest(client, lang):
 
 
 def test_healthz_reports_data_freshness(client):
-    data = client.get("/healthz").get_json()
-    assert data["db"] is True and data["salt_db"] is True
+    resp = client.get("/healthz")
+    data = resp.get_json()
+    assert resp.headers["Cache-Control"] == "no-store"  # nie aus einem Cache (Audit d4-healthz-…)
+    assert data["db"] is True and data["salt_db"] is True and data["down"] == []
     assert data["datasets"]["holidays"]["as_of"] == "2026-10-06"
     assert data["datasets"]["holidays"]["review_due"] is False
     assert data["due_items"] == [] and data["next_review"] > "2026-10-06"
@@ -274,8 +439,9 @@ def test_healthz_flags_whole_datasets_after_review_date(operated_app, clock):
     assert whole == {"holidays", "customs", "transit", "crossings"}
 
 
-def test_healthz_flags_an_unusable_salt_db(operated_app, tmp_path, caplog):
-    """Review: Ohne Schlüssel-DB scheitert jede Meldung – /healthz muss das zeigen (HTTP bleibt 200)."""
+def test_healthz_is_503_without_a_usable_salt_db(operated_app, tmp_path, caplog):
+    """Audit d4-healthz-200-bei-ausfall: Ohne Schlüssel-DB scheitert jede Meldung. Ein Monitor, der
+    nur den Statuscode prüft, muss das sehen: 503, status 'down', Grund in 'down' (nicht attention)."""
     client = operated_app.test_client()
     blocker = tmp_path / "keine-verzeichnis"
     blocker.write_text("")  # wie /run/tatilvakti-v2 weg und ohne Recht, es neu anzulegen
@@ -286,12 +452,203 @@ def test_healthz_flags_an_unusable_salt_db(operated_app, tmp_path, caplog):
         for _ in range(2):
             resp = client.get("/healthz")
             data = resp.get_json()
-            assert resp.status_code == 200 and data["salt_db"] is False
-            assert (data["status"], data["attention"]) == ("attention", ["salt_db"])
+            assert resp.status_code == 503 and resp.headers["Cache-Control"] == "no-store"
+            assert (data["status"], data["down"], data["attention"]) == ("down", ["salt_db"], [])
+            assert data["salt_db"] is False and data["db"] is True
     assert len([r for r in caplog.records if "nicht nutzbar" in r.getMessage()]) == 1  # einmal, nicht je Abfrage
     operated_app.config["TV_SALT_DB_PATH"] = str(tmp_path / "wieder" / "salts.db")  # repariert
+    resp = client.get("/healthz")
+    assert resp.status_code == 200
+    assert (resp.get_json()["status"], resp.get_json()["down"]) == ("ok", [])
+
+
+def test_healthz_keeps_maintenance_hints_at_200(operated_app, clock):
+    """Pflegehinweise (fällige Prüfung, Impressum, Proxy, Wartung) sind kein Ausfall: HTTP 200,
+    status 'attention', 'down' leer. Ein Statuscode-Monitor bleibt grün."""
+    operated_app.config["TV_OPERATOR_EMAIL"] = ""
+    client = operated_app.test_client()
+    client.get("/de/", headers={"X-Forwarded-For": "203.0.113.9"})  # TV_TRUST_PROXY=0: Proxy-Hinweis
+    clock.now = datetime(2100, 1, 1, 9, 0, tzinfo=timezone.utc)  # alle Daten zur Prüfung fällig
+    resp = client.get("/healthz")
+    data = resp.get_json()
+    assert resp.status_code == 200 and data["down"] == []
+    assert data["status"] == "attention" and data["attention"] == ["due_items", "imprint", "proxy"]
+
+
+@pytest.fixture
+def quick_lock(monkeypatch):
+    """Kurze Wartezeit auf die Schreibsperre, damit Tests mit gehaltener Sperre schnell sind."""
+    import tatilvakti.db
+    monkeypatch.setattr(tatilvakti.db, "BUSY_TIMEOUT_MS", 50)
+
+
+def test_healthz_is_503_while_another_process_holds_the_write_lock(operated_app, quick_lock, caplog):
+    """Audit-Probe (b): Eine zweite Verbindung hält BEGIN IMMEDIATE. Jede Meldung scheitert dann
+    mit „database is locked“; früher blieb /healthz bei 200 und status ok."""
+    from tatilvakti.db import connect
+    client = operated_app.test_client()
+    assert client.get("/healthz").status_code == 200  # Wartung dieses Prozesses ist erledigt
+    other = connect(operated_app.config["TV_DB_PATH"])
+    try:
+        other.execute("BEGIN IMMEDIATE")
+        operated_app.config["PROPAGATE_EXCEPTIONS"] = False
+        assert client.post("/api/v1/borders/kapikule/reports", json={"direction": "to_tr", "bucket": 1}).status_code == 500
+        with caplog.at_level("WARNING"):
+            resp = client.get("/healthz")
+        data = resp.get_json()
+        assert resp.status_code == 503 and (data["status"], data["down"], data["db"]) == ("down", ["db"], False)
+        assert any("nimmt keine Meldungen an: database is locked" in r.getMessage() for r in caplog.records)
+    finally:
+        other.execute("ROLLBACK")
+        other.close()
+    assert client.get("/healthz").status_code == 200
+
+
+def test_healthz_is_503_when_the_db_is_read_only(operated_app, monkeypatch):
+    """Schreibgeschützte DB (Rechte, -wal/-shm von root, read-only eingehängt): Lesen klappt, die
+    Seiten laufen, aber keine Meldung lässt sich speichern. BEGIN IMMEDIATE allein merkt das nicht."""
+    import sqlite3
+    from tatilvakti import views
+    from tatilvakti.db import Connection
+    client = operated_app.test_client()
+    assert client.get("/healthz").status_code == 200
+    path = operated_app.config["TV_DB_PATH"]
+    readonly = sqlite3.connect(f"file:{path}?mode=ro", uri=True, isolation_level=None, factory=Connection)
+    readonly.row_factory = sqlite3.Row
+    readonly.salt_path = operated_app.config["TV_SALT_DB_PATH"]
+    monkeypatch.setattr(views, "_db", lambda: readonly)
+    try:
+        resp = client.get("/healthz")
+        assert resp.status_code == 503 and resp.get_json()["down"] == ["db"]
+        assert resp.get_json()["maintenance_at"] is not None  # lesen ging
+    finally:
+        readonly.close()
+
+
+def test_healthz_is_503_when_writing_fails(operated_app, clock, monkeypatch):
+    """Volle Platte oder E/A-Fehler zeigen sich erst beim Schreiben. /healthz stößt dafür die Wartung
+    an, die höchstens alle MAINTENANCE_EVERY_S Sekunden schreibt, und versucht es bis zum Erfolg."""
+    import sqlite3
+    client = operated_app.test_client()
+    assert client.get("/healthz").status_code == 200
+    real = B.maintenance
+
+    def full(conn, now, force=False):
+        raise sqlite3.OperationalError("database or disk is full")
+    monkeypatch.setattr(B, "maintenance", full)
+    clock.advance(seconds=B.MAINTENANCE_EVERY_S)
+    for _ in range(2):  # bleibt rot, solange Schreiben scheitert
+        resp = client.get("/healthz")
+        assert resp.status_code == 503 and resp.get_json()["down"] == ["db"]
+    monkeypatch.setattr(B, "maintenance", real)
+    assert client.get("/healthz").status_code == 200  # wieder schreibbar: sofort grün
+
+
+def test_healthz_does_not_write_on_every_call(operated_app, clock):
+    """Billig: Zwischen den Wartungsläufen schreibt /healthz nichts (data_version ändert sich nur,
+    wenn eine andere Verbindung etwas festschreibt)."""
+    from tatilvakti.db import connect
+    client = operated_app.test_client()
+    client.get("/healthz")
+    db_op = connect(operated_app.config["TV_DB_PATH"])
+    try:
+        before = db_op.execute("PRAGMA data_version").fetchone()[0]
+        for _ in range(3):
+            clock.advance(seconds=30)
+            assert client.get("/healthz").status_code == 200
+        assert db_op.execute("PRAGMA data_version").fetchone()[0] == before
+        clock.advance(seconds=B.MAINTENANCE_EVERY_S)  # jetzt ist die Wartung fällig und schreibt
+        assert client.get("/healthz").status_code == 200
+        assert db_op.execute("PRAGMA data_version").fetchone()[0] != before
+    finally:
+        db_op.close()
+
+
+
+def test_healthz_salt_error_during_maintenance_is_not_a_db_failure(operated_app, tmp_path, clock):
+    """Läuft die Wartung im /healthz-Abruf selbst und scheitert nur an der Schlüssel-DB, ist die
+    Haupt-DB trotzdem in Ordnung: down nennt nur salt_db."""
+    client = operated_app.test_client()
+    assert client.get("/healthz").status_code == 200
+    blocker = tmp_path / "keine-verzeichnis"
+    blocker.write_text("")
+    operated_app.config["TV_SALT_DB_PATH"] = str(blocker / "salts.db")
+    clock.advance(seconds=B.MAINTENANCE_EVERY_S)
+    # Die Wartung im before_request dieses Prozesses ist gerade gelaufen: Erst /healthz schreibt
+    operated_app.extensions["tv"].runtime["maintenance_checked_at"] = clock.ts
+    resp = client.get("/healthz")
+    assert resp.status_code == 503 and resp.get_json()["down"] == ["salt_db"]
+    assert resp.get_json()["maintenance_at"] == iso_z(clock.ts)
+
+
+def iso_z(ts):
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_healthz_flags_a_full_crossing_cap_for_a_day(operated_app, clock):
+    """Audit d3-ratelimit-crossing-cap-48, Erkennung: Ist eine Obergrenze (oder der Anteil eines /48)
+    erreicht, zeigt /healthz einen Tag lang den Pflegehinweis 'crossing_cap' mit Zeitpunkt. Kein
+    Ausfall: HTTP 200, damit der Uptime-Monitor nicht anschlägt; die tägliche Prüfung auf
+    "status":"ok" sieht es."""
+    from tatilvakti.db import connect
+    client = operated_app.test_client()
     data = client.get("/healthz").get_json()
-    assert (data["status"], data["salt_db"]) == ("ok", True)
+    assert (data["status"], data["crossing_cap_at"]) == ("ok", None)
+    conn = connect(operated_app.config["TV_DB_PATH"])
+    try:
+        for i in range(B.CROSSING_CAP):
+            B.add_report(conn, "kapikule", "to_tr", 1, f"198.51.100.{i + 1}", clock.ts)
+        with pytest.raises(B.CrossingBusy):
+            B.add_report(conn, "kapikule", "to_tr", 1, "198.51.100.99", clock.ts)
+    finally:
+        conn.close()
+    at = clock.ts
+    clock.advance(hours=23)
+    resp = client.get("/healthz")
+    data = resp.get_json()
+    assert resp.status_code == 200 and data["down"] == []
+    assert (data["status"], data["attention"], data["crossing_cap_at"]) == ("attention", ["crossing_cap"], iso_z(at))
+    # Von außen nur der Status, nicht der Grund
+    public = client.get("/healthz", environ_base={"REMOTE_ADDR": "198.51.100.7"}).get_json()
+    assert public == {"status": "attention", "build": data["build"], "down": []}
+    clock.advance(hours=1)
+    data = client.get("/healthz").get_json()
+    assert (data["status"], data["attention"], data["crossing_cap_at"]) == ("ok", [], iso_z(at))
+
+
+@pytest.mark.parametrize("trust_proxy, remote, headers", [
+    (1, "127.0.0.1", {"X-Forwarded-For": "203.0.113.9"}),   # Pangolin, richtig eingestellt
+    (0, "127.0.0.1", {"X-Forwarded-For": "203.0.113.9"}),   # Pangolin über den Tunnel, TV_TRUST_PROXY fehlt
+    (0, "127.0.0.1", {"Forwarded": "for=203.0.113.9"}),
+    (0, "127.0.0.1", {"X-Real-IP": "203.0.113.9"}),
+    (0, "198.51.100.7", {}),                                  # Port direkt erreichbar
+], ids=["proxy", "tunnel-ohne-trust", "forwarded", "x-real-ip", "direkt"])
+def test_healthz_shows_details_only_on_the_server(tmp_path, clock, trust_proxy, remote, headers):
+    """Audit d2-healthz-internals / d4-healthz-details-oeffentlich: Von außen nur status, build und
+    down mit demselben Statuscode. Proxy-Einstellung, Zustand des Spam-Schutzes, Pflegehinweise und
+    Prüfdaten sieht nur, wer auf dem Server selbst fragt (deploy.sh, curl auf 127.0.0.1:3096)."""
+    from tatilvakti import create_app
+    app = create_app({"TESTING": True, "TV_DB_PATH": str(tmp_path / "hz.db"), "TV_CLOCK": clock,
+                      "TV_TRUST_PROXY": trust_proxy})
+    client = app.test_client()
+    full = client.get("/healthz").get_json()  # Testclient: 127.0.0.1 ohne Proxy-Header
+    assert {"proxy", "salt_db", "due_items", "attention", "imprint_ok"} <= full.keys()
+    resp = client.get("/healthz", headers=headers, environ_base={"REMOTE_ADDR": remote})
+    assert resp.status_code == 200 and resp.headers["Cache-Control"] == "no-store"
+    assert resp.get_json() == {"status": full["status"], "build": full["build"], "down": []}
+    # Ausfall: von außen derselbe Statuscode und der Grund
+    blocker = tmp_path / "keine-verzeichnis"
+    blocker.write_text("")
+    app.config["TV_SALT_DB_PATH"] = str(blocker / "salts.db")
+    resp = client.get("/healthz", headers=headers, environ_base={"REMOTE_ADDR": remote})
+    assert resp.status_code == 503
+    assert resp.get_json() == {"status": "down", "build": full["build"], "down": ["salt_db"]}
+
+
+@pytest.mark.parametrize("remote", ["127.0.0.1", "::1", "::ffff:127.0.0.1"])
+def test_healthz_details_for_every_loopback_address(client, remote):
+    data = client.get("/healthz", environ_base={"REMOTE_ADDR": remote}).get_json()
+    assert "proxy" in data and "salt_db" in data
 
 
 def test_forwarded_header_without_trusted_proxy_warns_once(client, caplog):
@@ -319,6 +676,19 @@ def test_trusted_proxy_groups_ipv6_by_64(tmp_path, clock):
     over = client.post(url, json=body, headers={"X-Forwarded-For": "2001:db8:1:5::1"})
     assert over.status_code == 429 and over.get_json()["detail"] == "net_per_hour"
     assert client.post(url, json=body, headers={"X-Forwarded-For": "198.51.100.7"}).status_code == 201
+
+
+def test_trusted_proxy_limits_one_48_to_its_share(tmp_path, clock):
+    from tatilvakti import create_app
+    app = create_app({"TESTING": True, "TV_DB_PATH": str(tmp_path / "px.db"), "TV_CLOCK": clock, "TV_TRUST_PROXY": 1})
+    client = app.test_client()
+    url = "/api/v1/borders/kapikule/reports"
+    body = {"direction": "to_tr", "bucket": 5}
+    for i in range(B.BLOCK_CAP):  # je ein anderes /56 im selben /48
+        assert client.post(url, json=body, headers={"X-Forwarded-For": f"2001:db8:7:{i:02x}00::1"}).status_code == 201
+    over = client.post(url, json=body, headers={"X-Forwarded-For": "2001:db8:7:ff00::1"})
+    assert over.status_code == 429 and over.get_json()["detail"] == "crossing_busy"
+    assert client.post(url, json=body, headers={"X-Forwarded-For": "2001:db8:8::1"}).status_code == 201
 
 
 def test_maintenance_runs_without_new_reports(client, db, clock):
@@ -382,6 +752,69 @@ def test_api_errors_are_always_json(client):
     assert client.post("/de/").mimetype == "text/html"
 
 
+def _title(html):
+    return htmllib.unescape(re.search(r"<title>(.*?)</title>", html).group(1))
+
+
+@pytest.mark.parametrize("lang, path, title", [
+    ("de", "/de/grenze/kapikule/report", "Anfrage nicht möglich – tatilvakti"),
+    ("tr", "/tr/sinir/kapikule/report", "İstek işlenemedi – tatilvakti"),
+])
+def test_method_not_allowed_on_pages_shows_own_error_page(client, lang, path, title):
+    """405 auf Seitenpfaden (Audit d1-http-error-default-page): eigene Fehlerseite in der Sprache des
+    Pfads, mit Navigation und Weg zur Startseite, statt der englischen Standardseite von Werkzeug."""
+    resp = client.get(path)
+    html = resp.get_data(as_text=True)
+    assert resp.status_code == 405 and resp.mimetype == "text/html"
+    assert "POST" in resp.headers["Allow"]  # bleibt erhalten
+    assert f'<html lang="{lang}"' in html and _title(html) == title
+    assert 'class="tabbar"' in html and f'class="btn btn--primary" href="/{lang}/"' in html
+    assert "Method Not Allowed" not in html
+    assert "unsafe-inline" not in resp.headers["Content-Security-Policy"] and "Set-Cookie" not in resp.headers
+    assert "Vary" not in resp.headers  # Sprache aus dem Pfad, nicht aus Accept-Language
+
+
+def test_too_large_form_post_shows_own_error_page(client):
+    resp = client.post("/de/grenze/kapikule/report", headers=SAME_ORIGIN,
+                       data={"direction": "to_tr", "bucket": "1", "website": "x" * 20000})
+    html = resp.get_data(as_text=True)
+    assert resp.status_code == 413 and resp.mimetype == "text/html"
+    assert '<html lang="de"' in html and _title(html) == "Anfrage nicht möglich – tatilvakti"
+    assert "Request Entity Too Large" not in html
+
+
+@pytest.mark.parametrize("path, title, text", [
+    ("/de/info", "Anfrage nicht möglich – tatilvakti", "Diese Anfrage konnten wir nicht verarbeiten."),
+    ("/tr/bilgi", "İstek işlenemedi – tatilvakti", "Bu isteği işleyemedik."),
+])
+def test_bad_request_on_pages_shows_own_error_page_and_keeps_headers(app, client, path, title, text):
+    from werkzeug.exceptions import TooManyRequests, abort
+    endpoint = "info_" + path.split("/")[1]
+    app.view_functions[endpoint] = lambda **_: abort(400)
+    resp = client.get(path)
+    html = resp.get_data(as_text=True)
+    assert resp.status_code == 400 and _title(html) == title and text in html
+
+    def limited(**_):
+        raise TooManyRequests(retry_after=60)
+    app.view_functions[endpoint] = limited
+    resp = client.get(path)
+    assert resp.status_code == 429 and _title(resp.get_data(as_text=True)) == title
+    assert resp.headers["Retry-After"] == "60"  # Kopfzeilen der Ausnahme bleiben, nicht nur Allow
+
+
+def test_error_page_outside_language_paths_follows_accept_language(client):
+    resp = client.post("/healthz", headers={"Accept-Language": "tr-TR,tr;q=0.9,de;q=0.5"})
+    html = resp.get_data(as_text=True)
+    assert resp.status_code == 405 and "GET" in resp.headers["Allow"]
+    assert '<html lang="tr"' in html and _title(html) == "İstek işlenemedi – tatilvakti"
+    assert resp.headers["Vary"] == "Accept-Language"  # Caches dürfen DE und TR nicht mischen
+    assert '<html lang="de"' in client.post("/healthz").get_data(as_text=True)
+    # 404 ebenso
+    missing = client.get("/gibts-nicht", headers={"Accept-Language": "tr"})
+    assert '<html lang="tr"' in missing.get_data(as_text=True) and missing.headers["Vary"] == "Accept-Language"
+
+
 def test_outdated_data_is_flagged_not_hidden(client, clock):
     clock.now = datetime(2028, 1, 15, 12, 0, tzinfo=timezone.utc)
     assert client.get("/healthz").get_json()["datasets"]["customs"]["review_due"] is True
@@ -391,7 +824,24 @@ def test_outdated_data_is_flagged_not_hidden(client, clock):
     assert "vermutlich veraltet" in route
 
 
-def test_sitemap_lists_both_languages(client):
+def test_sitemap_lists_both_languages(app, client):
     xml = client.get("/sitemap.xml").get_data(as_text=True)
     assert "https://tatilvakti.example/tr/sinir/kapikule" in xml
-    assert 'hreflang="de-DE"' in xml
+    assert "de-DE" not in xml and "tr-TR" not in xml
+    urls = re.findall(r"<url>(.*?)</url>", xml.replace("\n", ""))
+    locs = [re.search(r"<loc>(.*?)</loc>", u).group(1) for u in urls]
+    assert len(locs) == len(set(locs))
+    # Alle Ferienzeiträume beider Sprachen, je mit de, tr und x-default
+    for period in _periods(app):
+        de = f"https://tatilvakti.example/de/ferien/{period.slug['de']}"
+        tr = f"https://tatilvakti.example/tr/tatil/{period.slug['tr']}"
+        for loc in (de, tr):
+            entry = urls[locs.index(loc)]
+            assert f'hreflang="de" href="{de}"' in entry and f'hreflang="tr" href="{tr}"' in entry
+            assert f'hreflang="x-default" href="{de}"' in entry
+    assert not any("offline" in loc or "cevrimdisi" in loc or "?" in loc for loc in locs)
+    # Jede Seite der Sitemap gibt es wirklich, und ihr Canonical ist genau diese URL
+    for loc in locs:
+        resp = client.get(loc.replace("https://tatilvakti.example", ""))
+        assert resp.status_code == 200, loc
+        assert f'<link rel="canonical" href="{loc}">' in resp.get_data(as_text=True), loc

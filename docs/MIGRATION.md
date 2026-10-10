@@ -31,11 +31,11 @@ Jeder Punkt beantwortet eine Frage, die sich aus dem Code von v2 allein nicht kl
 ### 1.1 Service Worker
 
 - [ ] **Skript-URL und Scope.** In Chrome mit geöffneter Alt-App: DevTools (F12) → *Application* → *Service workers* zeigt *Source* (z. B. `/service-worker.js`) und *Scope* (z. B. `/`). Alternativ `chrome://serviceworker-internals`, oder im Alt-Code nach `serviceWorker.register(` suchen.
-- [ ] **Cache-Namen.** DevTools → *Application* → *Cache storage*.
+- [ ] **Cache-Namen** (nur zur Kontrolle nach dem Umschalten). DevTools → *Application* → *Cache storage*.
 - [ ] **Strategie für Seiten:** Liefert der alte Worker Seiten aus dem Cache, bevor er das Netz fragt (cache-first)? Im Alt-Code den `fetch`-Handler ansehen.
 - [ ] **Push:** Hat der alte Worker einen `push`-Handler?
 
-*Warum:* v2 registriert nur `/sw.js` und räumt nur eigene Caches (`tv-*`) ab. Liegt der alte Worker unter einem anderen Pfad, bleibt er aktiv (siehe Abschnitt 3).
+*Warum:* v2 registriert nur `/sw.js`. Beim Aktivieren löscht v2 alle Caches des Origins außer den eigenen (`tv2-*`), auch die der Alt-App. Die Cache-Namen braucht die Entwicklung also nicht mehr zum Löschen, nur noch zur Kontrolle. Ob v2 den alten Worker selbst ablöst oder der Kill-Switch nötig ist, hängt von Pfad, Scope und Strategie ab (Abschnitt 3).
 
 ### 1.2 Web-App-Manifest
 
@@ -53,7 +53,7 @@ Jeder Punkt beantwortet eine Frage, die sich aus dem Code von v2 allein nicht kl
   - API-Pfaden, die eine installierte Alt-PWA aufruft.
 - [ ] Zu jedem Pfad das neue Ziel (Anhang A).
 
-*Warum:* v2 beantwortet unbekannte Pfade mit 404 (Seite mit Link zur Startseite), nur `/` leitet auf `/de/` bzw. `/tr/` weiter. Eine Weiterleitungstabelle in der App ist vorgesehen. Grundlage dafür ist diese Liste.
+*Warum:* v2 beantwortet unbekannte Pfade mit 404 (Seite mit Link zur Startseite), nur `/` leitet auf `/de/` bzw. `/tr/` weiter. Eine Weiterleitungstabelle in der App ist vorhanden (`tatilvakti/data/redirects.json`, Anhang A). Grundlage dafür ist diese Liste.
 
 ### 1.4 Alt-Dienste und ihre Daten
 
@@ -87,7 +87,7 @@ Pro Punkt eintragen: Entscheidung, Datum, erledigt.
 
 ### 2.2 Web-Push
 
-- **Einstellen (Empfehlung, solange v2 kein Push kann):** Den Push-Versand der Alt-App **vor** dem Umschalten stoppen, optional vorher eine letzte Nachricht senden. Danach die Abo-Datenbank löschen. Der Kill-Switch (Abschnitt 3) meldet die alten Worker ab, damit enden die Abos auch im Browser.
+- **Einstellen (Empfehlung, solange v2 kein Push kann):** Den Push-Versand der Alt-App **vor** dem Umschalten stoppen, optional vorher eine letzte Nachricht senden. Danach die Abo-Datenbank löschen. Im Browser enden die Abos nur dort, wo der Kill-Switch (Abschnitt 3) den alten Worker abmeldet. Übernimmt v2 die Registrierung (alter Worker unter `/sw.js` oder mit Scope `/` und network-first), bleibt das Abo im Browser bestehen. Wirksam ist dann nur das Löschen der Abo-DB auf dem Server.
 - **Für später aufheben:** Nur wenn Push in v2 konkret geplant ist (Roadmap „Kapıkule unter 1 Std.“). Dann das VAPID-Schlüsselpaar sicher aufbewahren, denn Abos sind an diesen Schlüssel gebunden. Zweck und Frist der Aufbewahrung dokumentieren. Bis dahin **nichts senden**: v2 hat keinen `push`-Handler, Browser zeigen dann eine Standardbenachrichtigung.
 - [ ] Entscheidung: ______  Datum: ______  erledigt: ☐
 
@@ -118,7 +118,7 @@ Das HTTPS-Request-Log von Pangolin speichert laut [Pangolin-Doku](https://docs.p
 - [ ] Prüfen, ob die Einstellung wirkt: Bei abgeschalteter Aufbewahrung darf nach einer Testanfrage kein neuer Eintrag im Request-Log erscheinen, sonst keiner, der älter als die Frist ist. Pangolin hatte hier Fehler: In Version 1.13.0 erschienen Request-Logs trotz abgeschalteter Aufbewahrung ([Issue #2061](https://github.com/fosrl/pangolin/issues/2061), geschlossen). Version 1.22.0 behebt laut [Release Notes](https://github.com/fosrl/pangolin/releases/tag/1.22.0) einen Fehler, durch den die Aufbewahrung der Access-Logs ein falsches Feld der Organisationseinstellungen las. Deshalb eine aktuelle Version einsetzen.
 - [ ] Traefik-`accessLog` in der Pangolin-Konfiguration prüfen: abschalten oder die Client-IP weglassen. Dazu unter `fields.names` sowohl `ClientHost` als auch `ClientAddr` auf `drop` setzen und Header nicht loggen (`fields.headers.defaultMode: drop`, der Traefik-Standard; [Traefik-Doku](https://doc.traefik.io/traefik/v3.1/observability/access-logs/)).
 - [ ] AVV mit dem VPS-Anbieter bzw. Pangolin Cloud abschließen oder abrufen. Bei Anbietern außerhalb der EU die Drittlandübermittlung prüfen.
-- [ ] Ergebnis (Empfänger, Log-Frist) in die Datenschutzhinweise von v2 übernehmen. Bleibt ein IP-Log bestehen, muss der Satz „Die IP-Adresse selbst speichern wir nicht“ in v2 auf die App-Datenbank eingeschränkt werden.
+- [ ] Ergebnis (Empfänger, Log-Frist) in die Datenschutzhinweise von v2 übernehmen (`de.json` und `tr.json`, Abschnitt Datenschutz der Info-Seite). Der Text sagt schon „Die IP-Adresse selbst speichert die App nicht“ und erwähnt, dass der vorgeschaltete Proxy die aufgerufene Adresse samt `?land=` protokollieren kann. Es fehlen noch die Empfänger (Hoster, Pangolin) und die konkrete Log-Frist. Beides muss der Betreiber liefern.
 
 ### 2.7 Manifest-id und alte Start-URL
 
@@ -128,7 +128,8 @@ Das HTTPS-Request-Log von Pangolin speichert laut [Pangolin-Doku](https://docs.p
 
 ### 2.8 Impressum und Datenschutzhinweise
 
-- [ ] `TV_OPERATOR_NAME`, `TV_OPERATOR_ADDRESS`, `TV_OPERATOR_EMAIL` in `/etc/tatilvakti-v2.env` gesetzt (`/healthz` → `imprint_ok: true`).
+- [ ] `TV_OPERATOR_NAME`, `TV_OPERATOR_ADDRESS`, `TV_OPERATOR_EMAIL` in `/etc/tatilvakti-v2.env` gesetzt (`/healthz` auf dem Server → `imprint_ok: true`, siehe 6a). Das Impressum erscheint nur mit allen drei Angaben, die Anschrift braucht mindestens eine Zeile (Zeilen mit `;` trennen). Fehlt eine Angabe, steht auf der Info-Seite „noch nicht eingerichtet“.
+- [ ] Empfänger und Log-Frist des Proxys aus 2.6 stehen im Datenschutztext.
 - [ ] Alle Dienste, die nach 2.1–2.6 weiterlaufen, sind in den Hinweisen von v2 abgedeckt.
 - [ ] Alte Impressums- und Datenschutz-URLs stehen in Anhang A (Ziel `/de/info#impressum` bzw. `/de/info#datenschutz`).
 
@@ -136,17 +137,22 @@ Das HTTPS-Request-Log von Pangolin speichert laut [Pangolin-Doku](https://docs.p
 
 ## 3. Alter Service Worker und Kill-Switch (`TV_LEGACY_SW_PATHS`)
 
-Je nach Ergebnis von 1.1:
+Je nach Ergebnis von 1.1. Sobald v2 oder der Kill-Switch auf einem Gerät aktiv wird, löscht er alle Caches außer `tv2-*`, auch die der Alt-App.
 
 | Alter Worker | Folge nach dem Umschalten | Maßnahme |
 |---|---|---|
-| `/sw.js`, Scope `/` | Der Browser lädt bei der nächsten Update-Prüfung das neue `/sw.js` und ersetzt den alten Worker (v2 aktiviert sofort: `skipWaiting`, `clients.claim`). Alte Caches mit anderen Namen als `tv-*` bleiben liegen. | Cache-Namen an die Entwicklung, damit v2 sie beim Aktivieren löscht. |
-| anderer Pfad, z. B. `/service-worker.js` | Der alte Worker bleibt registriert. Chromium entfernt ihn auch dann nicht, wenn sein Skript 404 liefert (in einer Simulation für das Launch-Audit beobachtet). Arbeitet er cache-first, sehen Bestandsnutzer dauerhaft die Alt-App. | Kill-Switch unter diesem Pfad (siehe unten). |
+| `/sw.js`, Scope `/` | Der Browser lädt bei der nächsten Update-Prüfung das neue `/sw.js` und ersetzt den alten Worker (v2 aktiviert sofort: `skipWaiting`, `clients.claim`). v2 übernimmt die Registrierung, ein Push-Abo der Alt-App bleibt daran hängen. | Push-Versand stoppen (2.2). Ein Kill-Switch ist hier weder möglich noch nötig, `/sw.js` gehört v2. |
+| anderer Pfad (z. B. `/service-worker.js`), Scope `/`, network-first | Online kommen die Seiten von v2 durch. app.js registriert `/sw.js` für denselben Scope und übernimmt damit die Registrierung samt Push-Abo. | Push-Versand stoppen (2.2). Kill-Switch unter dem alten Pfad trotzdem setzen, er schadet nicht. |
+| anderer Pfad, cache-first | Der alte Worker bleibt registriert und liefert weiter die gespeicherte Alt-App. Chromium entfernt ihn auch dann nicht, wenn sein Skript 404 liefert (in einer Simulation für das Launch-Audit beobachtet). | Kill-Switch unter diesem Pfad. |
 | Scope enger als `/`, z. B. `/app/` | Für Seiten unter `/app/` gilt weiter der alte Worker, der neue mit Scope `/` übernimmt sie nicht. | Kill-Switch unter dem alten Skript-Pfad. |
 
-**Kill-Switch:** v2 liefert in einer späteren Ausbaustufe unter den Pfaden aus `TV_LEGACY_SW_PATHS` (kommagetrennt, z. B. `/service-worker.js`) einen Worker aus. Er aktiviert sich sofort, löscht alle Caches, meldet sich ab und lädt offene Fenster neu. Damit enden auch alte Push-Abos.
+Übernimmt v2 die Registrierung, bleibt ein Push-Abo der Alt-App im Browser bestehen. v2 hat keinen `push`-Handler, ankommende Nachrichten zeigt der Browser dann als Standardbenachrichtigung. Deshalb den Versand stoppen (2.2). Bei „Einstellen“ wirkt dann nur das Löschen der Abo-DB auf dem Server.
 
-- Erst in `/etc/tatilvakti-v2.env` setzen, wenn ein Release das unterstützt. Der Preflight prüft, dass jeder Pfad JavaScript mit Status 200 liefert, und bricht sonst ab.
+**Kill-Switch (ab diesem Release):** Unter jedem Pfad aus `TV_LEGACY_SW_PATHS` (kommagetrennt, z. B. `/service-worker.js,/app/sw.js`) liefert v2 ein kleines Skript aus (`tatilvakti/templates/legacy_sw.js`). Der Browser lädt es bei der nächsten Update-Prüfung des alten Workers, also beim nächsten Besuch. Es aktiviert sich sofort, löscht alle Caches außer `tv2-*`, meldet sich ab und lädt offene Fenster neu. Mit der Abmeldung endet auch ein Push-Abo dieses Workers. Es hat keinen `fetch`-Handler, Anfragen gehen also direkt ins Netz, und keinen `push`-Handler.
+
+- Antwort: HTTP 200, `application/javascript`, `Cache-Control: no-store` und `Service-Worker-Allowed: /`. Der letzte Header ist nötig, falls der alte Worker per Header einen weiteren Scope als sein Verzeichnis hatte (z. B. Skript unter `/js/`, Scope `/`). Der Browser prüft das beim Update erneut, ohne den Header schlüge das Update fehl.
+- Regeln für die Pfade: absolut, endet auf `.js`, ohne Query oder Fragment, nur `A–Z a–z 0–9 . _ ~ @ + - /`, keine doppelten Pfade, keine Kollision mit eigenen Routen (`/sw.js`, `/static/…`, `/de/grenze/x.js` usw.) und kein Eintrag in `redirects.json` für denselben Pfad. Bei einem Fehler startet die App nicht, der Preflight meldet dann „create_app() schlägt fehl: …“. Außerdem prüft er, dass jeder Pfad JavaScript mit Status 200 liefert.
+- Vor dem Umschalten in `/etc/tatilvakti-v2.env` setzen, danach `sudo systemctl restart tatilvakti-v2`, und in der Generalprobe (4.4) prüfen.
 - Mindestens 12 Monate aktiv lassen (Empfehlung: Wer die App nur zur Sommerreise öffnet, kommt erst in der nächsten Saison wieder).
 
 ---
@@ -154,7 +160,7 @@ Je nach Ergebnis von 1.1:
 ## 4. v2 installieren und auf einer Test-Subdomain prüfen
 
 1. v2 einrichten wie in README → Betrieb → Einrichten beschrieben. `/etc/tatilvakti-v2.env` enthält von Anfang an `TV_BASE_URL=https://tatilvakti.guenlab.de`: Canonical-Links zeigen damit schon im Test auf die Hauptdomain, es entsteht kein doppelter Suchindex.
-2. In Pangolin eine **neue Ressource** anlegen, z. B. `tatilvakti-test.guenlab.de`, Ziel: Hermes, Port **3096**. Kompression einschalten (README → Reverse-Proxy). Empfohlen: Pangolin-Authentifizierung für diese Ressource, damit sie nicht öffentlich ist.
+2. In Pangolin eine **neue Ressource** anlegen, z. B. `tatilvakti-test.guenlab.de`, Ziel: Hermes, Port **3096**. Kompression einschalten (README → Reverse-Proxy). Empfohlen: Pangolin-Authentifizierung für diese Ressource, damit sie nicht öffentlich ist. **Keinen Health-Check** der Ressource auf `/healthz` einrichten (auch nicht später für die Hauptdomain): `/healthz` liefert HTTP 503 schon, wenn nur das Melden ausfällt (z. B. Schlüssel-DB), die Seiten laufen dann weiter. Ein Health-Check nähme die ganze Seite vom Netz. Falls einer nötig ist, auf `/de/` richten.
 3. Funktionstest auf der Test-Subdomain:
    - [ ] alle Seiten in DE und TR, Sprachwechsel,
    - [ ] offline: DevTools → *Network* → *Offline*, neu laden, gespeicherter Stand mit Alter erscheint,
@@ -163,17 +169,21 @@ Je nach Ergebnis von 1.1:
    - [ ] `/healthz` (siehe 6a).
 4. **Generalprobe Service Worker und Rollback.** Die Test-Subdomain ist ein eigener Origin. Deshalb lässt sich dort der Wechsel von der Alt-App auf v2 gefahrlos durchspielen:
    1. Ziel der Test-Ressource auf **3095** (Alt-App) stellen, auf einem Testgerät öffnen und installieren, damit sich der alte Worker registriert.
-   2. Ziel auf **3096** umstellen. Mit der installierten App prüfen, ob nach höchstens einem Neuladen v2 erscheint. DevTools → *Application*: Welche Worker sind registriert, welche Caches liegen noch da?
-   3. Ziel zurück auf **3095** (Rollback) und beobachten, was das Gerät zeigt.
-   4. Ergebnis an die Entwicklung (Anhang B). Davon hängen Kill-Switch und Cache-Bereinigung ab.
-5. Testmeldungen löschen (6e, letzter Punkt). Sie landen in der echten Datenbank von v2.
+   2. Liegt der alte Worker nicht unter `/sw.js`: seinen Pfad in `TV_LEGACY_SW_PATHS` eintragen und v2 neu starten (Abschnitt 3).
+   3. Ziel auf **3096** umstellen. Mit der installierten App prüfen, ob nach höchstens einem Neuladen v2 erscheint. DevTools → *Application*: Registriert ist nur noch `/sw.js`, es gibt nur Caches `tv2-*`.
+   4. Ziel zurück auf **3095** (Rollback) und beobachten, was das Gerät zeigt.
+   5. Ergebnis in Anhang B eintragen. Davon hängt ab, welche Pfade in `TV_LEGACY_SW_PATHS` gehören.
+5. **Restore-Drill:** einmal eine Sicherung mit `scripts/restore.sh` echt zurückspielen, wie in README → Backup und Restore → Restore-Drill, Schritt 1. Ergebnis in Anhang B eintragen. Nach dem Launch kostet ein echter Restore die Meldungen seit der Sicherung, deshalb jetzt.
+6. Testmeldungen löschen (6e, letzter Punkt). Sie landen in der echten Datenbank von v2.
 
 ## 5. Umschalten
 
 **Voraussetzungen:**
 
 - [ ] Abschnitt 2 entschieden, alles, was vorher passieren muss, ist erledigt (Push-Versand und Scraper gestoppt, Hinweise für weiterlaufende Dienste in v2).
-- [ ] `/healthz` auf der Test-Subdomain: `status` `ok`, `imprint_ok` `true`.
+- [ ] `/healthz` wie in 6a: auf dem Server `status` `ok` und `imprint_ok` `true`, über die Test-Subdomain HTTP 200.
+- [ ] `TV_LEGACY_SW_PATHS` gesetzt, falls der alte Worker nicht unter `/sw.js` liegt (Abschnitt 3).
+- [ ] Weiterleitungstabelle aus Anhang A in `tatilvakti/data/redirects.json` eingetragen und ausgeliefert.
 - [ ] Zeitpunkt außerhalb der Reisespitzen (nicht am Wochenende vor Ferienbeginn). Jedes Gerät lädt nach dem Wechsel die Offline-Daten neu.
 
 **Schritte:**
@@ -195,7 +205,7 @@ Je nach Ergebnis von 1.1:
    sudo systemctl disable --now tatilvakti.service
    ```
 
-6. In der Search Console die Sitemap `https://tatilvakti.guenlab.de/sitemap.xml` einreichen.
+6. In der Search Console die Sitemap `https://tatilvakti.guenlab.de/sitemap.xml` einreichen. Sie enthält alle Seiten beider Sprachen außer der Offline-Seite, auch jeden Ferienzeitraum (`/de/ferien/<slug>`, `/tr/tatil/<slug>`) und jeden Übergang.
 
 ## 6. Prüfliste nach Deploy und Umschalten
 
@@ -203,11 +213,16 @@ Mit `D=https://tatilvakti.guenlab.de` (auf der Test-Subdomain entsprechend).
 
 **a) Status**
 
+Alle Details zeigt `/healthz` nur beim Abruf auf dem Server selbst, von außen kommen nur `status`, `build` und `down` (README → Logs und Monitoring). Deshalb zweimal:
+
 ```bash
-curl -s "$D/healthz" | python3 -m json.tool
+curl -s -o /dev/null -w '%{http_code}\n' "$D/healthz"          # von außen (z. B. Laptop): 200
+curl -s http://127.0.0.1:3096/healthz | python3 -m json.tool      # auf Hermes: alle Details
 ```
 
-Erwartet: `status` `ok`. Bei `attention` stehen die Gründe in `attention`. Außerdem `db` `true`, `build` wie in der Ausgabe von `deploy.sh`, `due_items` leer (sonst sind Daten zu prüfen, README → Datenpflege), `imprint_ok` `true`, `proxy.trust_proxy` `1`, `proxy.forwarded_ignored` `false`.
+Erwartet: von außen HTTP 200; auf dem Server `status` `ok`. Bei `attention` (weiter HTTP 200) stehen die Pflegehinweise in `attention`. Außerdem `down` leer, `db` `true`, `build` wie in der Ausgabe von `deploy.sh`, `due_items` leer (sonst sind Daten zu prüfen, README → Datenpflege), `imprint_ok` `true`, `proxy.trust_proxy` `1`, `proxy.forwarded_ignored` `false`.
+
+HTTP 503 mit `status` `down` heißt: Melden geht nicht, die Gründe stehen in `down` (`db`: Haupt-DB nimmt keine Meldung an; `salt_db`: Schlüssel-DB nicht nutzbar). Ursache: `journalctl -u tatilvakti-v2 -n 50`. Ein externer Uptime-Monitor prüft `$D/healthz` auf den Statuscode (200 gut, alles andere Alarm); Pflegehinweise sind kein Ausfall (README → Logs und Monitoring).
 
 **b) Host-Weitergabe und Canonical**
 
@@ -224,7 +239,7 @@ curl -sI "http://tatilvakti.guenlab.de/de/" | head -3                    # 301/3
 curl -sI "$D/de/" | grep -i strict-transport-security                    # max-age=31536000
 ```
 
-Fehlt der HSTS-Header, in Pangolin/Traefik ergänzen. Fehlt die Umleitung auf HTTPS, ebenfalls.
+Den HSTS-Header setzt die App selbst (ohne `includeSubDomains`), sobald `TV_BASE_URL` mit `https://` beginnt. Fehlt er, `TV_BASE_URL` prüfen; im Proxy nicht zusätzlich setzen. Fehlt die Umleitung auf HTTPS, in Pangolin/Traefik ergänzen.
 
 **d) Kompression**
 
@@ -259,9 +274,13 @@ Der Spam-Schutz braucht die echte Client-IP. Ist `TV_TRUST_PROXY` zu klein (0), 
    sudo /opt/tatilvakti-v2/current/scripts/tv-flask.sh purge-reports --crossing kapikule --since "$START"
    ```
 
-**f) Alte Installation:** Auf einem Gerät mit installierter Alt-App öffnen. Nach höchstens einem Neuladen erscheint v2. In DevTools ist nur `/sw.js` registriert, es gibt nur Caches `tv-*` (Abschnitt 3).
+**f) Alte Installation:** Auf einem Gerät mit installierter Alt-App öffnen. Nach höchstens einem Neuladen erscheint v2. In DevTools ist nur `/sw.js` registriert, es gibt nur Caches `tv2-*` (Abschnitt 3). Jeder Pfad aus `TV_LEGACY_SW_PATHS` liefert den Kill-Switch (erwartet: `200`, `application/javascript`, `Service-Worker-Allowed: /`), z. B.:
 
-**g) Alte URLs:** Für jede Zeile aus Anhang A:
+```bash
+curl -s -o /dev/null -D - "$D/service-worker.js" | grep -i -E '^HTTP|content-type|service-worker-allowed'
+```
+
+**g) Alte URLs:** Die Tabelle aus Anhang A steht in `tatilvakti/data/redirects.json` und ist mit Tests und `deploy.sh` ausgeliefert. Für jede Zeile:
 
 ```bash
 curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' "$D/alter/pfad"
@@ -272,12 +291,14 @@ curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' "$D/alter/pfad"
 ```bash
 systemctl list-timers 'tatilvakti-v2*'
 sudo /opt/tatilvakti-v2/current/scripts/tv-flask.sh maintenance
-sudo systemctl start tatilvakti-v2-backup.service && journalctl -u tatilvakti-v2-backup -n 3 -o cat
+sudo systemctl start tatilvakti-v2-backup.service && sudo journalctl -t tatilvakti-v2-backup -n 1 -o cat   # ok … reports=…
 ```
 
 **i) Logs ohne IP:** `journalctl -u tatilvakti-v2 -n 100 -o cat` enthält App- und gunicorn-Meldungen, aber keine Client-IPs.
 
 **j) Pangolin:** Request-Log und Aufbewahrung wie in 2.6 entschieden.
+
+**k) Link-Vorschau:** Eine Seite (z. B. `$D/de/ferien`) per WhatsApp an sich selbst schicken und im Facebook Sharing Debugger prüfen: Bild, Titel und URL zeigen auf `https://tatilvakti.guenlab.de`, nicht auf einen internen Host (sonst `TV_BASE_URL` prüfen).
 
 ## 7. Rollback
 
@@ -308,7 +329,7 @@ sudo /opt/tatilvakti-v2/current/scripts/rollback.sh --list     # verfügbare Rel
 
 ## 8. Nach dem Umschalten
 
-- **4 Wochen beobachten:** Search Console → *Seiten* (404). Optional das Access-Log ohne IP einschalten (`GUNICORN_CMD_ARGS` in `/etc/tatilvakti-v2.env`, siehe Kommentar dort), danach die häufigsten 404-Pfade auswerten und Anhang A ergänzen:
+- **4 Wochen beobachten:** Search Console → *Seiten* (404). Optional das Access-Log ohne IP einschalten (`GUNICORN_CMD_ARGS` in `/etc/tatilvakti-v2.env`, siehe Kommentar dort), danach die häufigsten 404-Pfade auswerten und Anhang A bzw. `tatilvakti/data/redirects.json` ergänzen:
 
   ```bash
   journalctl -u tatilvakti-v2 -o cat --since -7d | awk '$3 == 404 {print $2}' | sort | uniq -c | sort -rn | head -30
@@ -326,11 +347,28 @@ sudo /opt/tatilvakti-v2/current/scripts/rollback.sh --list     # verfügbare Rel
 
 ## Anhang A: Weiterleitungstabelle (Vorlage)
 
-Neue Ziele in v2: `/de/` · `/de/ferien` · `/de/route` · `/de/grenze` · `/de/grenze/<übergang>` · `/de/zoll` · `/de/info` (`#datenschutz`, `#impressum`). Türkisch: `/tr/` · `/tr/tatil` · `/tr/guzergah` · `/tr/sinir` · `/tr/sinir/<übergang>` · `/tr/gumruk` · `/tr/bilgi`. Die IDs der Übergänge stehen in `tatilvakti/data/crossings.json`.
+Neue Ziele in v2: `/de/` · `/de/ferien` · `/de/ferien/<zeitraum>` · `/de/route` · `/de/grenze` · `/de/grenze/<übergang>` · `/de/zoll` · `/de/info` (`#datenschutz`, `#impressum`). Türkisch: `/tr/` · `/tr/tatil` · `/tr/tatil/<dönem>` · `/tr/guzergah` · `/tr/sinir` · `/tr/sinir/<übergang>` · `/tr/gumruk` · `/tr/bilgi`. Die Slugs der Zeiträume stehen in `tatilvakti/data/holidays.json` (`slug`), die IDs der Übergänge in `tatilvakti/data/crossings.json`.
 
 | Alte URL | Neues Ziel | Code (301 / 410) | Quelle (Code, Search Console, Log, geteilt) |
 |---|---|---|---|
 | `/…` | `/de/…` | 301 | |
+
+**In die App übernehmen:** Die fertige Tabelle gehört nach `tatilvakti/data/redirects.json`, danach Tests und Deploy ausführen (README → Update und Rollback) und mit Prüfliste g) kontrollieren.
+
+```json
+{"meta": {"as_of": "2026-10-07"},
+ "redirects": [
+   {"from": "/grenzen", "to": "/de/grenze", "code": 301, "note": "Search Console"},
+   {"from": "/go/vignette-at", "to": null, "code": 410, "note": "Affiliate, eingestellt"}
+ ]}
+```
+
+- Eine Zeile greift nur, wo v2 sonst 404 antwortet. Ein abschließender Slash spielt keine Rolle, die Query der Anfrage wird ignoriert. Das Ziel darf Query und Anker haben (`/de/info#impressum`).
+- Pfade aus Search Console und Proxy-Logs dürfen prozentkodiert eingetragen werden (`/%C3%BCber-uns`). Kodierte und unkodierte Form gelten als dieselbe URL, beide zusammen wären ein Duplikat.
+- 410 zeigt die normale Fehlerseite in der Sprache des Pfads, sonst aus `Accept-Language`. Unter `/api/` kommt JSON `{"error": "gone"}`.
+- **Beim Start prüft v2 jeden Eintrag gegen die echte Antwort:** Die Quelle muss ohne Tabelle 404 liefern, auch unter `/de/grenze/<alter-übergang>`. Das Ziel muss direkt 200 liefern. Die App startet deshalb nicht bei Tippfehler-Zielen, POST-Routen, `/de` (308 auf `/de/`) oder Zielen, die selbst weiterleiten. Ebenso abgelehnt: Pfade unter `/api/v1/` und `/static/`, `/`, Duplikate, Ketten (Ziel ist selbst eine alte URL) und Pfade aus `TV_LEGACY_SW_PATHS`.
+- Pfade unter `/de/ferien/…` und `/tr/tatil/…` sind eigene Routen von v2. Ein unbekannter oder abgelaufener Zeitraum leitet dort schon selbst per 302 auf `/de/ferien` bzw. `/tr/tatil` weiter. Ein Eintrag dafür ist weder nötig noch erlaubt.
+- Die Datei ändert die Build-ID nicht. Geräte laden nach so einem Deploy nicht alle Offline-Seiten neu, `/healthz` zeigt aber auch dieselbe Build-ID wie vorher.
 
 ## Anhang B: Übergabe an die Entwicklung
 
@@ -338,10 +376,11 @@ Neue Ziele in v2: `/de/` · `/de/ferien` · `/de/route` · `/de/grenze` · `/de/
 |---|---|
 | SW-Skript-URL(s) und Scope | |
 | SW-Strategie für Seiten (cache-first / network-first) | |
-| Cache-Namen der Alt-App | |
+| Cache-Namen der Alt-App (zur Kontrolle) | |
 | Manifest-URL, `id`, `start_url`, `scope` | |
 | Entscheidung Manifest-id (2.7) | |
 | Weiterleitungstabelle (Anhang A) | |
 | Ergebnis der Generalprobe (4.4) | |
+| Restore-Drill (4.5): Datum, Sicherung, Meldungen laut Sicherung / danach, `/healthz` (`status`, `db`, `salt_db`) | |
 | Weiterlaufende Dienste für die Datenschutzhinweise (2.1–2.6) | |
 | Pangolin: Version, Aufbewahrung der Request-Logs (Organisation), Hoster, AVV | |

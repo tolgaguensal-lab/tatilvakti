@@ -25,13 +25,15 @@ CREATE TABLE IF NOT EXISTS reports (
     observed_at INTEGER NOT NULL,   -- Unix-Sekunden (UTC): wann die Wartezeit erlebt wurde
     created_at  INTEGER NOT NULL,   -- Unix-Sekunden (UTC): wann die Meldung ankam
     client      TEXT,               -- Tages-Prüfwert gegen Spam (IPv4 bzw. IPv6-/64), nach 48 h gelöscht
-    net         TEXT                -- dasselbe für den Anschluss (IPv4 bzw. IPv6-/56), nur zusammen mit client
+    net         TEXT,               -- dasselbe für den Anschluss (IPv4 bzw. IPv6-/56), nur zusammen mit client
+    block       TEXT                -- dasselbe für das Netz (IPv4 bzw. IPv6-/48), nur zusammen mit client
 );
 CREATE INDEX IF NOT EXISTS idx_reports_lookup ON reports (crossing, direction, observed_at);
 -- Nur Meldungen mit Prüfwert (letzte 48 h): Spam-Limits und Wartung lesen nie den Altbestand
 DROP INDEX IF EXISTS idx_reports_client;
 CREATE INDEX IF NOT EXISTS idx_reports_client_hash ON reports (client, created_at) WHERE client IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_reports_net ON reports (net, crossing, direction, created_at) WHERE net IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_reports_block ON reports (block, crossing, direction, created_at) WHERE block IS NOT NULL;
 -- Aufbewahrungsfrist (observed_at) bzw. Obergrenze und Zähler nach Eingang (created_at)
 CREATE INDEX IF NOT EXISTS idx_reports_observed ON reports (observed_at);
 CREATE INDEX IF NOT EXISTS idx_reports_created ON reports (created_at);
@@ -50,11 +52,21 @@ CREATE TABLE IF NOT EXISTS salts (
 """
 
 
+# So lange wartet eine Verbindung auf die Schreibsperre, bevor sie mit „database is locked“
+# aufgibt – eine Meldung ebenso wie die Prüfung in /healthz
+BUSY_TIMEOUT_MS = 5000
+
+
 class Connection(sqlite3.Connection):
     """sqlite3-Verbindung, die ihre Datei und die zugehörige Schlüssel-DB kennt."""
 
     path: str = ""
     salt_path: str = ""
+
+
+class SaltDbError(sqlite3.OperationalError):
+    """Fehler in der Schlüssel-DB, nicht in der Haupt-DB (siehe salt_db). /healthz meldet ihn
+    als 'salt_db' und nicht als Ausfall der Haupt-DB."""
 
 
 def default_salt_path(db_path: str) -> str:
@@ -64,14 +76,14 @@ def default_salt_path(db_path: str) -> str:
 
 
 def connect(path: str, salt_path: str | None = None) -> Connection:
-    conn = sqlite3.connect(path, timeout=5, isolation_level=None, factory=Connection)
+    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1000, isolation_level=None, factory=Connection)
     try:
         conn.path = path
         conn.salt_path = salt_path or default_salt_path(path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute(f"PRAGMA busy_timeout={int(BUSY_TIMEOUT_MS)}")
         # Gelöschte Prüfwerte und Schlüssel mit Nullen überschreiben, statt sie als freien
         # Speicher in der Datei liegen zu lassen
         conn.execute("PRAGMA secure_delete=ON")
@@ -106,10 +118,23 @@ def _open_salt_db(path: str) -> Connection:
 
 @contextmanager
 def salt_db(conn: Connection):
-    """Eigene, kurze Verbindung zur Schlüssel-DB der übergebenen Haupt-DB-Verbindung."""
-    sconn = _open_salt_db(conn.salt_path)
+    """Eigene, kurze Verbindung zur Schlüssel-DB der übergebenen Haupt-DB-Verbindung.
+
+    Datenbankfehler beim Öffnen und im with-Block kommen als SaltDbError heraus: So sieht der
+    Aufrufer, dass die Schlüssel-DB scheiterte und nicht die Haupt-DB.
+    """
+    try:
+        sconn = _open_salt_db(conn.salt_path)
+    except SaltDbError:
+        raise
+    except sqlite3.Error as exc:
+        raise SaltDbError(str(exc)) from exc
     try:
         yield sconn
+    except SaltDbError:
+        raise
+    except sqlite3.Error as exc:
+        raise SaltDbError(str(exc)) from exc
     finally:
         sconn.close()
 
@@ -128,7 +153,8 @@ def check_salt_db(path: str) -> str | None:
             try:
                 sconn.execute("DELETE FROM salts WHERE day = ''")
             finally:
-                sconn.execute("ROLLBACK")
+                if sconn.in_transaction:  # manche Fehler rollen selbst zurück
+                    sconn.execute("ROLLBACK")
         finally:
             sconn.close()
     except sqlite3.Error as exc:
@@ -144,6 +170,7 @@ def init_db(path: str, salt_path: str | None = None) -> None:
     try:
         _add_missing_columns(conn)
         conn.executescript(SCHEMA)
+        _clear_orphaned_hashes(conn)
         _drop_legacy_salts(conn)
     finally:
         conn.close()
@@ -154,17 +181,40 @@ def init_db(path: str, salt_path: str | None = None) -> None:
         sconn.close()
 
 
+# Später dazugekommene Prüfwert-Spalten von reports, in dieser Reihenfolge
+LATER_COLUMNS = ("net", "block")
+
+
 def _add_missing_columns(conn: Connection) -> None:
-    """Bestehende Haupt-DB um später dazugekommene Spalten ergänzen (reports.net).
+    """Bestehende Haupt-DB um später dazugekommene Spalten ergänzen (reports.net, reports.block).
 
     In einer Schreibtransaktion: Parallel startende gunicorn-Worker ergänzen nur einmal.
-    Muss vor SCHEMA laufen, denn dessen Index auf net braucht die Spalte.
+    Muss vor SCHEMA laufen, denn dessen Indizes auf net und block brauchen die Spalten.
     """
     conn.execute("BEGIN IMMEDIATE")
     try:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(reports)")}
-        if columns and "net" not in columns:
-            conn.execute("ALTER TABLE reports ADD COLUMN net TEXT")
+        for column in LATER_COLUMNS:
+            if columns and column not in columns:
+                conn.execute(f"ALTER TABLE reports ADD COLUMN {column} TEXT")
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def _clear_orphaned_hashes(conn: Connection) -> None:
+    """Prüfwerte ohne client leeren: Die gibt es nur nach einem Rollback auf ein Release, dessen
+    Wartung eine neuere Spalte nicht kennt (es leert client, aber nicht net bzw. block).
+
+    Die Wartung löscht net und block zusammen mit client (WHERE client IS NOT NULL), solche Reste
+    sähe sie nie. Beim Start genügt: Ein Rollback und der Weg zurück starten die App jeweils neu.
+    Jede Abfrage liest nur ihren Teilindex, also die Meldungen der letzten 48 h.
+    """
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for column in LATER_COLUMNS:
+            conn.execute(f"UPDATE reports SET {column} = NULL WHERE {column} IS NOT NULL AND client IS NULL")
         conn.execute("COMMIT")
     except BaseException:
         conn.execute("ROLLBACK")

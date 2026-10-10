@@ -51,6 +51,8 @@ def test_validation_rejects_period_without_any_holidays():
     ([["2027-05-18", "2027-05-10"]], "unplausibler Zeitraum"),
     ([["2027-05-18", "2027-05-29"], ["2027-05-25", "2027-05-26"]], "überschneidet sich mit pfingsten-2027"),
     ([["2027-03-31", "2027-04-01"]], "überschneidet sich mit ostern-2027"),  # BW-Osterferien
+    # Zwei Blöcke mit Schultagen dazwischen: Die Reisetage überspannten sonst Schulwochen
+    ([["2027-05-18", "2027-05-26"], ["2027-06-08", "2027-06-16"]], "2 getrennte freie Blöcke"),
 ])
 def test_validation_catches_broken_holiday_ranges(ranges, message):
     content = load_content()
@@ -60,13 +62,61 @@ def test_validation_catches_broken_holiday_ranges(ranges, message):
 
 def test_validation_catches_unused_source_and_dead_checklist_link():
     content = load_content()
-    content.customs["sources"]["alt"] = {"name": "Alt", "url": "https://example.org"}
+    content.customs["sources"]["alt"] = {"name": {"de": "Alt", "tr": "Eski"}, "url": "https://example.org"}
     content.transit["documents"][0]["link"] = "customs#gibt-es-nicht"
-    content.transit["countries"]["RS"]["notes"][0]["source"] = {"name": "", "url": "https://example.org"}
+    content.transit["countries"]["RS"]["notes"][0]["source"] = {"name": {"de": "", "tr": ""}, "url": "https://example.org"}
+    content.transit["countries"]["HU"]["notes"][0]["source"] = "https://example.org"
     problems = validate(content)
     assert any("customs.sources.alt: wird von keiner Regel verwendet" in p for p in problems)
     assert any("zeigt auf keine Zoll-Regel" in p for p in problems)
-    assert any("transit.RS.notes.source: Quelle braucht Name und URL" in p for p in problems)
+    assert any("transit.RS.notes.source: Name der Quelle nicht zweisprachig" in p for p in problems)
+    assert any("transit.HU.notes.source: Quelle braucht Name und URL" in p for p in problems)
+
+
+def _sources(content):
+    """Alle Quellen und Shops mit Fundstelle: (Ort, Objekt mit name und url)."""
+    found = [(f"holidays.meta.sources[{i}]", s) for i, s in enumerate(content.holidays["meta"]["sources"])]
+    found += [("holidays.meta.population_source", content.holidays["meta"]["population_source"]),
+              ("holidays.bayrams.source", content.holidays["bayrams"]["source"])]
+    found += [(f"customs.sources.{k}", s) for k, s in content.customs["sources"].items()]
+    found += [(f"crossings.sources.{k}", s) for k, s in content.crossings["sources"].items()]
+    for code, country in content.transit["countries"].items():
+        found += [(f"transit.{code}.shop", country["shop"]), (f"transit.{code}.source", country["source"])]
+        found += [(f"transit.{code}.notes.source", n["source"]) for n in country["notes"] if "source" in n]
+    found += [(f"transit.documents.{d['id']}.source", d["source"]) for d in content.transit["documents"] if "source" in d]
+    return found
+
+
+def test_every_source_name_is_bilingual():
+    """Quellennamen sind Linktexte: in der TR-Ansicht kein „Zoll – Reisefreimengen“ (prod-6)."""
+    sources = _sources(load_content())
+    assert len(sources) > 50
+    for where, src in sources:
+        assert set(src["name"]) == set(LANGS) and all(src["name"][l].strip() for l in LANGS), where
+
+
+@pytest.mark.parametrize("where", ["holidays.meta.sources[0]", "holidays.meta.population_source",
+                                   "holidays.bayrams.source", "customs.sources.zoll_freimengen",
+                                   "crossings.sources.bg_police", "transit.HU.shop", "transit.RO.source",
+                                   "transit.RS.notes.source", "transit.documents.einverstaendnis.source"])
+def test_validation_rejects_a_german_only_source_name(where):
+    content = load_content()
+    src = dict(_sources(content))[where]
+    src["name"] = src["name"]["de"]  # Altformat: nur ein (deutscher) Text
+    assert any(p.startswith(where) and "nicht zweisprachig" in p for p in validate(content)), where
+
+
+@pytest.mark.parametrize("value, ok", [
+    ("9,60 €", True), ("6.900 Ft", True), ("30 Lei", True), ("54.258 TL", True),
+    ("ca. 6.900 Ft", False), ("6900 Ft", False), ("9.60 €", False), ("", False), (None, False),
+    ({"de": "ca. 6.900 Ft", "tr": "yaklaşık 6.900 Ft"}, True), ({"de": "ca. 6.900 Ft"}, False),
+])
+def test_price_with_words_needs_both_languages(value, ok):
+    """„ca.“ gehört nicht in die TR-Ansicht: Preise mit Worten nur als {de, tr} (prod-6)."""
+    content = load_content()
+    content.transit["countries"]["HU"]["prices"][0]["value"] = value
+    problems = [p for p in validate(content) if p.startswith("transit.HU.prices")]
+    assert (problems == []) == ok, problems
 
 
 @pytest.mark.parametrize("link, message", [
@@ -213,3 +263,73 @@ def test_language_negotiation():
     assert negotiate("en-US,en;q=0.9") == "de"
     assert negotiate(None) == "de"
     assert set(LANGS) == {"de", "tr"}
+
+
+# ------------------------------------------------ Bayram-Termine und Blockgrenzen
+
+def _bayram(content, bid):
+    return next(b for b in content.holidays["bayrams"]["items"] if b["id"] == bid)
+
+
+@pytest.mark.parametrize("field, value, message", [
+    ("arife", "2027-05-14", "Arife muss der Tag vor dem ersten Festtag sein"),
+    ("end", "2027-05-18", "kurban dauert 4 Tage, nicht 3"),
+    ("kind", "sheker", "unbekannte Art 'sheker'"),
+    ("start", "2027-02-30", "brauchen ein gültiges Datum"),
+    ("label", {"de": "Opferfest", "tr": ""}, "label: nicht zweisprachig"),
+])
+def test_validation_checks_bayram_dates(field, value, message):
+    content = load_content()
+    _bayram(content, "kurban-2027")[field] = value
+    assert any(message in p for p in validate(content)), validate(content)
+
+
+def test_validation_requires_bayram_source_and_check_date():
+    content = load_content()
+    content.holidays["bayrams"]["source"] = {"name": "Diyanet", "url": "http://diyanet.gov.tr"}
+    content.holidays["bayrams"]["as_of"] = "bald"
+    problems = validate(content)
+    assert any("holidays.bayrams.source: Quelle braucht https-URL" in p for p in problems)
+    assert any("holidays.bayrams.as_of: ungültiges Datum" in p for p in problems)
+    del content.holidays["bayrams"]
+    assert validate(content) == []  # Bayram-Marker sind optional
+
+
+def test_ramazan_bayrami_lasts_three_days_kurban_four():
+    content = load_content()
+    ramazan, kurban = _bayram(content, "ramazan-2027"), _bayram(content, "kurban-2027")
+    assert (ramazan["arife"], ramazan["start"], ramazan["end"]) == ("2027-03-08", "2027-03-09", "2027-03-11")
+    assert (kurban["arife"], kurban["start"], kurban["end"]) == ("2027-05-15", "2027-05-16", "2027-05-19")
+
+
+def test_validation_rejects_blocks_that_touch_across_periods():
+    """Zwei Zeiträume, ein Urlaub: Die Reisewelle zählte sonst einen zweiten Ferienstart."""
+    content = load_content()
+    # Hamburg: Pfingsten frei bis Mo 17.05.; ein angeblicher Block ab Di 18.05. schlösse direkt an
+    _period(content, "sommer-2027")["ranges"]["HH"] = [["2027-05-18", "2027-05-28"]]
+    problems = validate(content)
+    assert any("sommer-2027.HH: freier Block 2027-05-15–2027-05-30 schließt an pfingsten-2027 an" in p
+               for p in problems), problems
+
+
+def test_every_period_has_a_path_per_language():
+    content = load_content()
+    for period in content.holidays["periods"]:
+        assert set(period["slug"]) == set(LANGS), period["id"]
+        assert period["slug"]["de"] == period["id"]  # alte Links ?zeitraum=<id> passen 1:1 zum Pfad
+    assert _period(content, "sommer-2027")["slug"]["tr"] == "yaz-2027"
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda c: _period(c, "sommer-2027").pop("slug"), "sommer-2027.slug: nicht zweisprachig"),
+    (lambda c: _period(c, "sommer-2027")["slug"].update(tr=""), "sommer-2027.slug: nicht zweisprachig"),
+    (lambda c: _period(c, "sommer-2027")["slug"].update(tr="Yaz 2027"), "sommer-2027.slug.tr: 'Yaz 2027'"),
+    (lambda c: _period(c, "sommer-2027")["slug"].update(tr="yaz--2027"), "sommer-2027.slug.tr: 'yaz--2027'"),
+    (lambda c: _period(c, "sommer-2027")["slug"].update(tr="yaz-2028"), "Slug 'yaz-2028' gehört zu mehreren Zeiträumen"),
+    # Slug gleich der id eines anderen Zeitraums: alte Links ?zeitraum=<id> gingen sonst ins Leere
+    (lambda c: _period(c, "sommer-2027")["slug"].update(tr="sommer-2028"), "Slug 'sommer-2028' gehört zu mehreren"),
+])
+def test_validation_rejects_broken_period_slugs(change, message):
+    content = load_content()
+    change(content)
+    assert any(message in p for p in validate(content)), validate(content)

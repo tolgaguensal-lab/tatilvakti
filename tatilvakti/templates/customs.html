@@ -1,6 +1,7 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, ext, cstatus, asof with context %}
-{% block title %}{{ t("c_title") }}: Sucuk, Gold, Handy, Rakı – {{ t("app_name") }}{% endblock %}
+{% from "_macros.html" import icon, ext, cstatus, asof, share with context %}
+{% block title %}{{ t("c_title_seo") }} – {{ t("app_name") }}{% endblock %}
+{% block description %}{{ t("c_lead") }}{% endblock %}
 {% block main %}
 <header class="pagehead">
   <h1>{{ icon("bag") }}{{ t("c_title") }}</h1>
@@ -28,6 +29,8 @@
     {{ icon("search", "icon--s") }}
     <input type="search" placeholder="{{ t('c_search_ph') }}" autocomplete="off" data-customs-search>
   </label>
+  {#- Trefferzahl bzw. „Nichts gefunden“ für Screenreader (WCAG 4.1.3); app.js füllt sie nach einer Tipppause #}
+  <p class="sr-only" role="status" aria-live="polite" data-customs-live></p>
   <div class="seg" role="group" aria-label="{{ t('b_direction') }}">
     <button type="button" class="seg__btn is-active" data-customs-dir="all" aria-pressed="true">{{ t("c_all_dirs") }}</button>
     <button type="button" class="seg__btn" data-customs-dir="to_tr" aria-pressed="false">{{ cname("TR") }}</button>
@@ -53,8 +56,10 @@
     </details>
     {%- endif %}
     <p class="rule__src">{{ t("sources") if item.sources|length > 1 else t("source") }}:
-      {% for ref in item.sources %}{{ ext(data.sources[ref].url, data.sources[ref].name) }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+      {% for ref in item.sources %}{{ ext(data.sources[ref].url, data.sources[ref].name[lang]) }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
     {%- if due %}<p class="due">{{ icon("alert", "icon--xs") }} {{ t("review_due") }}</p>{% endif %}
+    {#- Teilen mit Regeltext und Sprungmarke, z. B. für die Familiengruppe #}
+    {{ share(item.title[lang] ~ " – " ~ t("c_status_" ~ item.status) ~ ": " ~ item.rule[lang], abs_url(href("customs")) ~ "#" ~ item.id, inline=True) }}
   </article>
   {%- endfor %}
 </section>

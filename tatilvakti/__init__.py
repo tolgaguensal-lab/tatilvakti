@@ -10,7 +10,7 @@ from pathlib import Path
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from .content import Content, load_content, validate
+from .content import Content, load_content, redirect_route_problems, validate
 from .db import close_db, default_salt_path, init_db
 from .holidays import HolidayRadar
 from .i18n import Translator
@@ -37,6 +37,9 @@ class State:
 
 
 PACKAGE_DIR = Path(__file__).parent
+# Ändern kein gerendertes HTML: Eine neue Weiterleitung soll nicht jedes Gerät alle
+# Offline-Seiten neu laden lassen.
+FINGERPRINT_SKIP = {"data/redirects.json"}
 
 
 def _content_fingerprint() -> str:
@@ -48,7 +51,7 @@ def _content_fingerprint() -> str:
     digest = hashlib.sha256()
     for pattern in ("templates/*", "i18n/*.json", "data/*.json", "*.py"):
         for path in sorted(PACKAGE_DIR.glob(pattern)):
-            if path.is_file():
+            if path.is_file() and path.relative_to(PACKAGE_DIR).as_posix() not in FINGERPRINT_SKIP:
                 digest.update(path.relative_to(PACKAGE_DIR).as_posix().encode())
                 digest.update(path.read_bytes())
     return digest.hexdigest()
@@ -74,6 +77,8 @@ def create_app(test_config: dict | None = None) -> Flask:
         TV_OPERATOR_NAME=os.environ.get("TV_OPERATOR_NAME", ""),
         TV_OPERATOR_ADDRESS=os.environ.get("TV_OPERATOR_ADDRESS", ""),
         TV_OPERATOR_EMAIL=os.environ.get("TV_OPERATOR_EMAIL", ""),
+        # Pfade alter Service Worker, unter denen ein Kill-Switch ausgeliefert wird (kommagetrennt)
+        TV_LEGACY_SW_PATHS=os.environ.get("TV_LEGACY_SW_PATHS", ""),
         TV_CLOCK=None,  # Tests: Callable, das ein UTC-datetime liefert
         SEND_FILE_MAX_AGE_DEFAULT=31536000,  # Assets tragen ?v=<hash>
         MAX_CONTENT_LENGTH=16 * 1024,
@@ -101,12 +106,39 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     init_db(app.config["TV_DB_PATH"], app.config["TV_SALT_DB_PATH"])
     app.teardown_appcontext(close_db)
+    if app.config["TV_BASE_URL"] and operator_imprint(app.config) is None:
+        # TV_BASE_URL gesetzt heißt Produktion: Ohne vollständiges Impressum nicht unbemerkt live gehen
+        app.logger.warning("Impressum unvollständig: TV_OPERATOR_NAME, TV_OPERATOR_ADDRESS und TV_OPERATOR_EMAIL "
+                           "setzen (/etc/tatilvakti-v2.env). Bis dahin zeigt /info nur „noch nicht eingerichtet“.")
 
     from . import api, cli, views
     views.register(app)
     api.register(app)
     cli.register(app)
+    # Erst nach allen eigenen Routen: Kill-Switch-Pfade und alte URLs dürfen keine treffen
+    views.register_legacy_sw(app, views.parse_legacy_sw_paths(app.config["TV_LEGACY_SW_PATHS"]))
+    problems = redirect_route_problems(content.redirects, lambda path: views.own_status(app, path))
+    if problems:
+        raise RuntimeError("Weiterleitungen (data/redirects.json) fehlerhaft:\n" + "\n".join(problems))
     return app
+
+
+OPERATOR_FIELDS = ("name", "address", "email")
+
+
+def operator_imprint(config) -> dict | None:
+    """Impressumsangaben aus TV_OPERATOR_*; None, solange eine davon fehlt.
+
+    Nie ein halbes Impressum: Name, ladungsfähige Anschrift und E-Mail (§ 18 MStV, § 5 DDG)
+    gibt es nur zusammen. Dieselbe Prüfung nutzen die Info-Seite, /healthz (imprint_ok) und
+    die Warnung beim Start.
+    """
+    values = {k: str(config.get(f"TV_OPERATOR_{k.upper()}") or "").strip() for k in OPERATOR_FIELDS}
+    # Adresszeilen sind mit ; getrennt; nur Trennzeichen zählt nicht als Anschrift
+    values["address_lines"] = [line.strip() for line in values["address"].split(";") if line.strip()]
+    if not (values["name"] and values["address_lines"] and values["email"]):
+        return None
+    return values
 
 
 def utcnow(app: Flask) -> datetime:

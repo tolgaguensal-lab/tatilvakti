@@ -7,9 +7,12 @@ aktuell auszugeben.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
+from typing import Callable
+from urllib.parse import unquote, urlsplit
 
 from .holidays import Range, free_stretches
 from .i18n import LANGS, fold
@@ -19,11 +22,25 @@ DATASETS = ("holidays", "customs", "transit", "crossings")
 CUSTOMS_STATUSES = ("ok", "limit", "declare", "no")
 TOLL_SYSTEMS = ("vignette", "evignette", "toll", "hgs")
 # Kürzeste freie Zeit am Stück (Ferien plus angrenzende Wochenenden und bundesweite Feiertage),
-# die das Ferien-Radar führt. quiet_days() wählt Abreise- und Rückreisetage aus je 7 Tagen am
-# Anfang und am Ende; bei kürzeren Blöcken wären beide Listen gleich, und waves() meldete
-# Ferienbeginn und -ende am selben Tag. Kurze Ferien (Brückentage, zwei Tage Winterferien)
-# bleiben deshalb draußen, bis die Ferienlogik sie eigens behandelt.
+# die das Ferien-Radar führt. Kurze Ferien (Brückentage, zwei Tage Winterferien) bleiben draußen:
+# Für eine Reise in die Türkei reichen sie selten, und als eigene Blöcke erzeugten sie
+# Reisewellen, die es Richtung Türkei so nicht gibt (z. B. Freitag nach Himmelfahrt in 8 Ländern).
+# Der Hinweis in holidays.json (meta.note) sagt das den Nutzern.
 MIN_FREE_DAYS = 8
+# Bayram-Termine (Diyanet): Festtage je Art, der Arife-Tag liegt direkt davor
+BAYRAM_DAYS = {"ramazan": 3, "kurban": 4}
+# Alte URLs der Alt-App (data/redirects.json): dauerhaft weiterleiten oder „gibt es nicht mehr“
+REDIRECT_CODES = (301, 410)
+REDIRECT_FIELDS = {"from", "to", "code", "note"}
+# Namensräume von v2: Ein 404 dort ist eine echte Antwort, keine alte URL
+REDIRECT_RESERVED = ("/api/v1/", "/static/")
+# Türkische Lokativ-Endungen (in Kapıkule = Kapıkule'de)
+TR_LOCATIVE = ("da", "de", "ta", "te")
+# Preis ohne Text (gilt so in beiden Sprachen): Zahl und Währung, z. B. „9,60 €“ oder „6.900 Ft“.
+# Alles mit Worten („ca. 6.900 Ft“) braucht {de, tr}, sonst stünde „ca.“ auch in der TR-Ansicht.
+PRICE_RE = re.compile(r"^\d{1,3}(?:\.\d{3})*(?:,\d{2})? (?:€|Ft|Lei|TL)$")
+# Slug eines Ferienzeitraums in der URL (/de/ferien/sommer-2027, /tr/tatil/yaz-2027)
+SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 @dataclass
@@ -33,12 +50,23 @@ class Content:
     transit: dict
     crossings: dict
     crossing_by_id: dict = field(default_factory=dict)
+    redirects: dict = field(default_factory=lambda: {"meta": {}, "redirects": []})
+    redirect_by_path: dict = field(default_factory=dict)  # entry_key(from) → Eintrag
 
     def meta(self, name: str) -> dict:
         return getattr(self, name)["meta"]
 
     def review_due(self, name: str, today: date) -> bool:
         return is_due(self.meta(name).get("review_after"), today)
+
+    def set_redirects(self, data) -> None:
+        """Weiterleitungen übernehmen und nach Pfad indizieren (geprüft wird in validate)."""
+        self.redirects = data
+        entries = data.get("redirects") if isinstance(data, dict) else None
+        self.redirect_by_path = {}
+        for entry in entries if isinstance(entries, list) else []:
+            if isinstance(entry, dict) and isinstance(entry.get("from"), str):
+                self.redirect_by_path.setdefault(entry_key(entry["from"]), entry)
 
 
 def is_due(review_after: str | None, today: date) -> bool:
@@ -52,6 +80,8 @@ def load_content(data_dir: Path = DATA_DIR) -> Content:
             raw[name] = json.load(fh)
     content = Content(**raw)
     content.crossing_by_id = {c["id"]: c for c in content.crossings["crossings"]}
+    with open(data_dir / "redirects.json", encoding="utf-8") as fh:
+        content.set_redirects(json.load(fh))
     # Suchindex für den Zoll-Check (diakritik-unabhängig, beide Sprachen)
     for item in content.customs["items"]:
         parts = [item["title"][l] for l in LANGS] + [item["rule"][l] for l in LANGS] + item.get("keywords", [])
@@ -60,6 +90,97 @@ def load_content(data_dir: Path = DATA_DIR) -> Content:
 
 
 # ---------------------------------------------------------------- Validierung
+
+def redirect_key(path: str) -> str:
+    """Vergleichsform eines Pfads für die Weiterleitungen: '/alt/' und '/alt' sind dieselbe URL."""
+    return path.rstrip("/") or "/"
+
+
+def entry_key(path: str) -> str:
+    """Vergleichsform eines Pfads aus der Tabelle. Search Console und Proxy-Logs zeigen Pfade
+    prozentkodiert ('/%C3%BCber-uns'), request.path ist schon dekodiert ('/über-uns') – deshalb
+    nur hier dekodieren, nie den Request (sonst würde '%25' doppelt dekodiert)."""
+    return redirect_key(unquote(path))
+
+
+def _is_local_path(value, allow_query: bool) -> bool:
+    """Interner, relativer Pfad: beginnt mit genau einem /, keine Leer- oder Steuerzeichen.
+
+    '//host' wäre protokollrelativ (fremde Seite), '\\' werten manche Browser wie '/'.
+    """
+    if not isinstance(value, str) or not value.startswith("/") or value.startswith("//"):
+        return False
+    if "\\" in value or not value.isprintable() or any(ch.isspace() for ch in value):
+        return False
+    return allow_query or ("?" not in value and "#" not in value)
+
+
+def validate_redirects(data) -> list[str]:
+    """Aufbau von data/redirects.json. Die Prüfung gegen die Routen folgt nach deren Anlage
+    (redirect_route_problems), weil erst dann feststeht, welche Pfade v2 selbst beantwortet."""
+    if not isinstance(data, dict) or not isinstance(data.get("redirects"), list):
+        return ["redirects: Objekt mit meta und Liste redirects erwartet"]
+    problems: list[str] = []
+    _check_date((data.get("meta") or {}).get("as_of"), "redirects.meta.as_of", problems)
+    sources: dict[str, str] = {}
+    for idx, entry in enumerate(data["redirects"]):
+        if not isinstance(entry, dict):
+            problems.append(f"redirects[{idx}]: Objekt mit from, to und code erwartet")
+            continue
+        src, dst, code = entry.get("from"), entry.get("to"), entry.get("code")
+        where = f"redirects {src!r}" if isinstance(src, str) else f"redirects[{idx}]"
+        unknown = sorted(set(entry) - REDIRECT_FIELDS)
+        if unknown:
+            problems.append(f"{where}: unbekannte Felder {unknown} (erlaubt: from, to, code, note)")
+        if not _is_local_path(src, allow_query=False):
+            problems.append(f"{where}: from muss ein Pfad sein, der mit / beginnt (ohne Query, Fragment, Leerzeichen)")
+        elif entry_key(src) == "/":
+            problems.append(f"{where}: / ist die Startseite von v2")
+        elif (src + "/").startswith(REDIRECT_RESERVED):
+            problems.append(f"{where}: {', '.join(REDIRECT_RESERVED)} gehören v2")
+        elif entry_key(src) in sources:
+            problems.append(f"{where}: doppelt (auch {sources[entry_key(src)]!r})")
+        else:
+            sources[entry_key(src)] = src
+        if type(code) is not int or code not in REDIRECT_CODES:  # type(): True wäre sonst 1
+            problems.append(f"{where}: code muss 301 oder 410 sein, ist {code!r}")
+        elif code == 410 and dst is not None:
+            problems.append(f"{where}: 410 hat kein Ziel, to muss null sein")
+        elif code == 301 and not _is_local_path(dst, allow_query=True):
+            problems.append(f"{where}: to muss ein interner Pfad sein, z. B. /de/ferien (keine fremde Seite)")
+        if "note" in entry and not isinstance(entry["note"], str):
+            problems.append(f"{where}: note muss Text sein")
+    for entry in data["redirects"]:  # keine Ketten: ein Ziel ist nie selbst eine alte URL
+        if isinstance(entry, dict) and entry.get("code") == 301 and _is_local_path(entry.get("to"), True):
+            if entry_key(urlsplit(entry["to"]).path) in sources:
+                problems.append(f"redirects {entry.get('from')!r}: Ziel {entry['to']!r} ist selbst eine alte URL (Kette)")
+    return problems
+
+
+def redirect_route_problems(data, status: Callable[[str], int]) -> list[str]:
+    """Prüfung gegen die echten Antworten von v2 (status: HTTP-Status eines GET ohne die Tabelle).
+
+    Eine alte URL greift nur, wo v2 sonst 404 antwortet – auch unter Routen mit Platzhalter
+    (/de/grenze/<alter-übergang>). Ein Ziel muss direkt 200 liefern: kein Tippfehler (404),
+    keine reine POST-Route (405), keine weitere Weiterleitung (/de → 308).
+    """
+    problems = []
+    for entry in data.get("redirects", []):
+        src, dst = entry["from"], entry.get("to")
+        for path in dict.fromkeys((src, entry_key(src))):  # '/alt/' trifft auch '/alt'
+            code = status(path)
+            if code != 404:
+                problems.append(f"redirects {src!r}: ist eine eigene Route von v2 (GET {path} liefert {code} statt 404), "
+                                "die Weiterleitung griffe nie")
+                break
+        if dst is not None:
+            parts = urlsplit(dst)
+            target = parts.path + (f"?{parts.query}" if parts.query else "")
+            code = status(target)
+            if code != 200:
+                problems.append(f"redirects {src!r}: Ziel {dst!r} ist keine Seite von v2 (GET liefert {code} statt 200)")
+    return problems
+
 
 def _is_bilingual(value) -> bool:
     return isinstance(value, dict) and all(isinstance(value.get(l), str) and value[l].strip() for l in LANGS)
@@ -78,10 +199,72 @@ def _check_url(value, where, problems):
 
 
 def _check_source(src, where, problems):
-    if not (isinstance(src, dict) and isinstance(src.get("name"), str) and src["name"].strip()):
+    """Quelle oder Shop: https-URL und Name in beiden Sprachen ({de, tr}) – der Name steht als
+    Linktext auf der Seite, ein rein deutscher Name wäre ein deutscher Rest in der TR-Ansicht."""
+    if not isinstance(src, dict):
         problems.append(f"{where}: Quelle braucht Name und URL")
         return
+    if not _is_bilingual(src.get("name")):
+        problems.append(f"{where}: Name der Quelle nicht zweisprachig ({{de, tr}}), ist {src.get('name')!r}")
     _check_url(src.get("url"), where, problems)
+
+
+def _check_price_value(value, where, problems):
+    """Preis: reine Zahl mit Währung als Text oder – sobald Worte dabei sind („ca.“) – {de, tr}."""
+    if isinstance(value, str) and PRICE_RE.match(value):
+        return
+    if not _is_bilingual(value):
+        problems.append(f"{where}: Preis {value!r} ist weder Zahl mit Währung (z. B. „9,60 €“) noch {{de, tr}}")
+
+
+def _validate_bayrams(bayrams, problems) -> None:
+    """Bayram-Termine: optional, aber wenn vorhanden mit Quelle, Prüfdatum und stimmigen Tagen."""
+    if bayrams is None:
+        return
+    if not isinstance(bayrams, dict):
+        problems.append("holidays.bayrams: Objekt mit as_of, source und items erwartet")
+        return
+    _check_date(bayrams.get("as_of"), "holidays.bayrams.as_of", problems)
+    _check_source(bayrams.get("source"), "holidays.bayrams.source", problems)
+    seen = set()
+    for item in bayrams.get("items", []):
+        bid = item.get("id")
+        if bid in seen:
+            problems.append(f"holidays.bayrams: doppelte id {bid}")
+        seen.add(bid)
+        kind = item.get("kind")
+        if kind not in BAYRAM_DAYS:
+            problems.append(f"holidays.bayrams.{bid}: unbekannte Art {kind!r}")
+        if not _is_bilingual(item.get("label")):
+            problems.append(f"holidays.bayrams.{bid}.label: nicht zweisprachig")
+        try:
+            arife, start, end = (date.fromisoformat(item[key]) for key in ("arife", "start", "end"))
+        except (KeyError, TypeError, ValueError):
+            problems.append(f"holidays.bayrams.{bid}: Arife, Beginn und Ende brauchen ein gültiges Datum")
+            continue
+        if start - arife != timedelta(days=1):
+            problems.append(f"holidays.bayrams.{bid}: Arife muss der Tag vor dem ersten Festtag sein")
+        if kind in BAYRAM_DAYS and (end - start).days + 1 != BAYRAM_DAYS[kind]:
+            problems.append(f"holidays.bayrams.{bid}: {kind} dauert {BAYRAM_DAYS[kind]} Tage, nicht {(end - start).days + 1}")
+
+
+def _name_loc_problems(crossing: dict) -> list[str]:
+    """Ortsangabe des Übergangs für Sätze wie „Wie lange hast du in Kapıkule gewartet?“ bzw.
+    „Kapıkule'de ne kadar bekledin?“: DE mit dem Kurznamen, TR Kurzname + Apostroph + Lokativ.
+
+    Die Endung hängt an Vokalharmonie und Auslaut (Kapıkule'de, İpsala'da, nach stimmlosem
+    Konsonanten -te/-ta) und wird deshalb gepflegt statt erzeugt; geprüft wird nur die Form.
+    """
+    cid, short, loc = crossing.get("id"), crossing.get("short"), crossing.get("name_loc")
+    if not _is_bilingual(loc):
+        return [f"crossings.{cid}.name_loc: nicht zweisprachig"]
+    problems = []
+    if not isinstance(short, str) or short not in loc["de"]:
+        problems.append(f"crossings.{cid}.name_loc.de: muss den Kurznamen {short!r} enthalten")
+    suffix = loc["tr"][len(short) + 1:] if isinstance(short, str) and loc["tr"].startswith(short + "'") else None
+    if suffix not in TR_LOCATIVE:
+        problems.append(f"crossings.{cid}.name_loc.tr: {short}'da/'de/'ta/'te erwartet, ist {loc['tr']!r}")
+    return problems
 
 
 def validate(content: Content) -> list[str]:
@@ -101,10 +284,13 @@ def validate(content: Content) -> list[str]:
     for state, info in states.items():
         if not isinstance(info.get("population"), int) or info["population"] <= 0:
             problems.append(f"holidays.states.{state}: Einwohnerzahl fehlt")
-    for src in content.holidays["meta"]["sources"]:
-        _check_url(src.get("url"), "holidays.meta.sources", problems)
+    for idx, src in enumerate(content.holidays["meta"]["sources"]):
+        _check_source(src, f"holidays.meta.sources[{idx}]", problems)
+    _check_source(content.holidays["meta"].get("population_source"), "holidays.meta.population_source", problems)
     seen_ids = set()
+    slug_owners: dict[str, set[str]] = {}  # Slug → Zeiträume (muss genau einer sein, siehe unten)
     taken: dict[str, list[tuple[date, date, str]]] = {}  # Land → belegte Ferientage (alle Zeiträume)
+    blocks: dict[str, list[tuple[Range, str]]] = {}      # Land → freie Blöcke (alle Zeiträume)
     for period in content.holidays["periods"]:
         pid = period["id"]
         if pid in seen_ids:
@@ -112,6 +298,14 @@ def validate(content: Content) -> list[str]:
         seen_ids.add(pid)
         if not _is_bilingual(period.get("label")):
             problems.append(f"holidays.{pid}: Label nicht zweisprachig")
+        slugs = period.get("slug")
+        if not _is_bilingual(slugs):
+            problems.append(f"holidays.{pid}.slug: nicht zweisprachig ({{de, tr}})")
+        else:
+            for lang in LANGS:
+                if not SLUG_RE.match(slugs[lang]):
+                    problems.append(f"holidays.{pid}.slug.{lang}: {slugs[lang]!r} – nur a–z, 0–9 und einzelne Bindestriche")
+                slug_owners.setdefault(slugs[lang], set()).add(pid)
         if set(period["ranges"]) != set(states):
             problems.append(f"holidays.{pid}: Länder fehlen oder sind unbekannt")
         if not any(period["ranges"].values()):
@@ -139,17 +333,37 @@ def validate(content: Content) -> list[str]:
                         problems.append(f"holidays.{pid}.{state}: {start}–{end} überschneidet sich mit {other}")
                 taken[state].append((s, e, pid))
                 valid.append(Range(s, e))
-            for stretch in free_stretches(valid):
+            stretches = free_stretches(valid)
+            if len(stretches) > 1:
+                # Abreise aus dem ersten und Rückreise aus dem letzten Block überspannte Schulwochen
+                problems.append(f"holidays.{pid}.{state}: {len(stretches)} getrennte freie Blöcke "
+                                f"({', '.join(f'{r.start}–{r.end}' for r in stretches)}); je Block einen eigenen Zeitraum anlegen")
+            for stretch in stretches:
+                blocks.setdefault(state, []).append((stretch, pid))
                 if stretch.days < MIN_FREE_DAYS:
                     problems.append(
                         f"holidays.{pid}.{state}: nur {stretch.days} freie Tage am Stück "
                         f"({stretch.start}–{stretch.end}); kurze Ferien unter {MIN_FREE_DAYS} Tagen führt das Radar nicht"
                     )
+    # Ein Slug gehört über beide Sprachen zu genau einem Zeitraum und ist nie die id eines anderen:
+    # Links mit fremdem Slug oder alter id (?zeitraum=) leitet die Seite sonst auf den falschen um.
+    for slug, owners in sorted(slug_owners.items()):
+        if len(owners | ({slug} & seen_ids)) > 1:
+            problems.append(f"holidays: Slug {slug!r} gehört zu mehreren Zeiträumen ({', '.join(sorted(owners | ({slug} & seen_ids)))})")
+    # Freie Blöcke eines Landes aus zwei Zeiträumen dürfen sich nicht berühren: Reisewellen und
+    # Ferien-Wellen zählten sonst einen Ferienbeginn mitten in den Ferien.
+    for state, items in blocks.items():
+        items.sort(key=lambda item: item[0].start)
+        for (a, pa), (b, pb) in zip(items, items[1:]):
+            if pa != pb and b.start <= a.end + timedelta(days=1):
+                problems.append(f"holidays.{pb}.{state}: freier Block {b.start}–{b.end} schließt an {pa} an "
+                                f"({a.start}–{a.end}); als ein Zeitraum erfassen")
+    _validate_bayrams(content.holidays.get("bayrams"), problems)
 
     # Zoll
     sources = content.customs["sources"]
     for key, src in sources.items():
-        _check_url(src.get("url"), f"customs.sources.{key}", problems)
+        _check_source(src, f"customs.sources.{key}", problems)
     ids = set()
     for item in content.customs["items"]:
         iid = item.get("id")
@@ -184,13 +398,14 @@ def validate(content: Content) -> list[str]:
             problems.append(f"transit.{code}: unbekanntes Mautsystem")
         if not _is_bilingual(country.get("name")):
             problems.append(f"transit.{code}.name: nicht zweisprachig")
-        _check_url(country["shop"].get("url"), f"transit.{code}.shop", problems)
-        _check_url(country["source"].get("url"), f"transit.{code}.source", problems)
+        _check_source(country.get("shop"), f"transit.{code}.shop", problems)
+        _check_source(country.get("source"), f"transit.{code}.source", problems)
         if country.get("prices") and "prices_valid_until" not in country:
             problems.append(f"transit.{code}: Preise ohne Gültigkeitsdatum")
         for price in country.get("prices", []):
             if not _is_bilingual(price.get("label")):
                 problems.append(f"transit.{code}: Preis-Label nicht zweisprachig")
+            _check_price_value(price.get("value"), f"transit.{code}.prices", problems)
         for note in country.get("notes", []):
             if not _is_bilingual(note):
                 problems.append(f"transit.{code}: Hinweis nicht zweisprachig")
@@ -223,16 +438,22 @@ def validate(content: Content) -> list[str]:
     # Grenzübergänge
     csources = content.crossings["sources"]
     for key, src in csources.items():
-        _check_url(src.get("url"), f"crossings.sources.{key}", problems)
+        _check_source(src, f"crossings.sources.{key}", problems)
+        # Kurzbezeichnung mit Land für Startseite und Übersicht, der volle Name steht auf der Info-Seite
+        if not _is_bilingual(src.get("label")):
+            problems.append(f"crossings.sources.{key}.label: nicht zweisprachig")
     for crossing in content.crossings["crossings"]:
         cid = crossing["id"]
         if len(crossing.get("countries", [])) != 2:
             problems.append(f"crossings.{cid}: braucht genau 2 Länder")
         if not _is_bilingual(crossing.get("note")):
             problems.append(f"crossings.{cid}.note: nicht zweisprachig")
+        problems += _name_loc_problems(crossing)
         for ref in crossing.get("official", []):
             if ref not in csources:
                 problems.append(f"crossings.{cid}: unbekannte Quelle {ref}")
         if not crossing.get("tz"):
             problems.append(f"crossings.{cid}: Zeitzone fehlt")
+
+    problems += validate_redirects(content.redirects)
     return problems

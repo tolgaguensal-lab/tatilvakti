@@ -101,11 +101,11 @@ def salt_days(db):
 
 def test_maintenance_removes_client_hash_and_old_data(db, clock):
     report(db, clock, 1, ip="2001:db8:1:2::1")
-    assert db.execute("SELECT net FROM reports").fetchone()[0] is not None
+    assert None not in tuple(db.execute("SELECT client, net, block FROM reports").fetchone())
     clock.advance(hours=B.CLIENT_HASH_TTL_H + 1)
     result = B.maintenance(db, clock.ts, force=True)
     assert result == {"clients_cleared": 1, "reports_deleted": 0, "salts_deleted": 1}
-    assert tuple(db.execute("SELECT client, net FROM reports").fetchone()) == (None, None)
+    assert tuple(db.execute("SELECT client, net, block FROM reports").fetchone()) == (None, None, None)
     assert salt_days(db) == []
     clock.advance(days=B.RETENTION_DAYS)
     B.maintenance(db, clock.ts, force=True)
@@ -132,6 +132,19 @@ def test_day_key_is_deleted_right_after_the_utc_day_change(db, clock):
     clock.advance(minutes=10)  # 00:05 UTC
     assert B.maintenance(db, clock.ts, force=True)["salts_deleted"] == 1
     assert salt_days(db) == []
+
+
+def test_only_todays_day_key_exists_once_a_new_one_is_made(db, clock):
+    """Der Schlüssel von gestern verschwindet schon mit der ersten Meldung des neuen Tages,
+    nicht erst mit der nächsten Wartung."""
+    report(db, clock, 1)
+    assert salt_days(db) == ["2026-10-06"]
+    clock.advance(days=1)
+    B.client_key(db, "203.0.113.9", clock.ts)  # erste Anfrage nach 00:00 UTC
+    assert salt_days(db) == ["2026-10-07"]
+    before = B.client_key(db, "203.0.113.9", clock.ts)
+    assert B.client_key(db, "203.0.113.9", clock.ts) == before  # derselbe Schlüssel den ganzen Tag
+    assert salt_days(db) == ["2026-10-07"]
 
 
 def test_maintenance_is_throttled_unless_forced(db, clock):
@@ -178,28 +191,44 @@ def test_check_salt_db_reports_unusable_paths(app, tmp_path):
     assert problem and "nicht anlegbar" in problem
 
 
-def test_old_database_gets_the_net_column(tmp_path, clock):
+@pytest.mark.parametrize("known", [("client",), ("client", "net")], ids=["ohne-net", "ohne-block"])
+def test_old_database_gets_the_new_columns(tmp_path, clock, known):
     from tatilvakti import create_app
     path = tmp_path / "alt.db"
     conn = connect(str(path))
     conn.execute("CREATE TABLE reports (id INTEGER PRIMARY KEY, crossing TEXT NOT NULL, direction TEXT NOT NULL, "
-                 "bucket INTEGER NOT NULL, observed_at INTEGER NOT NULL, created_at INTEGER NOT NULL, client TEXT)")
-    conn.execute("INSERT INTO reports (crossing, direction, bucket, observed_at, created_at, client) "
-                 "VALUES ('kapikule', 'to_tr', 3, ?, ?, 'alt')", (clock.ts, clock.ts))
+                 "bucket INTEGER NOT NULL, observed_at INTEGER NOT NULL, created_at INTEGER NOT NULL, "
+                 + ", ".join(f"{c} TEXT" for c in known) + ")")
+    conn.execute(f"INSERT INTO reports (crossing, direction, bucket, observed_at, created_at, {', '.join(known)}) "
+                 f"VALUES ('kapikule', 'to_tr', 3, ?, ?, {', '.join('?' * len(known))})",
+                 (clock.ts, clock.ts, *(f"alt-{c}" for c in known)))
     conn.close()
     create_app({"TESTING": True, "TV_DB_PATH": str(path), "TV_CLOCK": clock})
     create_app({"TESTING": True, "TV_DB_PATH": str(path), "TV_CLOCK": clock})  # zweiter Start: nichts zu tun
     conn = connect(str(path))
     try:
         columns = [row["name"] for row in conn.execute("PRAGMA table_info(reports)")]
-        assert columns[-2:] == ["client", "net"]
-        assert conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'idx_reports_net'").fetchone()
-        # Altbestand ohne net zählt je Client weiter mit
+        assert columns[-3:] == ["client", "net", "block"]
+        for index in ("idx_reports_net", "idx_reports_block"):
+            assert conn.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (index,)).fetchone()
+        # Altbestand ohne block zählt je Anschluss bzw. Client weiter mit
         B.add_report(conn, "kapikule", "to_tr", 1, "10.0.0.1", clock.ts)
         st = B.statuses(conn, ["kapikule"], clock.ts)["kapikule"]["to_tr"]
         assert (st["bucket"], st["count"]) == (3, 2)
     finally:
         conn.close()
+
+
+def test_hashes_left_by_an_older_release_are_cleared_on_start(app, db, clock):
+    """Rollback auf ein Release, das block nicht kennt: Dessen Wartung leert client und net, aber
+    nicht block. Beim nächsten Start dieses Stands verschwinden solche Reste."""
+    from tatilvakti import create_app
+    report(db, clock, 1, ip="2001:db8:1:2::1")
+    report(db, clock, 2, ip="198.51.100.4")
+    db.execute("UPDATE reports SET client = NULL, net = NULL WHERE bucket = 1")  # wie die alte Wartung
+    db.execute("UPDATE reports SET client = NULL WHERE bucket = 2")  # noch älter: auch net blieb stehen
+    create_app({"TESTING": True, "TV_DB_PATH": app.config["TV_DB_PATH"], "TV_CLOCK": clock})
+    assert [tuple(r) for r in db.execute("SELECT client, net, block FROM reports")] == [(None, None, None)] * 2
 
 
 def test_legacy_salts_table_in_main_db_is_removed_on_start(tmp_path, clock):
@@ -253,6 +282,18 @@ def test_net_normalization(ip, expected):
     assert B.normalize_net(ip) == expected
 
 
+@pytest.mark.parametrize("ip,expected", [
+    ("203.0.113.7", "203.0.113.7"),
+    ("::ffff:203.0.113.7", "203.0.113.7"),
+    ("2001:db8:1:2::1", "2001:db8:1::/48"),
+    ("2001:db8:1:ff00::1", "2001:db8:1::/48"),
+    ("2001:db8:2::1", "2001:db8:2::/48"),
+    ("[2001:db8:1:2::1]:443", "2001:db8:1::/48"),
+])
+def test_block_normalization(ip, expected):
+    assert B.normalize_block(ip) == expected
+
+
 def test_unreadable_address_warns_once_without_the_value(monkeypatch, caplog):
     monkeypatch.setattr(B, "_unparsable_warned", False)
     with caplog.at_level(logging.WARNING, logger="tatilvakti.borders"):
@@ -262,11 +303,13 @@ def test_unreadable_address_warns_once_without_the_value(monkeypatch, caplog):
     assert len(warnings) == 1 and "203.0.113" not in warnings[0]
 
 
-def test_ipv4_has_the_same_client_and_net_value(db, clock):
-    client, net = B.client_keys(db, "203.0.113.7", clock.ts)
-    assert client == net == B.client_key(db, "203.0.113.7", clock.ts)
-    client6, net6 = B.client_keys(db, "2001:db8:1:2::1", clock.ts)
-    assert client6 != net6 and B.client_keys(db, "2001:db8:1:3::1", clock.ts)[1] == net6
+def test_ipv4_has_the_same_client_net_and_block_value(db, clock):
+    client, net, block = B.client_keys(db, "203.0.113.7", clock.ts)
+    assert client == net == block == B.client_key(db, "203.0.113.7", clock.ts)
+    client6, net6, block6 = B.client_keys(db, "2001:db8:1:2::1", clock.ts)
+    assert len({client6, net6, block6}) == 3
+    assert B.client_keys(db, "2001:db8:1:3::1", clock.ts)[1:] == (net6, block6)  # anderes /64
+    assert B.client_keys(db, "2001:db8:1:ff00::1", clock.ts)[2] == block6  # anderes /56, selbes /48
 
 
 def test_ipv6_addresses_of_one_64_are_one_client(db, clock):
@@ -362,6 +405,122 @@ def test_crossing_cap_limits_floods_from_many_addresses(db, clock, caplog):
     report(db, clock, 1, ip="10.0.0.1", crossing="ipsala")
     clock.advance(minutes=B.CROSSING_CAP_MIN, seconds=1)
     report(db, clock, 1, ip="2001:db8:ffff::1")
+
+
+def test_one_48_takes_at_most_its_share_of_the_cap(db, clock, caplog):
+    """Audit d3-ratelimit-crossing-cap-48: Ein /48 hat 256 /56-Anschlüsse mit je eigenem Limit. Es
+    darf die Obergrenze nicht allein füllen; die übrigen Plätze bleiben für alle anderen offen."""
+    assert B.BLOCK_CAP < B.CROSSING_CAP
+    for i in range(B.BLOCK_CAP):
+        report(db, clock, 5, ip=f"2001:db8:aa:{i:02x}00::1")  # je ein anderes /56 im selben /48
+    with caplog.at_level(logging.WARNING, logger="tatilvakti.borders"):
+        for i in range(B.BLOCK_CAP, B.BLOCK_CAP + 3):
+            with pytest.raises(B.BlockBusy, match="crossing_busy") as exc:
+                report(db, clock, 5, ip=f"2001:db8:aa:{i:02x}00::1")
+            # nach außen wie die Obergrenze: Formular-Code „busy“, API-Detail „crossing_busy“
+            assert isinstance(exc.value, B.CrossingBusy) and exc.value.code == "busy"
+    warnings = [r.getMessage() for r in caplog.records if "Netz-Anteil" in r.getMessage()]
+    assert len(warnings) == 1 and "crossing=kapikule direction=to_tr" in warnings[0]  # einmal, kein Log-Fluten
+    assert "2001:db8" not in warnings[0] and not re.search(r"[0-9a-f]{32}", warnings[0])  # weder IP noch Prüfwert
+    report(db, clock, 5, ip="2001:db8:aa:ff00::1", direction="to_de")  # nur dieser Übergang und diese Richtung
+    # Alle anderen bekommen die übrigen Plätze bis zur Obergrenze
+    for i in range(B.CROSSING_CAP - B.BLOCK_CAP):
+        report(db, clock, 0, ip=f"198.51.100.{i + 1}")
+    with pytest.raises(B.CrossingBusy) as exc:
+        report(db, clock, 0, ip="198.51.100.200")
+    assert not isinstance(exc.value, B.BlockBusy)
+    clock.advance(minutes=B.CROSSING_CAP_MIN, seconds=1)
+    report(db, clock, 5, ip="2001:db8:aa:fe00::1")  # nach dem Fenster wieder offen
+
+
+def test_one_48_gets_at_most_block_votes_in_the_median(db, clock):
+    """Zehn Anschlüsse (/56) aus einem /48 melden „über 5 Std.“, drei Reisende „unter 15 Min.“:
+    Das /48 zählt mit BLOCK_VOTES Stimmen und überstimmt die drei nicht."""
+    for i in range(B.BLOCK_CAP):
+        report(db, clock, 5, ip=f"2001:db8:aa:{i:02x}00::1")
+    for i in range(3):
+        report(db, clock, 0, ip=f"10.0.5.{i}")
+    st = B.statuses(db, ["kapikule"], clock.ts)["kapikule"]["to_tr"]
+    assert 1 < B.BLOCK_VOTES < 3
+    assert (st["bucket"], st["level"], st["count"]) == (0, "ok", 3 + B.BLOCK_VOTES)
+
+
+def test_reporters_sharing_a_48_keep_several_votes(db, clock):
+    """Mobilfunkkunden eines Anbieters können sich ein /48 teilen: Unterhalb des Netz-Anteils wird
+    jede Meldung gespeichert. Im Median zählen je Anschluss (/56) die jüngste Meldung und je /48
+    die BLOCK_VOTES Anschlüsse mit den jüngsten Meldungen (früher: eine Stimme je /56, keine Grenze
+    je /48; der erste Stand dieser Änderung: eine Stimme je /48)."""
+    assert B.BLOCK_VOTES == 2  # die Erwartungen unten rechnen mit zwei Stimmen
+    for i, bucket in enumerate([5, 1, 1]):
+        report(db, clock, bucket, ip=f"2001:db8:cc:{i:02x}00::{i + 1}")
+        clock.advance(minutes=1)
+    assert db.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 3
+    st = B.statuses(db, ["kapikule"], clock.ts)["kapikule"]["to_tr"]
+    assert (st["bucket"], st["count"]) == (1, 2)  # die beiden jüngsten Anschlüsse: 1 und 1
+    # Der erste Anschluss meldet neu: Seine Stimme ist jetzt die jüngste und verdrängt die älteste
+    clock.advance(minutes=B.SAME_SPOT_COOLDOWN_MIN)
+    report(db, clock, 2, ip="2001:db8:cc:0::1")
+    st = B.statuses(db, ["kapikule"], clock.ts)["kapikule"]["to_tr"]
+    assert (st["bucket"], st["count"]) == (2, 2)  # Stimmen 1 (dritter Anschluss) und 2
+    # Ein anderes /48 und IPv4 zählen daneben ganz normal
+    report(db, clock, 1, ip="2001:db8:cd:100::1")
+    report(db, clock, 1, ip="198.51.100.31")
+    st = B.statuses(db, ["kapikule"], clock.ts)["kapikule"]["to_tr"]
+    assert (st["bucket"], st["count"]) == (1, 4)
+
+
+def test_one_48_can_neither_take_over_nor_lock_out_honest_reporters(db, clock):
+    """Audit-Szenario: Ein /48 meldet eine Stunde lang alle 10 Min. aus 30 frischen /56 „über 5 Std.“,
+    dazwischen je zwei ehrliche Reisende aus anderen Netzen „unter 15 Min.“."""
+    honest_ok = attacker_ok = 0
+    for rnd in range(6):
+        for i in range(30):
+            try:
+                report(db, clock, 5, ip=f"2001:db8:aa:{(rnd * 30 + i) % 256:02x}00::1")
+                attacker_ok += 1
+            except B.BlockBusy:
+                pass  # nie die Obergrenze für alle: die bleibt offen
+        for h in range(2):
+            report(db, clock, 0, ip=f"2001:db8:{rnd + 1}{h}:1::1")
+            honest_ok += 1
+        clock.advance(minutes=10, seconds=1)
+    clock.advance(seconds=-1)
+    assert honest_ok == 12 and attacker_ok == 6 * B.BLOCK_CAP
+    st = B.statuses(db, ["kapikule"], clock.ts)["kapikule"]["to_tr"]
+    assert (st["bucket"], st["level"], st["count"]) == (0, "ok", 12 + B.BLOCK_VOTES)
+
+
+def test_full_cap_is_noted_for_healthz(db, clock, caplog):
+    """Audit d3-ratelimit-crossing-cap-48, Erkennung: Eine volle Obergrenze (auch der Anteil eines
+    /48) landet nicht nur im Log, sondern als Zeitpunkt in kv (crossing_cap_at), trotz ROLLBACK der
+    abgewiesenen Meldung. Eine Flut schreibt dabei nicht bei jeder Anfrage."""
+    assert B.last_crossing_cap(db) is None
+    for i in range(B.BLOCK_CAP):
+        report(db, clock, 5, ip=f"2001:db8:ee:{i:02x}00::1")
+    first = clock.ts
+    with caplog.at_level(logging.WARNING, logger="tatilvakti.borders"):
+        with pytest.raises(B.BlockBusy):
+            report(db, clock, 5, ip="2001:db8:ee:ff00::1")
+        assert B.last_crossing_cap(db) == first
+        assert db.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == B.BLOCK_CAP  # abgewiesen
+        assert not db.in_transaction
+        clock.advance(minutes=1)
+        observer = connect(db.path)  # data_version zählt nur Änderungen anderer Verbindungen
+        try:
+            seen = observer.execute("PRAGMA data_version").fetchone()[0]
+            for i in range(5):
+                with pytest.raises(B.BlockBusy):
+                    report(db, clock, 5, ip=f"2001:db8:ee:f{i}00::1")
+            assert B.last_crossing_cap(db) == first  # höchstens alle CROSSING_CAP_MIN Min. je Prozess
+            assert observer.execute("PRAGMA data_version").fetchone()[0] == seen
+        finally:
+            observer.close()
+        # Die Obergrenze für alle zählt genauso
+        for i in range(B.CROSSING_CAP):
+            report(db, clock, 1, ip=f"198.51.100.{i + 1}", direction="to_de")
+        with pytest.raises(B.CrossingBusy):
+            report(db, clock, 1, ip="198.51.100.99", direction="to_de")
+    assert B.last_crossing_cap(db) == clock.ts
 
 
 # --------------------------------------------------------------- strikte Eingaben

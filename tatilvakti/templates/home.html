@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, status, cstatus with context %}
+{% from "_macros.html" import icon, dirs, ext, cstatus with context %}
+{% block title %}{{ t("home_title_seo") }} – {{ t("app_name") }}{% endblock %}
 {% block main %}
 <section class="hero">
   <p class="eyebrow">{{ t("tagline") }}</p>
@@ -46,12 +47,19 @@
         {%- endif %}
         <p class="muted">{{ t("home_pick_state") }}</p>
       </div>
-      {%- for code, info in next_by_state.items() %}
+      {#- Ein Block je Land, auch ohne künftige Ferien im Datenbestand (sonst stünde dort trotz Wahl
+          „Wähle dein Bundesland“). Unbekannte Kürzel zeigen weiter den Block „none“ (app.js). #}
+      {%- for code in states %}
+      {%- set info = next_by_state.get(code) %}
       <div data-per-state="{{ code }}" hidden>
+        {%- if info %}
         <p class="muted">{{ t("home_next_holiday", state=states[code].name) }}</p>
         <p class="big">{{ info.period.label[lang] }}</p>
         <p>{{ fmt_ranges(info.ranges) }}
           <span class="pill">{{ t("running") if info.running else info.when }}</span></p>
+        {%- else %}
+        <p class="muted">{{ t("home_no_next_holiday", state=states[code].name) }}</p>
+        {%- endif %}
       </div>
       {%- endfor %}
       <a class="cta" href="{{ href('holidays') }}" data-state-link>{{ t("home_holiday_cta") }}{{ icon("chevron", "icon--s") }}</a>
@@ -74,19 +82,34 @@
     <div class="station__card card">
       <p class="station__kicker">{{ t("station_n", n=3) }}</p>
       <h2 class="station__title">{{ icon("border") }}{{ t("station_border") }}</h2>
-      <ul class="mini-borders">
-        {%- for c in main_crossings %}
-        <li>
-          <a class="mini-borders__name" href="{{ href('crossing', cid=c.id) }}">{{ c.short }}</a>
-          <div class="dirrow"><span class="dirlabel">{{ t("b_dir_to_tr_short") }}</span>{{ status(statuses[c.id].to_tr, c.id, "to_tr", compact=True) }}</div>
-          <div class="dirrow"><span class="dirlabel">{{ t("b_dir_to_de_short") }}</span>{{ status(statuses[c.id].to_de, c.id, "to_de", compact=True) }}</div>
+      {#- Ohne jede aktuelle Meldung (Kaltstart, Nebensaison) eine Zeile statt acht grauer Chips #}
+      <div class="live{% if not any_live(statuses, statuses.keys()) %} is-empty{% endif %}" data-live-list>
+        <ul class="mini-borders live__rows">
+          {%- for c in main_crossings %}
+          <li>
+            <a class="mini-borders__name" href="{{ href('crossing', cid=c.id) }}">{{ c.short }}</a>
+            {{ dirs(statuses[c.id], c.id) }}
+          </li>
+          {%- endfor %}
+        </ul>
+        <p class="live__empty">{{ icon("info", "icon--s") }}<span><strong>{{ t("b_empty_2h", h=window_h) }}</strong> {{ t("b_be_first") }}</span></p>
+      </div>
+      <h3 class="picker__title" id="pick-title">{{ t("home_report_title") }}</h3>
+      {#- Die wichtigsten Übergänge; app.js stellt den zuletzt gemeldeten nach vorn (auch einen weiteren) #}
+      <ul class="picker" aria-labelledby="pick-title" data-picker>
+        {%- for c in crossings %}
+        <li data-pick="{{ c.id }}"{% if not c.main %} hidden{% endif %}>
+          <a class="picker__btn" href="{{ href('crossing', cid=c.id) }}#melden">
+            <span class="picker__name">{{ c.short }}</span>
+            <span class="picker__sub">{{ cname(c.countries[0]) }} → {{ cname(c.countries[1]) }}</span>
+            <span class="picker__last" hidden>{{ t("home_report_last") }}</span>
+          </a>
         </li>
         {%- endfor %}
       </ul>
-      <div class="cta-row">
-        <a class="cta" href="{{ href('borders') }}">{{ t("home_border_cta") }}{{ icon("chevron", "icon--s") }}</a>
-        <a class="cta cta--accent" href="{{ href('crossing', cid='kapikule') }}#melden">{{ t("home_border_report_cta") }}</a>
-      </div>
+      <a class="cta" href="{{ href('borders') }}">{{ t("home_border_cta") }}{{ icon("chevron", "icon--s") }}</a>
+      <p class="srcline">{{ t("b_official") }}:
+        {% for s in official %}{{ ext(s.url, s.label[lang]) }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
     </div>
   </li>
 

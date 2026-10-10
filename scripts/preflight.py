@@ -16,8 +16,10 @@ Prüft der Reihe nach:
 2. create_app() gegen eine Online-KOPIE der Produktions-DB in einem temporären Verzeichnis:
    Datenvalidierung und Schema. Echte DB und Salts-Datei bleiben unberührt.
 3. Alle GET-Routen (jede Seite, jeder Grenzübergang, /healthz, /sw.js, Sitemap …) und jede URL
-   der Precache-Liste aus /sw.js: kein Status ab 400. Sonst fehlt die Seite offline, bei einem
-   Asset installiert sich der Service Worker gar nicht. Canonical-Links müssen auf TV_BASE_URL zeigen.
+   der Precache-Liste aus /sw.js: kein Status ab 400. Sonst fehlt die Seite offline; bei einem
+   Asset, einer Start- oder Offline-Seite installiert sich der neue Service Worker gar nicht (der
+   alte bleibt aktiv). Kill-Switch-Pfade (TV_LEGACY_SW_PATHS) müssen JavaScript mit Status 200
+   liefern. Canonical-Links müssen auf TV_BASE_URL zeigen.
 4. pytest im Release, ohne TV_*-Variablen aus der Umgebung (--test-python: venv mit pytest,
    damit das Laufzeit-venv ohne Testwerkzeuge auskommt).
 
@@ -97,7 +99,9 @@ def check_config(env: dict[str, str], rep: Report) -> None:
         rep.warn("TV_TRUST_PROXY=0: hinter Pangolin sähe der Spam-Schutz nur eine IP (Limit gilt dann für alle)")
     else:
         rep.ok(f"TV_TRUST_PROXY={hops}")
-    missing = [k for k in ("TV_OPERATOR_NAME", "TV_OPERATOR_ADDRESS", "TV_OPERATOR_EMAIL") if not env.get(k)]
+    # Gleiche Regel wie operator_imprint() in der App: nur Leerzeichen bzw. nur ";" zählt als leer
+    missing = [k for k in ("TV_OPERATOR_NAME", "TV_OPERATOR_ADDRESS", "TV_OPERATOR_EMAIL")
+               if not env.get(k, "").replace(";", "").strip()]
     if missing:
         rep.warn("Impressum unvollständig, vor dem Launch setzen: " + ", ".join(missing))
     else:
@@ -184,7 +188,10 @@ def check_app(env: dict[str, str], db: Path | None, tmp: Path, rep: Report) -> s
     health = client.get("/healthz")
     data = health.get_json(silent=True) or {}
     if health.status_code != 200:
-        rep.error(f"/healthz → {health.status_code} {data}")
+        # 503: Melden ginge nicht. Hier liegen DB-Kopie und Schlüssel-DB im Temp-Verzeichnis,
+        # die Ursache steckt also im Release oder in der kopierten DB, nicht in /run.
+        rep.error(f"/healthz → {health.status_code}, ausgefallen: {', '.join(data.get('down') or []) or '?'} "
+                  "(Grund in der Warnung darüber)")
     else:
         rep.ok(f"/healthz status={data.get('status')} build={data.get('build')}")
         if data.get("status") != "ok":

@@ -8,13 +8,31 @@
   <meta name="theme-color" content="#0e6b6b" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#10161d" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
+  {#- hreflang nur mit Sprache, ohne Land: Türkischsprachige suchen vor allem in Deutschland #}
   {%- for l, url in alt_urls.items() %}
-  <link rel="alternate" hreflang="{{ 'de-DE' if l == 'de' else 'tr-TR' }}" href="{{ abs_url(url) }}">
+  <link rel="alternate" hreflang="{{ l }}" href="{{ abs_url(url) }}">
   {%- endfor %}
   {%- if alt_urls %}
   <link rel="alternate" hreflang="x-default" href="{{ abs_url(alt_urls['de']) }}">
   <link rel="canonical" href="{{ abs_url(alt_urls[lang]) }}">
   {%- endif %}
+  {#- Link-Vorschau (WhatsApp, Telegram, X …): Titel und Beschreibung wie oben, Bild je Sprache #}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ t('app_name') }}">
+  <meta property="og:title" content="{{ self.title() }}">
+  <meta property="og:description" content="{{ self.description() }}">
+  {%- if alt_urls %}
+  <meta property="og:url" content="{{ abs_url(alt_urls[lang]) }}">
+  {%- endif %}
+  <meta property="og:image" content="{{ abs_url(asset('og/og-' ~ lang ~ '.png')) }}">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="{{ t('og_image_alt') }}">
+  <meta property="og:locale" content="{{ 'de_DE' if lang == 'de' else 'tr_TR' }}">
+  <meta property="og:locale:alternate" content="{{ 'tr_TR' if lang == 'de' else 'de_DE' }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image:alt" content="{{ t('og_image_alt') }}">
   <link rel="manifest" href="{{ href('manifest') }}">
   <link rel="icon" href="{{ asset('icons/favicon.svg') }}" type="image/svg+xml">
   <link rel="apple-touch-icon" href="{{ asset('icons/icon-180.png') }}">
@@ -31,9 +49,12 @@
     <span class="brand__name">tatil<span>vakti</span></span>
   </a>
   {%- if alt_urls %}
-  <a class="plate" href="{{ alt_urls[other_lang] }}" hreflang="{{ other_lang }}" lang="{{ other_lang }}" aria-label="{{ t('lang_switch_label') }}">
+  {#- Name aus dem Inhalt statt aria-label: „Sprache wechseln:“ in der Seitensprache, nur der Name der
+      Zielsprache mit deren lang (WCAG 3.1.2); der sichtbare Text steckt im Namen (2.5.3) #}
+  <a class="plate" href="{{ switch_urls[other_lang] }}" hreflang="{{ other_lang }}">
     <span class="plate__eu" aria-hidden="true">{{ "TR" if other_lang == "tr" else "D" }}</span>
-    <span class="plate__txt">{{ t("lang_switch") }}</span>
+    <span class="sr-only">{{ t("lang_switch_label") }} </span>
+    <span class="plate__txt" lang="{{ other_lang }}">{{ t("lang_switch") }}</span>
   </a>
   {%- endif %}
 </header>
@@ -41,12 +62,39 @@
 <div class="offline-banner" data-offline-banner hidden>{{ icon("offline", "icon--s") }}<span>{{ t("offline_banner") }}</span></div>
 
 <main id="main" class="main">
+{%- if page != "crossing" %}
+{#- Rückmeldung von app.js, wenn gespeicherte Meldungen auf einer Seite ohne Meldeformular nachgeliefert
+    werden (angekommen bzw. zählt nicht). Live-Region, darum immer im DOM; leer ohne Höhe. #}
+<div class="notice" role="status" aria-live="polite" data-notice></div>
+{%- endif %}
 {% block main %}{% endblock %}
 </main>
+{%- if page in ("home", "borders", "crossing") %}
+
+{#- Hinweis „auf den Startbildschirm“ nur dort, wo man unterwegs nachsieht (Start, Grenze, Übergang).
+    Bleibt ohne JS unsichtbar; app.js zeigt ihn erst nach Wahl des Bundeslandes oder einer Meldung. #}
+<aside class="a2hs" data-a2hs hidden aria-labelledby="a2hs-title">
+  <span class="brand__mark a2hs__mark" aria-hidden="true">{{ icon("sun") }}</span>
+  <div class="a2hs__body">
+    <p class="a2hs__title" id="a2hs-title">{{ t("a2hs_title") }}</p>
+    <p class="a2hs__text">{{ t("a2hs_text") }} <a href="{{ href('info') }}#offline">{{ t("a2hs_more") }}</a></p>
+    <button class="btn btn--primary btn--small" type="button" data-a2hs-install hidden>{{ t("a2hs_install") }}</button>
+    <div data-a2hs-ios hidden>
+      {#- nur auf niedrigen Bildschirmen sichtbar (app.css), dort klappt er die Schritte auf #}
+      <button class="a2hs__how" type="button" data-a2hs-how aria-expanded="false" aria-controls="a2hs-steps">{{ t("a2hs_how") }}</button>
+      <ol class="a2hs__steps" id="a2hs-steps">
+        <li>{{ icon("ios-share", "icon--s") }}<span>{{ t("a2hs_ios_share") }}</span></li>
+        <li>{{ icon("add-square", "icon--s") }}<span>{{ t("a2hs_ios_add") }}</span></li>
+      </ol>
+    </div>
+  </div>
+  <button class="a2hs__close" type="button" data-a2hs-close aria-label="{{ t('a2hs_close') }}">{{ icon("close") }}</button>
+</aside>
+{%- endif %}
 
 <footer class="footer">
   <p>{{ t("footer_privacy") }}</p>
-  <p><a href="{{ href('info') }}">{{ t("footer_data") }}</a> · <a href="{{ href('info') }}#impressum">{{ t("footer_imprint") }}</a></p>
+  <p><a href="{{ href('info') }}">{{ t("footer_data") }}</a> · <a href="{{ href('info') }}#datenschutz">{{ t("footer_privacy_link") }}</a> · <a href="{{ href('info') }}#impressum">{{ t("footer_imprint") }}</a></p>
 </footer>
 
 <nav class="tabbar" aria-label="{{ t('nav_main') }}">

@@ -1,0 +1,58 @@
+<!doctype html>
+<!-- Vorlage der Link-Vorschaubilder (static/og/og-de.png, og-tr.png), 1200 × 630. Wird nicht
+     ausgeliefert; render.js setzt die Texte aus i18n/*.json ein (Zuordnung in og.json) und
+     macht den Screenshot. Schrift: Inter / Inter Display (fehlen sie, nimmt der Browser eine andere). -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  /* Tokens aus tatilvakti/static/css/app.css (helles Design) */
+  :root {
+    --bg: #f5efe6; --surface: #fffdf9; --ink: #1b2330; --ink-2: #4a5466; --line: #e2d7c6;
+    --brand: #0e6b6b; --brand-soft: #d9edea; --accent: #a33c16; --road: #2b3442;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1200px; height: 630px; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: "Inter", "Inter Display", sans-serif;
+    display: flex; flex-direction: column; align-items: center; overflow: hidden; position: relative;
+  }
+  .top { margin-top: 78px; display: flex; align-items: center; gap: 30px; }
+  .mark { width: 128px; height: 128px; flex: none; border-radius: 30px; box-shadow: 0 6px 24px rgba(27, 35, 48, .16); }
+  .word { font-family: "Inter Display", "Inter", sans-serif; font-weight: 800; font-size: 112px; letter-spacing: -.035em; line-height: 1; }
+  .word span { color: var(--accent); }
+  .claim { margin-top: 40px; font-family: "Inter Display", "Inter", sans-serif; font-weight: 800; font-size: 54px; letter-spacing: -.02em; text-align: center; }
+  .feats { margin-top: 36px; display: flex; gap: 14px; justify-content: center; }
+  .feat { display: flex; align-items: center; gap: 10px; padding: 11px 18px; border-radius: 999px; background: var(--surface);
+          border: 3px solid var(--brand); font-weight: 700; font-size: 25px; color: var(--ink); white-space: nowrap; }
+  .feat b { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--brand); color: #fff; font-size: 20px; font-weight: 800; }
+  .trip { position: absolute; left: 70px; right: 70px; bottom: 74px; display: flex; align-items: center; gap: 20px; }
+  .plate { display: grid; place-items: center; min-width: 76px; height: 54px; padding: 0 14px; border: 4px solid var(--ink); border-radius: 10px;
+           background: #fff; color: #111; font-weight: 800; font-size: 28px; }
+  .plate--tr { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .road { flex: 1; height: 26px; border-radius: 13px; background-color: var(--road);
+          background-image: repeating-linear-gradient(90deg, transparent 0 22px, #f5c542 22px 46px);
+          background-size: 100% 5px; background-position: 0 50%; background-repeat: no-repeat; }
+  .foot { position: absolute; bottom: 26px; font-size: 24px; font-weight: 600; color: var(--ink-2); }
+</style>
+</head>
+<body>
+  <div class="top">
+    <svg class="mark" viewBox="0 0 512 512" aria-hidden="true">
+      <defs><clipPath id="r"><rect width="512" height="512" rx="112"/></clipPath></defs>
+      <g clip-path="url(#r)">
+        <rect width="512" height="512" fill="#0e6b6b"/>
+        <circle cx="256" cy="236" r="96" fill="#f5c542"/>
+        <rect y="300" width="512" height="212" fill="#1b2330"/>
+        <path d="M178 512 L244 300 H268 L334 512 Z" fill="#3a4556"/>
+        <path d="M256 326 V344 M256 372 V398 M256 428 V466" stroke="#f5c542" stroke-width="12" stroke-linecap="round"/>
+      </g>
+    </svg>
+    <div class="word">tatil<span>vakti</span></div>
+  </div>
+  <p class="claim" id="claim"></p>
+  <div class="feats" id="feats"></div>
+  <div class="trip"><span class="plate">D</span><span class="road"></span><span class="plate plate--tr">TR</span></div>
+  <p class="foot" id="foot"></p>
+</body>
+</html>

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, status, ext with context %}
-{% block title %}{{ c.short }}: {{ t("b_wait") }} live – {{ c.name }} – {{ t("app_name") }}{% endblock %}
+{% from "_macros.html" import icon, status, ext, share with context %}
+{% block title %}{{ t("b_cross_title", name=c.short) }} – {{ t("app_name") }}{% endblock %}
 {% block description %}{{ c.name }} ({{ cname(c.countries[0]) }} → {{ cname(c.countries[1]) }}): {{ t("b_lead") }}{% endblock %}
 {% block main %}
 <p class="crumb"><a href="{{ href('borders') }}">{{ icon("chevron", "icon--xs icon--flip") }}{{ t("b_back") }}</a></p>
@@ -19,11 +19,12 @@
     </div>
     {%- endfor %}
   </div>
-  <a class="btn btn--wa btn--small" href="{{ share_url }}" target="_blank" rel="noopener noreferrer" data-share data-share-text="{{ share_text }}" data-share-url="{{ abs_url(href('crossing', cid=c.id)) }}">{{ icon("chat", "icon--s") }}{{ t("share_whatsapp") }}</a>
+  {{ share(share_text, abs_url(href('crossing', cid=c.id))) }}
 </section>
 
 <section class="card report" id="melden" aria-labelledby="report-title">
-  <h2 id="report-title" class="card__title">{{ icon("clock") }}{{ t("b_report_title") }}</h2>
+  {#- Name des Übergangs im Titel: Wer per #melden hierher springt, sieht die Überschrift oben nicht #}
+  <h2 id="report-title" class="card__title">{{ icon("clock") }}{{ t("b_report_title", at=c.name_loc[lang]) }}</h2>
   <p class="hint">{{ t("b_report_hint") }}</p>
   <div class="flash{% if flash %} flash--{{ flash[0] }}{% endif %}" role="status" aria-live="polite" data-report-msg>{% if flash %}{{ flash[1] }}{% endif %}</div>
   <form method="post" action="{{ href('report', cid=c.id) }}" data-report data-cid="{{ c.id }}">
@@ -64,7 +65,7 @@
     <text class="pattern__tick" x="{{ (hour / 24 * 100) + 0.4 }}%" y="106">{{ "%02d" | format(hour) }}:00</text>
     {%- endfor %}
   </svg>
-  <p class="hint">{{ t("b_pattern_expl", tz=c.tz.split("/")[1], w=p.weeks) }}</p>
+  <p class="hint">{{ t("b_pattern_expl", tz=t("tz_" ~ c.tz.split("/")[1] | lower), w=p.weeks) }}</p>
   {%- else %}
   <p class="muted">{{ t("b_pattern_empty") }}</p>
   {%- endif %}
@@ -75,7 +76,7 @@
   <h2 id="official-title" class="card__title">{{ icon("external") }}{{ t("b_official") }}</h2>
   <ul class="links">
     {%- for ref in c.official %}
-    <li>{{ ext(sources[ref].url, sources[ref].name) }}</li>
+    <li>{{ ext(sources[ref].url, sources[ref].label[lang]) }}</li>
     {%- endfor %}
   </ul>
 </section>

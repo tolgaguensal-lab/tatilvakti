@@ -1,14 +1,30 @@
-"""Ferien-Radar: Wer hat wann Ferien, wie groß ist der Ferien-Druck?
+"""Ferien-Radar: Wer hat wann Ferien, wie groß ist der Ferien-Druck, wann rollt eine Reisewelle?
 
 Ferien-Druck = Anteil der Bevölkerung Deutschlands, deren Bundesland an einem Tag
 Schulferien hat (gewichtet mit Destatis-Einwohnerzahlen). Das ist ein ehrlicher,
 nachprüfbarer Nachfrage-Indikator – keine Preisprognose.
+
+Reisewelle = Anteil der Bevölkerung, deren freier Block (Ferien plus angrenzende Wochenenden
+und bundesweite Feiertage) gerade begonnen hat (Abreise) bzw. gleich endet (Rückreise). Wer in
+die Türkei fährt, bricht meist in den ersten Tagen auf und kommt in den letzten zurück. Daraus
+folgen die Tage mit der kleinsten Reisewelle und die Ferien-Wellen der Grenzseite – beide
+aus denselben Blöcken, damit sich die Seiten nicht widersprechen. Eine Schätzung aus
+Ferienterminen und Einwohnerzahlen, keine Stau-Messung.
+
+Ein ruhiger Tag darf nicht zu viel Urlaub kosten: Je Richtung kommen nur Tage infrage, die
+höchstens ein Sechstel der freien Zeit kosten (Aufenthalt mindestens zwei Drittel). Bei kurzen
+Ferien liegt das ganze Fenster in der eigenen Welle – dann sagt die Seite ehrlich „kein ruhiger
+Tag“, statt einen Aufenthalt von zwei Tagen zu empfehlen.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
 from functools import cached_property
+
+WAVE_DAYS = 3        # Abfahrt in den ersten 3 Tagen eines freien Blocks, Rückfahrt in den letzten 3
+SHIFT_DIVISOR = 6    # je Richtung höchstens 1/6 der freien Tage später los bzw. früher zurück (6 Wochen: 7 Tage)
+QUIET_MAX = 0.25     # Reisewelle bis 25 % gilt als ruhig, aber nie mit dem eigenen Land in der Welle
 
 
 @dataclass(frozen=True)
@@ -73,11 +89,56 @@ def free_stretches(ranges: list[Range]) -> list[Range]:
     return stretches
 
 
+@dataclass(frozen=True)
+class Block:
+    """Freier Block eines Landes: Ferien plus angrenzende Wochenenden und bundesweite Feiertage."""
+    state: str
+    period: str
+    free: Range
+
+
+@dataclass(frozen=True)
+class WaveDay:
+    """Reisewelle an einem Tag: Bevölkerungsanteil und Länder (größtes zuerst)."""
+    day: date
+    share: float
+    states: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class QuietPick:
+    """Empfohlene Reisetage, bester zuerst (eine Rangfolge, keine Chronik).
+
+    calm=False: kein ruhiger Kandidat – days enthält dann nur den am wenigsten schlechten Tag,
+    damit die Seite das ehrlich sagen kann. over=True: alle Kandidaten liegen vor heute
+    (die Ferien laufen schon bzw. sind vorbei), days ist leer.
+    """
+    days: tuple[WaveDay, ...]
+    calm: bool
+    over: bool = False
+
+
+@dataclass(frozen=True)
+class Bayram:
+    """Ramazan- oder Kurban Bayramı laut Diyanet; der Arife-Tag (Vortag, halber Feiertag) separat."""
+    id: str
+    kind: str
+    label: dict
+    arife: date
+    days: Range
+
+    @property
+    def span(self) -> Range:
+        """Arife bis letzter Festtag – dieser Zeitraum wird mit den freien Blöcken verglichen."""
+        return Range(self.arife, self.days.end)
+
+
 class Period:
     def __init__(self, raw: dict) -> None:
         self.id: str = raw["id"]
         self.kind: str = raw["kind"]
         self.label: dict = raw["label"]
+        self.slug: dict = raw["slug"]  # Pfad je Sprache: /de/ferien/sommer-2027, /tr/tatil/yaz-2027
         self.ranges: dict[str, list[Range]] = {
             state: [Range(date.fromisoformat(s), date.fromisoformat(e)) for s, e in pairs]
             for state, pairs in raw["ranges"].items()
@@ -114,8 +175,32 @@ class HolidayRadar:
         self.states: dict = data["states"]
         self.periods: list[Period] = sorted((Period(p) for p in data["periods"]), key=lambda p: p.start)
         self.by_id = {p.id: p for p in self.periods}
+        self.by_slug: dict[str, dict[str, Period]] = {}  # Sprache → Slug → Zeitraum
+        for period in self.periods:
+            for lang, slug in period.slug.items():
+                self.by_slug.setdefault(lang, {})[slug] = period
         total = sum(s["population"] for s in self.states.values())
         self.weight = {code: s["population"] / total for code, s in self.states.items()}
+        self.bayrams: list[Bayram] = sorted(
+            (Bayram(b["id"], b["kind"], b["label"], date.fromisoformat(b["arife"]),
+                    Range(date.fromisoformat(b["start"]), date.fromisoformat(b["end"])))
+             for b in data.get("bayrams", {}).get("items", [])),
+            key=lambda b: b.arife)
+
+    @cached_property
+    def blocks(self) -> list[Block]:
+        """Alle freien Blöcke aller Länder und Zeiträume – Grundlage für Reisewellen und Ferien-Wellen."""
+        return [Block(state, period.id, stretch)
+                for period in self.periods for state in self.states for stretch in period.stretches(state)]
+
+    def _by_weight(self, states) -> tuple[str, ...]:
+        return tuple(sorted(set(states), key=lambda s: (-self.weight[s], s)))
+
+    def find_period(self, key: str) -> Period | None:
+        """Zeitraum zu einer id (alte Links mit ?zeitraum=) oder einem Slug irgendeiner Sprache."""
+        if key in self.by_id:
+            return self.by_id[key]
+        return next((slugs[key] for slugs in self.by_slug.values() if key in slugs), None)
 
     # -------------------------------------------------------------- Abfragen
 
@@ -185,43 +270,83 @@ class HolidayRadar:
     def peak(self, period: Period) -> tuple[date, float, int]:
         return max(self.series(period.start, period.end), key=lambda row: (row[1], -row[0].toordinal()))
 
-    def quiet_days(self, period: Period, state: str, count: int = 3) -> dict[str, list[tuple[date, float]]]:
-        """Ruhigste Abreise- und Rückreisetage innerhalb der Ferien eines Landes.
+    def wave(self, day: date, kind: str) -> WaveDay:
+        """Reisewelle an einem Tag.
 
-        Angrenzende Wochenenden und bundesweite Feiertage zählen mit (Ferien ab Montag →
-        Abreise schon am Samstag). Abreise: die ersten 7 freien Tage, Rückreise: die letzten 7.
-        Sortiert nach Ferien-Druck, bei Gleichstand der frühere (Abreise) bzw.
-        spätere Tag (Rückreise) – das lässt mehr Urlaub übrig.
+        kind="departure": Länder, deren freier Block an diesem Tag oder in den 2 Tagen davor
+        begonnen hat. kind="return": Länder, deren freier Block an diesem Tag oder in den 2 Tagen
+        danach endet. Das eigene Land zählt mit – es fährt ja auch.
+        """
+        reach = timedelta(days=WAVE_DAYS - 1)
+        if kind == "departure":
+            states = [b.state for b in self.blocks if day - reach <= b.free.start <= day]
+        else:
+            states = [b.state for b in self.blocks if day <= b.free.end <= day + reach]
+        ordered = self._by_weight(states)
+        return WaveDay(day, sum(self.weight[s] for s in ordered), ordered)
+
+    def quiet_days(self, period: Period, state: str, today: date | None = None,
+                   count: int = 3) -> dict[str, QuietPick]:
+        """Abreise- und Rückreisetage mit der kleinsten Reisewelle innerhalb der freien Zeit eines Landes.
+
+        Kandidaten: je Richtung die Tage vom Blockrand an, die höchstens ein Sechstel der freien
+        Tage kosten (SHIFT_DIVISOR) – so bleiben vom Urlaub mindestens zwei Drittel, und die
+        Abreise liegt immer vor der Rückreise. Tage vor heute fallen weg.
+
+        Ruhig ist ein Tag nur, wenn das eigene Land nicht in der Welle ist (dann fährt die
+        Nachbarschaft gleichzeitig los) und die Welle höchstens QUIET_MAX beträgt. Rangfolge nach
+        Reisewelle, bei Gleichstand der Tag näher am Blockrand (mehr Urlaub). Gibt es keinen
+        ruhigen Tag, nur den am wenigsten schlechten (calm=False).
+
+        Pro Land und Zeitraum gibt es genau einen freien Block (content.validate prüft das);
+        sonst überspannte die Empfehlung Schulwochen.
         """
         stretches = period.stretches(state)
         if not stretches:
-            return {"departure": [], "return": []}
-        first, last = stretches[0], stretches[-1]
-        dep_window = self.series(first.start, min(first.start + timedelta(days=6), first.end))
-        ret_window = self.series(max(last.end - timedelta(days=6), last.start), last.end)
-        departure = sorted(dep_window, key=lambda r: (round(r[1], 4), r[0]))[:count]
-        ret = sorted(ret_window, key=lambda r: (round(r[1], 4), -r[0].toordinal()))[:count]
-        return {
-            "departure": sorted(((d, s) for d, s, _ in departure), key=lambda x: x[0]),
-            "return": sorted(((d, s) for d, s, _ in ret), key=lambda x: x[0]),
-        }
+            return {"departure": QuietPick((), False), "return": QuietPick((), False)}
+        block = max(stretches, key=lambda r: r.days)
+        offsets = range(block.days // SHIFT_DIVISOR + 1)
+        dep = [block.start + timedelta(days=i) for i in offsets]
+        ret = [block.end - timedelta(days=i) for i in offsets]
+        return {"departure": self._pick(state, dep, "departure", today, count),
+                "return": self._pick(state, ret, "return", today, count)}
+
+    def _pick(self, state: str, days: list[date], kind: str, today: date | None, count: int) -> QuietPick:
+        """Beste Tage zuerst; days liegt nach Abstand zum Blockrand sortiert vor, sorted() ist stabil."""
+        candidates = [self.wave(day, kind) for day in days if today is None or day >= today]
+        if not candidates:
+            return QuietPick((), False, over=True)
+        ranked = sorted(candidates, key=lambda w: round(w.share, 9))
+        calm = [w for w in ranked if state not in w.states and w.share <= QUIET_MAX + 1e-9]
+        return QuietPick(tuple(calm[:count] if calm else ranked[:1]), bool(calm))
+
+    def bayrams_in(self, period: Period) -> list[tuple[Bayram, tuple[str, ...]]]:
+        """Bayram-Termine, die in freie Blöcke dieses Zeitraums fallen, mit den betroffenen Ländern."""
+        out = []
+        for bayram in self.bayrams:
+            states = [b.state for b in self.blocks if b.period == period.id
+                      and b.free.start <= bayram.span.end and bayram.span.start <= b.free.end]
+            if states:
+                out.append((bayram, self._by_weight(states)))
+        return out
 
     def waves(self, today: date, horizon_days: int = 150, min_share: float = 0.04) -> list[dict]:
-        """Ferienbeginn/-ende größerer Länder in den nächsten Monaten (für die Grenzseite)."""
+        """Beginn und Ende freier Blöcke größerer Länder in den nächsten Monaten (für die Grenzseite).
+
+        Dieselben Blöcke wie bei den Reisetagen im Ferien-Radar: Datum ist der erste bzw. letzte
+        freie Tag, also inklusive angrenzender Wochenenden und bundesweiter Feiertage.
+        """
         events: dict[tuple[str, date], list[str]] = {}
         limit = today + timedelta(days=horizon_days)
-        for period in self.periods:
-            for state in self.states:
-                span = period.span(state)
-                if span is None:
-                    continue
-                if today <= span.start <= limit:
-                    events.setdefault(("start", span.start), []).append(state)
-                if today <= span.end <= limit:
-                    events.setdefault(("end", span.end), []).append(state)
+        for block in self.blocks:
+            if today <= block.free.start <= limit:
+                events.setdefault(("start", block.free.start), []).append(block.state)
+            if today <= block.free.end <= limit:
+                events.setdefault(("end", block.free.end), []).append(block.state)
         out = []
         for (kind, day), states in events.items():
-            share = sum(self.weight[s] for s in states)
+            ordered = self._by_weight(states)
+            share = sum(self.weight[s] for s in ordered)
             if share >= min_share:
-                out.append({"kind": kind, "date": day, "states": sorted(states, key=lambda s: -self.weight[s]), "share": share})
-        return sorted(out, key=lambda e: e["date"])
+                out.append({"kind": kind, "date": day, "states": list(ordered), "share": share})
+        return sorted(out, key=lambda e: (e["date"], e["kind"]))

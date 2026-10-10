@@ -1,6 +1,7 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, status, asof with context %}
-{% block title %}{{ t("b_title") }}: Kapıkule, Röszke, Gradina – {{ t("app_name") }}{% endblock %}
+{% from "_macros.html" import icon, dirs, ext, asof with context %}
+{% block title %}{{ t("b_title_seo", names=main_names) }} – {{ t("app_name") }}{% endblock %}
+{% block description %}{{ t("b_lead") }}{% endblock %}
 {% block main %}
 <header class="pagehead">
   <h1>{{ icon("border") }}{{ t("b_title") }}</h1>
@@ -46,43 +47,38 @@
   </ul>
 </section>
 
-<section aria-labelledby="main-title">
-  <h2 id="main-title" class="section-title">{{ t("b_main") }}</h2>
+{#- Eine Liste von Übergängen. Ohne jede aktuelle Meldung (is-empty) nur Namen und eine Zeile
+    statt grauer Chips; app.js schaltet das nach jeder Aktualisierung um (data-live-list). #}
+{% macro crossing_list(items, title_id, title, call=False) -%}
+<section class="live{% if not any_live(statuses, items | map(attribute='id')) %} is-empty{% endif %}" aria-labelledby="{{ title_id }}" data-live-list>
+  <h2 id="{{ title_id }}" class="section-title">{{ title }}</h2>
+  <p class="live__empty">{{ icon("info", "icon--s") }}<span><strong>{{ t("b_empty_2h", h=window_h) }}</strong>{% if call %} {{ t("b_be_first") }}{% endif %}</span></p>
   <ul class="crossings">
-    {%- for c in crossings if c.main %}
+    {%- for c in items %}
     <li class="card crossing">
       <a class="crossing__head" href="{{ href('crossing', cid=c.id) }}">
         <span class="crossing__name">{{ c.name }}</span>
         <span class="crossing__countries">{{ cname(c.countries[0]) }} → {{ cname(c.countries[1]) }}</span>
         {{ icon("chevron", "icon--s crossing__chev") }}
       </a>
-      <div class="crossing__dirs">
-        <div class="dirrow"><span class="dirlabel">{{ t("b_dir_to_tr_short") }}</span>{{ status(statuses[c.id].to_tr, c.id, "to_tr", compact=True) }}</div>
-        <div class="dirrow"><span class="dirlabel">{{ t("b_dir_to_de_short") }}</span>{{ status(statuses[c.id].to_de, c.id, "to_de", compact=True) }}</div>
-      </div>
+      <div class="crossing__dirs live__rows">{{ dirs(statuses[c.id], c.id) }}</div>
     </li>
+    {%- endfor %}
+  </ul>
+</section>
+{%- endmacro %}
+{{ crossing_list(crossings | selectattr("main") | list, "main-title", t("b_main"), call=True) }}
+
+<section class="card" aria-labelledby="official-title">
+  <h2 id="official-title" class="card__title">{{ icon("external") }}{{ t("b_official") }}</h2>
+  <ul class="links">
+    {%- for s in official %}
+    <li>{{ ext(s.url, s.label[lang]) }}</li>
     {%- endfor %}
   </ul>
 </section>
 
-<section aria-labelledby="more-title">
-  <h2 id="more-title" class="section-title">{{ t("b_more") }}</h2>
-  <ul class="crossings crossings--compact">
-    {%- for c in crossings if not c.main %}
-    <li class="card crossing">
-      <a class="crossing__head" href="{{ href('crossing', cid=c.id) }}">
-        <span class="crossing__name">{{ c.name }}</span>
-        <span class="crossing__countries">{{ cname(c.countries[0]) }} → {{ cname(c.countries[1]) }}</span>
-        {{ icon("chevron", "icon--s crossing__chev") }}
-      </a>
-      <div class="crossing__dirs">
-        <div class="dirrow"><span class="dirlabel">{{ t("b_dir_to_tr_short") }}</span>{{ status(statuses[c.id].to_tr, c.id, "to_tr", compact=True) }}</div>
-        <div class="dirrow"><span class="dirlabel">{{ t("b_dir_to_de_short") }}</span>{{ status(statuses[c.id].to_de, c.id, "to_de", compact=True) }}</div>
-      </div>
-    </li>
-    {%- endfor %}
-  </ul>
-</section>
+{{ crossing_list(crossings | rejectattr("main") | list, "more-title", t("b_more")) }}
 
 <section class="card" aria-labelledby="waves-title">
   <h2 id="waves-title" class="card__title">{{ icon("calendar") }}{{ t("b_waves_title") }}</h2>
@@ -93,7 +89,7 @@
       <span class="waves__date">{{ fmt_date(w.date, with_weekday=True, with_year=False) }}</span>
       <span class="waves__kind">{{ icon("arrow", "icon--xs" ~ (" icon--flip" if w.kind == "end" else "")) }}{{ t("b_wave_start") if w.kind == "start" else t("b_wave_end") }}</span>
       <span class="waves__states">{% for s in w.states %}{{ radar.states[s].short }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
-      <span class="waves__share">{{ fmt_pct(w.share) }} %</span>
+      <span class="waves__share">{{ fmt_pct(w.share) }}</span>
     </li>
     {%- endfor %}
   </ul>

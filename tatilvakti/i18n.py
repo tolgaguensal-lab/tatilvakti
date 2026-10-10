@@ -83,14 +83,20 @@ def fmt_range(start: date, end: date, lang: str, tr: Translator) -> str:
     return f"{fmt_date(start, lang, tr, with_year=not same_year)}–{fmt_date(end, lang, tr)}"
 
 
-def fmt_pct(share: float) -> str:
-    """Prozent mit einer Nachkommastelle, Komma als Dezimaltrenner (in DE und TR gleich)."""
+def fmt_pct(share: float, lang: str = DEFAULT_LANG, digits: int = 1) -> str:
+    """Prozent mit Komma (Standard: eine Nachkommastelle), samt Zeichen in Landesschreibweise.
+
+    DE: '12,6 %' (geschütztes Leerzeichen, kein Umbruch vor %), TR: '%12,6' (Zeichen vorn).
+    """
     value = share * 100
-    if value >= 99.95:
-        return "100"
-    if value < 0.05:
-        return "0"
-    return f"{value:.1f}".replace(".", ",")
+    half = 0.5 / 10 ** digits
+    if value >= 100 - half:
+        number = "100"
+    elif value < half:
+        number = "0"
+    else:
+        number = f"{value:.{digits}f}".replace(".", ",")
+    return f"%{number}" if lang == "tr" else f"{number}\u00a0%"
 
 
 _FOLD = str.maketrans({"ı": "i", "İ": "i", "ß": "ss"})

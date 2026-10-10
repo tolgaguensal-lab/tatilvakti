@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Gemeinsame Funktionen für scripts/deploy.sh und scripts/rollback.sh.
+# Gemeinsame Funktionen für scripts/deploy.sh, scripts/rollback.sh und scripts/restore.sh.
 # Wird per "source" geladen, nicht direkt ausführen.
 #
 # Standardwerte passen zu deploy/tatilvakti-v2.service. Die TV_RELEASE_*-Variablen sind nur für
@@ -12,7 +12,14 @@ SERVICE_USER=${TV_RELEASE_USER:-$APP}
 ENV_FILE=${TV_RELEASE_ENV_FILE:-/etc/$APP.env}
 DB=${TV_RELEASE_DB:-/var/lib/$APP/tatilvakti.db}
 HEALTH_URL=${TV_RELEASE_HEALTH_URL:-http://127.0.0.1:3096/healthz}
-HEALTH_TRIES=${TV_RELEASE_HEALTH_TRIES:-30}  # Sekunden Wartezeit auf /healthz nach einem Neustart
+# Versuche im Sekundentakt auf /healthz nach einem Neustart. Ein Versuch dauert meist Millisekunden
+# (Dienst startet noch: Verbindung abgelehnt), bei belegter Schreibsperre bis 5 s; hängt der Dienst,
+# bis TIMEOUT_S in healthcheck.py (7 s). Im schlimmsten Fall also rund HEALTH_TRIES × 8 s (4 Min.).
+HEALTH_TRIES=${TV_RELEASE_HEALTH_TRIES:-30}
+# Verzeichnis dieser Datei, healthcheck.py liegt daneben. Physischer Pfad (pwd -P): rollback.sh
+# läuft aus current/scripts, und current zeigt nach dem Umschalten auf ein anderes Release, das
+# healthcheck.py vielleicht noch nicht hat.
+LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 
 log() { printf '%s  %s\n' "$(date '+%H:%M:%S')" "$*"; }
 die() { printf 'FEHLER: %s\n' "$*" >&2; exit 1; }
@@ -37,23 +44,25 @@ link_target() {  # $1 = Linkname in BASE; leer, wenn es ihn nicht gibt
     readlink "$BASE/$1" 2>/dev/null || true
 }
 
-# Nur ein deploy.sh/rollback.sh zur Zeit: beide setzen current/previous und räumen releases/ auf.
-# Die Sperre gilt bis zum Ende des Skripts (fd 9 bleibt offen).
+# Nur ein deploy.sh/rollback.sh/restore.sh zur Zeit: deploy.sh und rollback.sh setzen
+# current/previous und räumen releases/ auf, alle drei starten den Dienst neu, restore.sh tauscht
+# die DB aus. Die Sperre gilt bis zum Ende des Skripts (fd 9 bleibt offen).
 take_lock() {
     [ -d "$BASE" ] || die "$BASE fehlt"
     exec 9>"$BASE/.lock"
-    flock -n 9 || die "deploy.sh oder rollback.sh läuft bereits (Sperre $BASE/.lock)"
+    flock -n 9 || die "deploy.sh, rollback.sh oder restore.sh läuft bereits (Sperre $BASE/.lock)"
 }
 
 # Zustand laut systemd: active, activating, reloading, deactivating, inactive, failed …
-service_state() {
-    systemctl is-active "$SERVICE" 2>/dev/null || true
+service_state() {  # $1 = Unit, Standard ist der Dienst
+    systemctl is-active "${1:-$SERVICE}" 2>/dev/null || true
 }
 
 # Soll der Dienst laufen? Ja, wenn er läuft, gerade (neu) startet oder abgestürzt ist, auch nach
 # zu vielen Fehlstarts (failed/start-limit-hit). 'inactive' heißt: bewusst gestoppt oder nie gestartet.
-service_wanted() {
-    case $(service_state) in
+# restore.sh fragt so auch die Timer ab.
+service_wanted() {  # $1 = Unit, Standard ist der Dienst
+    case $(service_state "${1:-}") in
         active|activating|reloading|failed) return 0 ;;
         *) return 1 ;;
     esac
@@ -75,37 +84,20 @@ run_preflight() {  # $1 = Release-Verzeichnis, weitere Argumente gehen an prefli
     return 1
 }
 
-# Wartet bis zu HEALTH_TRIES Sekunden, bis /healthz mit HTTP 200 und db=true antwortet und (falls
-# angegeben) die erwartete Build-ID meldet. HTTP 503 heißt: Die App läuft, erreicht aber ihre
-# Datenbank nicht. Eine unbrauchbare Schlüssel-DB (salt_db=false) gibt nur eine WARNUNG: Die Seiten
-# laufen, aber jede Meldung scheitert, und die Ursache liegt oft außerhalb des Releases (/run).
+# Wartet bis zu HEALTH_TRIES Versuche lang (im Sekundentakt), bis /healthz gesund ist und (falls
+# angegeben) die erwartete Build-ID meldet. Auswertung in scripts/healthcheck.py: Der Body zählt
+# auch bei HTTP 503; 'db' unter 'down' ist ein Fehler, 'salt_db' allein nur eine WARNUNG (die
+# Ursache liegt meist außerhalb des Releases, z. B. /run). Antworten älterer Releases zählen genauso.
 wait_healthy() {  # $1 = erwartete Build-ID oder leer
-    local expected=${1:-} i
+    local expected=${1:-} i out=
     for i in $(seq 1 "$HEALTH_TRIES"); do
-        if python3 - "$HEALTH_URL" "$expected" <<'PY'
-import json
-import sys
-import urllib.request
-
-url, expected = sys.argv[1], sys.argv[2]
-try:
-    with urllib.request.urlopen(url, timeout=3) as resp:
-        data = json.load(resp)
-except Exception:
-    sys.exit(1)
-if data.get("db") is not True or (expected and data.get("build") != expected):
-    sys.exit(1)
-print(f"/healthz: status={data.get('status')} build={data.get('build')} "
-      f"attention={data.get('attention', [])}")
-if data.get("salt_db") is False:
-    print("WARNUNG: Schlüssel-DB (TV_SALT_DB_PATH) nicht nutzbar, jede Meldung scheitert. "
-          "Ursache: journalctl -u tatilvakti-v2 -n 50", file=sys.stderr)
-PY
-        then
+        if out=$(python3 "$LIB_DIR/healthcheck.py" "$HEALTH_URL" "$expected"); then
+            printf '%s\n' "$out"
             return 0
         fi
         [ "$i" -ge "$HEALTH_TRIES" ] || sleep 1
     done
+    log "Letzte Antwort: ${out:-keine}"
     return 1
 }
 
@@ -127,7 +119,7 @@ activate_release() {  # $1 = releases/<name>, $2 = erwartete Build-ID
     old_prev=$(link_target previous)
     # Vor dem Umschalten festhalten: Nach einem Fehlstart des neuen Releases steht der Dienst auf
     # 'activating' (Neustart-Takt) oder 'failed' (start-limit-hit) und sagt das nicht mehr.
-    if service_wanted; then wanted=1; fi
+    if service_wanted "$SERVICE"; then wanted=1; fi
     set_link "$new" current
     [ -z "$prev" ] || set_link "$prev" previous
     log "current → $new (vorher: ${prev:-keins}), Build $build"

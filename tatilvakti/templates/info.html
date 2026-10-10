@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros.html" import icon, ext with context %}
 {% block title %}{{ t("i_title") }} – {{ t("app_name") }}{% endblock %}
+{% block description %}{{ t("i_lead") }}{% endblock %}
 {% block main %}
 <header class="pagehead">
   <h1>{{ icon("info") }}{{ t("i_title") }}</h1>
@@ -15,14 +16,15 @@
     {%- if ds.due %}<p class="due">{{ icon("alert", "icon--xs") }} {{ t("review_due") }}</p>{% endif %}
     {%- if ds.meta.note %}<p class="hint">{{ ds.meta.note[lang] }}</p>{% endif %}
     {%- if ds.name == "holidays" %}
-    <ul class="links">{% for s in ds.meta.sources %}<li>{{ ext(s.url, s.name) }}</li>{% endfor %}<li>{{ ext(ds.meta.population_source.url, ds.meta.population_source.name) }}</li></ul>
+    <ul class="links">{% for s in ds.meta.sources %}<li>{{ ext(s.url, s.name[lang]) }}</li>{% endfor %}<li>{{ ext(ds.meta.population_source.url, ds.meta.population_source.name[lang]) }}</li>
+      {%- if content.holidays.bayrams %}<li>Bayram: {{ ext(content.holidays.bayrams.source.url, content.holidays.bayrams.source.name[lang]) }}</li>{% endif %}</ul>
     {%- elif ds.name == "customs" %}
-    <ul class="links">{% for key, s in content.customs.sources.items() %}<li>{{ ext(s.url, s.name) }}</li>{% endfor %}</ul>
+    <ul class="links">{% for key, s in content.customs.sources.items() %}<li>{{ ext(s.url, s.name[lang]) }}</li>{% endfor %}</ul>
     {%- elif ds.name == "transit" %}
-    <ul class="links">{% for code, ct in content.transit.countries.items() %}<li>{{ ct.name[lang] }}: {{ ext(ct.source.url, ct.source.name) }}{% for n in ct.notes if n.source %} · {{ ext(n.source.url, n.source.name) }}{% endfor %}</li>{% endfor %}
-      {%- for doc in content.transit.documents if doc.source %}<li>{{ t("r_docs") }}: {{ ext(doc.source.url, doc.source.name) }}</li>{% endfor %}</ul>
+    <ul class="links">{% for code, ct in content.transit.countries.items() %}<li>{{ ct.name[lang] }}: {{ ext(ct.source.url, ct.source.name[lang]) }}{% for n in ct.notes if n.source %} · {{ ext(n.source.url, n.source.name[lang]) }}{% endfor %}</li>{% endfor %}
+      {%- for doc in content.transit.documents if doc.source %}<li>{{ t("r_docs") }}: {{ ext(doc.source.url, doc.source.name[lang]) }}</li>{% endfor %}</ul>
     {%- elif ds.name == "crossings" %}
-    <ul class="links">{% for key, s in content.crossings.sources.items() %}<li>{{ ext(s.url, s.name) }}</li>{% endfor %}</ul>
+    <ul class="links">{% for key, s in content.crossings.sources.items() %}<li>{{ ext(s.url, s.name[lang]) }}</li>{% endfor %}</ul>
     {%- endif %}
   </li>
   {%- endfor %}
@@ -32,19 +34,40 @@
   </li>
 </ul>
 
+<section class="card prose" id="offline" aria-labelledby="offline-title">
+  <h2 id="offline-title" class="card__title">{{ icon("offline") }}{{ t("i_offline") }}</h2>
+  <p>{{ t("i_offline_p1") }}</p>
+  <p>{{ t("i_offline_p2") }}</p>
+  <p class="hint">{{ t("source") }}: {{ ext("https://webkit.org/tracking-prevention/", "WebKit: Tracking Prevention") }}</p>
+</section>
+
 <section class="card prose" id="datenschutz" aria-labelledby="privacy-title">
   <h2 id="privacy-title" class="card__title">{{ t("i_privacy") }}</h2>
   <p>{{ t("i_privacy_p1") }}</p>
-  <p>{{ t("i_privacy_p2") }}</p>
-  <p>{{ t("i_privacy_p3") }}</p>
+  {#- Muss zu app.js passen: jeder localStorage-Schlüssel (tv.*) und der Cache des Service Workers #}
+  <h3>{{ t("i_privacy_device_title") }}</h3>
+  <p>{{ t("i_privacy_device_intro") }}</p>
+  <ul class="bullets">
+    {%- for key in ("prefs", "checks", "queue", "last", "a2hs", "cache") %}
+    <li>{{ t("i_privacy_dev_" ~ key) }}</li>
+    {%- endfor %}
+  </ul>
+  <p>{{ t("i_privacy_device_note") }}</p>
+  <p>{{ t("i_privacy_device_law") }}</p>
+  <p>{{ t("i_privacy_land") }}</p>
+  <h3>{{ t("i_privacy_reports_title") }}</h3>
+  <p>{{ t("i_privacy_p3", h=hash_ttl_h) }}</p>
+  <p>{{ t("i_privacy_reports_keep", days=retention_days) }}</p>
+  <h3>{{ t("i_privacy_server_title") }}</h3>
   <p>{{ t("i_privacy_p4") }}</p>
 </section>
 
 <section class="card prose" id="impressum" aria-labelledby="imprint-title">
   <h2 id="imprint-title" class="card__title">{{ t("i_imprint") }}</h2>
-  {%- if operator.name and operator.address %}
-  <address>{{ operator.name }}{% for line in operator.address.split(";") %}<br>{{ line.strip() }}{% endfor %}</address>
-  {%- if operator.email %}<p>{{ t("i_contact") }}: <a href="mailto:{{ operator.email }}">{{ operator.email }}</a></p>{% endif %}
+  {#- Nur vollständig (Name, Anschrift, E-Mail), nie ein halbes Impressum – siehe operator_imprint #}
+  {%- if operator %}
+  <address>{{ operator.name }}{% for line in operator.address_lines %}<br>{{ line }}{% endfor %}</address>
+  <p>{{ t("i_contact") }}: <a href="mailto:{{ operator.email }}">{{ operator.email }}</a></p>
   {%- else %}
   <p class="due">{{ icon("alert", "icon--xs") }} {{ t("i_imprint_missing") }}</p>
   {%- endif %}

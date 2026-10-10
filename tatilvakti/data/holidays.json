@@ -4,14 +4,14 @@
     "as_of": "2026-10-06",
     "review_after": "2027-09-30",
     "sources": [
-      {"name": "KMK – Ferienkalender der Länder", "url": "https://www.kmk.org/service/ferienregelung/ferienkalender.html"},
-      {"name": "Schulministerium NRW – Ferienordnung", "url": "https://www.schulministerium.nrw/service/ferienordnung-nrw-bis-2029-30"},
-      {"name": "Kultusministerium Baden-Württemberg – Ferien", "url": "https://km.baden-wuerttemberg.de/de/service/ferien"}
+      {"name": {"de": "KMK – Ferienkalender der Länder", "tr": "KMK (Eyalet Eğitim Bakanları Konferansı) – eyaletlerin tatil takvimi"}, "url": "https://www.kmk.org/service/ferienregelung/ferienkalender.html"},
+      {"name": {"de": "Schulministerium NRW – Ferienordnung", "tr": "NRW Eğitim Bakanlığı – tatil yönetmeliği"}, "url": "https://www.schulministerium.nrw/service/ferienordnung-nrw-bis-2029-30"},
+      {"name": {"de": "Kultusministerium Baden-Württemberg – Ferien", "tr": "Baden-Württemberg Eğitim Bakanlığı – okul tatilleri"}, "url": "https://km.baden-wuerttemberg.de/de/service/ferien"}
     ],
-    "population_source": {"name": "Statistisches Bundesamt (Destatis), Bevölkerungsfortschreibung Zensus 2022, Stand 31.12.2024", "url": "https://www.destatis.de/DE/Presse/Pressemitteilungen/2025/06/PD25_221_124.html"},
+    "population_source": {"name": {"de": "Statistisches Bundesamt (Destatis), Bevölkerungsfortschreibung Zensus 2022, Stand 31.12.2024", "tr": "Almanya Federal İstatistik Kurumu (Destatis), 2022 nüfus sayımına dayalı nüfus verileri, 31.12.2024 itibarıyla"}, "url": "https://www.destatis.de/DE/Presse/Pressemitteilungen/2025/06/PD25_221_124.html"},
     "note": {
       "de": "Schulferien der Länder laut KMK-Ferienkalender und Ferienordnungen der Länder (Herbst-, Weihnachts-, Winter-, Oster-, Pfingst- und Sommerferien), am 06.10.2026 über mehrere unabhängige Quellen abgeglichen. Nicht enthalten sind kurze Ferien, die zusammen mit Wochenende und Feiertagen höchstens eine Woche frei ergeben – etwa einzelne Ferientage nach Himmelfahrt oder Pfingsten oder zwei Tage Winterferien –, denn für eine Reise in die Türkei reichen sie selten. Bewegliche Ferientage, die jede Schule selbst festlegt, fehlen ebenfalls. Maßgeblich ist immer das Kultusministerium deines Landes.",
-      "tr": "Eyaletlerin okul tatilleri KMK tatil takvimine ve eyaletlerin tatil yönetmeliklerine göre (sonbahar, Noel, kış, Paskalya, Pfingsten ve yaz tatilleri); 06.10.2026 tarihinde birden fazla bağımsız kaynakla karşılaştırıldı. Hafta sonu ve resmi tatillerle birlikte en fazla bir hafta süren kısa tatiller – örneğin Himmelfahrt ya da Pfingsten'den sonraki tek tatil günleri veya iki günlük kış tatili – dahil değildir, çünkü Türkiye'ye gidip gelmek için genelde yetmez. Her okulun kendi belirlediği serbest tatil günleri de dahil değildir. Kesin bilgi her zaman eyaletinin Eğitim Bakanlığı'ndadır."
+      "tr": "Eyaletlerin okul tatilleri, KMK tatil takvimine ve eyaletlerin tatil yönetmeliklerine göre (sonbahar, Noel/yılbaşı, kış, Paskalya, Pfingsten ve yaz tatilleri); 06.10.2026 tarihinde birden fazla bağımsız kaynakla karşılaştırıldı. Hafta sonu ve resmî tatillerle birlikte en fazla bir hafta süren kısa tatiller – örneğin Hristiyanların Göğe Yükseliş ve Pfingsten bayramlarından sonraki birer günlük tatiller ya da iki günlük kış tatili – dahil değildir, çünkü Türkiye'ye gidip gelmek için genelde yetmez. Okulların kendi belirlediği ek tatil günleri de dahil değildir. Kesin bilgi her zaman eyaletinin Eğitim Bakanlığı'ndadır."
     }
   },
   "states": {
@@ -32,11 +32,22 @@
     "SH": {"name": "Schleswig-Holstein", "short": "SH", "population": 2959517},
     "TH": {"name": "Thüringen", "short": "TH", "population": 2100277}
   },
+  "bayrams": {
+    "as_of": "2026-10-07",
+    "source": {"name": {"de": "Diyanet İşleri Başkanlığı – Dini Günler (religiöse Feiertage)", "tr": "Diyanet İşleri Başkanlığı – Dini Günler"}, "url": "https://namazvakitleri.diyanet.gov.tr/en-US/dini-gunler"},
+    "items": [
+      {"id": "ramazan-2027", "kind": "ramazan", "label": {"de": "Ramazan Bayramı (Zuckerfest)", "tr": "Ramazan Bayramı"},
+       "arife": "2027-03-08", "start": "2027-03-09", "end": "2027-03-11"},
+      {"id": "kurban-2027", "kind": "kurban", "label": {"de": "Kurban Bayramı (Opferfest)", "tr": "Kurban Bayramı"},
+       "arife": "2027-05-15", "start": "2027-05-16", "end": "2027-05-19"}
+    ]
+  },
   "periods": [
     {
       "id": "herbst-2026",
       "kind": "herbst",
-      "label": {"de": "Herbstferien 2026", "tr": "2026 Sonbahar tatili"},
+      "label": {"de": "Herbstferien 2026", "tr": "2026 sonbahar tatili"},
+      "slug": {"de": "herbst-2026", "tr": "sonbahar-2026"},
       "ranges": {
         "BW": [["2026-10-26", "2026-10-30"]],
         "BY": [["2026-11-02", "2026-11-06"]],
@@ -59,7 +70,8 @@
     {
       "id": "weihnachten-2026",
       "kind": "weihnachten",
-      "label": {"de": "Weihnachtsferien 2026/27", "tr": "2026/27 Yılbaşı tatili"},
+      "label": {"de": "Weihnachtsferien 2026/27", "tr": "2026/27 yılbaşı tatili"},
+      "slug": {"de": "weihnachten-2026", "tr": "yilbasi-2026-27"},
       "ranges": {
         "BW": [["2026-12-23", "2027-01-09"]],
         "BY": [["2026-12-24", "2027-01-08"]],
@@ -82,7 +94,8 @@
     {
       "id": "winter-2027",
       "kind": "winter",
-      "label": {"de": "Winterferien 2027", "tr": "2027 Kış tatili"},
+      "label": {"de": "Winterferien 2027", "tr": "2027 kış tatili"},
+      "slug": {"de": "winter-2027", "tr": "kis-2027"},
       "ranges": {
         "BW": [],
         "BY": [["2027-02-08", "2027-02-12"]],
@@ -106,6 +119,7 @@
       "id": "ostern-2027",
       "kind": "ostern",
       "label": {"de": "Oster-/Frühjahrsferien 2027", "tr": "2027 Paskalya/bahar tatili"},
+      "slug": {"de": "ostern-2027", "tr": "paskalya-2027"},
       "ranges": {
         "BW": [["2027-03-25", "2027-03-25"], ["2027-03-30", "2027-04-03"]],
         "BY": [["2027-03-22", "2027-04-02"]],
@@ -128,7 +142,8 @@
     {
       "id": "pfingsten-2027",
       "kind": "pfingsten",
-      "label": {"de": "Himmelfahrt-/Pfingstferien 2027", "tr": "2027 Pfingsten/Mayıs tatili"},
+      "label": {"de": "Himmelfahrt-/Pfingstferien 2027", "tr": "2027 Mayıs tatili (Pfingsten)"},
+      "slug": {"de": "pfingsten-2027", "tr": "mayis-2027"},
       "ranges": {
         "BW": [["2027-05-18", "2027-05-29"]],
         "BY": [["2027-05-18", "2027-05-28"]],
@@ -151,7 +166,8 @@
     {
       "id": "sommer-2027",
       "kind": "sommer",
-      "label": {"de": "Sommerferien 2027", "tr": "2027 Yaz tatili"},
+      "label": {"de": "Sommerferien 2027", "tr": "2027 yaz tatili"},
+      "slug": {"de": "sommer-2027", "tr": "yaz-2027"},
       "ranges": {
         "BW": [["2027-07-29", "2027-09-11"]],
         "BY": [["2027-08-02", "2027-09-13"]],
@@ -174,7 +190,8 @@
     {
       "id": "sommer-2028",
       "kind": "sommer",
-      "label": {"de": "Sommerferien 2028", "tr": "2028 Yaz tatili"},
+      "label": {"de": "Sommerferien 2028", "tr": "2028 yaz tatili"},
+      "slug": {"de": "sommer-2028", "tr": "yaz-2028"},
       "ranges": {
         "BW": [["2028-07-27", "2028-09-09"]],
         "BY": [["2028-07-31", "2028-09-11"]],

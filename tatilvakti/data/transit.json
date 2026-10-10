@@ -5,7 +5,7 @@
     "review_after": "2027-01-31",
     "note": {
       "de": "Preise nur, wo mehrere Quellen übereinstimmen. Kaufe Vignetten im offiziellen Shop – Drittanbieter verlangen oft Aufschläge.",
-      "tr": "Fiyatlar yalnızca birden fazla kaynağın örtüştüğü yerlerde verilmiştir. Vinyetleri resmi satış sitesinden al – aracı siteler çoğu zaman ek ücret alır."
+      "tr": "Fiyatlar yalnızca birden fazla kaynağın örtüştüğü yerlerde verilmiştir. Vinyetleri resmî satış sitesinden al – aracı siteler çoğu zaman ek ücret alır."
     }
   },
   "countries": {
@@ -16,7 +16,10 @@
       },
       "system": "vignette",
       "shop": {
-        "name": "ASFINAG Mautshop",
+        "name": {
+          "de": "ASFINAG Mautshop",
+          "tr": "ASFINAG – vinyet satışı"
+        },
         "url": "https://shop.asfinag.at"
       },
       "prices": [
@@ -51,7 +54,10 @@
       ],
       "prices_valid_until": "2027-01-31",
       "source": {
-        "name": "ASFINAG – Vignette 2026",
+        "name": {
+          "de": "ASFINAG – Vignette 2026",
+          "tr": "ASFINAG – 2026 vinyeti"
+        },
         "url": "https://www.asfinag.at/ueber-uns/presse/pressemeldungen/klebevignette-2026-wird-feuerrot/"
       },
       "notes": [
@@ -76,7 +82,10 @@
       },
       "system": "evignette",
       "shop": {
-        "name": "DARS e-vinjeta",
+        "name": {
+          "de": "DARS e-vinjeta",
+          "tr": "DARS e-vinjeta"
+        },
         "url": "https://evinjeta.dars.si"
       },
       "prices": [
@@ -111,7 +120,10 @@
       ],
       "prices_valid_until": "2026-12-31",
       "source": {
-        "name": "DARS e-vinjeta – Preise 2026 (Klassen 2A und 2B)",
+        "name": {
+          "de": "DARS e-vinjeta – Preise 2026 (Klassen 2A und 2B)",
+          "tr": "DARS e-vinjeta – 2026 fiyatları (2A ve 2B sınıfları)"
+        },
         "url": "https://evinjeta.dars.si"
       },
       "notes": [
@@ -132,12 +144,18 @@
       },
       "system": "toll",
       "shop": {
-        "name": "HAC – Hrvatske autoceste",
+        "name": {
+          "de": "HAC – Hrvatske autoceste",
+          "tr": "HAC – Hrvatske autoceste (Hırvatistan otoyol işletmesi)"
+        },
         "url": "https://www.hac.hr"
       },
       "prices": [],
       "source": {
-        "name": "CroLibertas – offizielle Seite des neuen Mautsystems (ab 01.03.2027)",
+        "name": {
+          "de": "CroLibertas – offizielle Seite des neuen Mautsystems (ab 01.03.2027)",
+          "tr": "CroLibertas – yeni otoyol ücret sisteminin resmî sitesi (01.03.2027'den itibaren)"
+        },
         "url": "https://www.crolibertas.hr"
       },
       "notes": [
@@ -158,7 +176,10 @@
       },
       "system": "evignette",
       "shop": {
-        "name": "Nemzeti Útdíjfizetési Szolgáltató (e-matrica)",
+        "name": {
+          "de": "Nemzeti Útdíjfizetési Szolgáltató (e-matrica)",
+          "tr": "Nemzeti Útdíjfizetési Szolgáltató (e-matrica)"
+        },
         "url": "https://nemzetiutdij.hu"
       },
       "prices": [
@@ -179,13 +200,16 @@
       ],
       "prices_valid_until": "2026-12-31",
       "source": {
-        "name": "NÚSZ (Nemzeti Útdíjfizetési Szolgáltató) – e-matrica, Preise 2026",
+        "name": {
+          "de": "NÚSZ (Nemzeti Útdíjfizetési Szolgáltató) – e-matrica, Preise 2026",
+          "tr": "NÚSZ (Nemzeti Útdíjfizetési Szolgáltató) – e-matrica, 2026 fiyatları"
+        },
         "url": "https://nemzetiutdij.hu"
       },
       "notes": [
         {
           "de": "Digitale Vignette („e-matrica“), ans Kennzeichen gebunden. Am besten vor der Auffahrt auf die Autobahn kaufen.",
-          "tr": "Dijital vinyet („e-matrica“), plakaya bağlı. En iyisi otoyola çıkmadan önce satın almak."
+          "tr": "Dijital vinyet (“e-matrica”), plakaya bağlı. En iyisi otoyola çıkmadan önce satın almak."
         },
         {
           "de": "D1 gilt nur für Fahrzeuge bis 3,5 t mit höchstens 7 Sitzplätzen inklusive Fahrer. Mehr Sitzplätze, Wohnmobil oder Transporter: D2. Maßgeblich sind Fahrzeugklasse (Feld J) und Sitzplätze (Feld S.1) im Fahrzeugschein.",
@@ -200,12 +224,18 @@
       },
       "system": "toll",
       "shop": {
-        "name": "AMSS – Maut in Serbien",
+        "name": {
+          "de": "AMSS – Maut in Serbien",
+          "tr": "AMSS – Sırbistan'da otoyol ücretleri"
+        },
         "url": "https://www.amss.org.rs/na-putu/na-putu-evropa/putne-informacije-o-drzavi/drzava/putarine"
       },
       "prices": [],
       "source": {
-        "name": "AMSS – Auto-moto savez Srbije",
+        "name": {
+          "de": "AMSS – Auto-moto savez Srbije",
+          "tr": "AMSS – Auto-moto savez Srbije (Sırbistan otomobil kulübü)"
+        },
         "url": "https://www.amss.org.rs/na-putu/na-putu-evropa/putne-informacije-o-drzavi/drzava/putarine"
       },
       "notes": [
@@ -221,7 +251,10 @@
           "de": "Serbien gehört nicht zum EU-Roaming: Mobile Daten können teuer werden. Tarif vorher prüfen oder Datenroaming abschalten.",
           "tr": "Sırbistan AB roaming bölgesine dahil değil: mobil veri pahalı olabilir. Tarifeni önceden kontrol et ya da veri roamingini kapat.",
           "source": {
-            "name": "EU-Kommission – Roaming und Westbalkan",
+            "name": {
+              "de": "EU-Kommission – Roaming und Westbalkan",
+              "tr": "Avrupa Komisyonu – roaming ve Batı Balkanlar"
+            },
             "url": "https://digital-strategy.ec.europa.eu/en/news/roam-home-commission-proposes-open-negotiations-extend-eu-roaming-western-balkans"
           }
         },
@@ -229,7 +262,10 @@
           "de": "Im Auto mitführen: Verbandkasten, Warndreieck, Warnwesten, Abschleppseil und Ersatzlampen. Licht ist auch tagsüber Pflicht.",
           "tr": "Araçta bulunması zorunlu: ilk yardım çantası, üçgen reflektör, reflektörlü yelekler, çekme halatı ve yedek ampuller. Gündüz de farlarını açman zorunlu.",
           "source": {
-            "name": "ADAC – Mit dem Fahrzeug in Serbien",
+            "name": {
+              "de": "ADAC – Mit dem Fahrzeug in Serbien",
+              "tr": "ADAC – araçla Sırbistan'a"
+            },
             "url": "https://www.adac.de/reise-freizeit/reiseplanung/reiseziele/serbien/fahrzeug/"
           }
         }
@@ -242,7 +278,10 @@
       },
       "system": "vignette",
       "shop": {
-        "name": "TollRo (CNAIR) – etoll.ro",
+        "name": {
+          "de": "TollRo (CNAIR) – etoll.ro",
+          "tr": "TollRo (CNAIR) – etoll.ro"
+        },
         "url": "https://etoll.ro"
       },
       "prices": [
@@ -270,13 +309,16 @@
       ],
       "prices_valid_until": "2026-12-31",
       "source": {
-        "name": "CNAIR (rumänischer Straßenbetreiber) – Tarife Rovinietă und TollRo ab 01.10.2026 (Ordin MTI 888/2026)",
+        "name": {
+          "de": "CNAIR (rumänischer Straßenbetreiber) – Tarife Rovinietă und TollRo ab 01.10.2026 (Ordin MTI 888/2026)",
+          "tr": "CNAIR (Romanya karayolu işletmesi) – 01.10.2026'dan itibaren Rovinietă ve TollRo tarifeleri (Ordin MTI 888/2026)"
+        },
         "url": "https://www.cnadnr.ro"
       },
       "notes": [
         {
           "de": "Die Vignette („Rovinieta“) gilt für alle Nationalstraßen, nicht nur für Autobahnen. Seit 01.10.2026 hängt der Preis von der Abgasnorm ab: Gib beim Kauf die Euro-Norm aus dem Fahrzeugschein an, sonst wird der teuerste Tarif berechnet.",
-          "tr": "Vinyet („Rovinieta“) yalnızca otoyollar için değil, tüm devlet yolları için gerekir. 01.10.2026'dan beri fiyat emisyon normuna göre değişiyor: Satın alırken ruhsattaki Euro normunu gir, yoksa en pahalı tarif uygulanır."
+          "tr": "Vinyet (“Rovinieta”) yalnızca otoyollar için değil, tüm devlet yolları için gerekir. 01.10.2026'dan beri fiyat emisyon normuna göre değişiyor: Satın alırken ruhsattaki Euro normunu gir, yoksa en pahalı tarife uygulanır."
         },
         {
           "de": "Die Preise oben gelten für Pkw (Kategorie A). Ist dein Fahrzeug als Lkw, Transporter oder Bus zugelassen, gilt eine andere Kategorie – im Shop die Kategorie deines Fahrzeugs prüfen.",
@@ -284,13 +326,16 @@
         },
         {
           "de": "Seit 01.10.2026 gibt es die Vignette nur noch über die offiziellen Kanäle des neuen Systems TollRo: Portal etoll.ro, App „TollRo“, CNAIR-Verkaufsstellen (auch an der Grenze) und zugelassene Verkäufer.",
-          "tr": "01.10.2026'dan beri vinyet yalnızca yeni TollRo sisteminin resmi kanallarından alınabiliyor: etoll.ro portalı, „TollRo“ uygulaması, CNAIR satış noktaları (sınırda da) ve yetkili satıcılar."
+          "tr": "01.10.2026'dan beri vinyet yalnızca yeni TollRo sisteminin resmî kanallarından alınabiliyor: etoll.ro portalı, “TollRo” uygulaması, CNAIR satış noktaları (sınırda da) ve yetkili satıcılar."
         },
         {
           "de": "Donaubrücke Calafat–Vidin: 6 € je Richtung.",
           "tr": "Calafat–Vidin Tuna köprüsü: her yön için 6 €.",
           "source": {
-            "name": "Brücke Vidin–Calafat – Gebühren",
+            "name": {
+              "de": "Brücke Vidin–Calafat – Gebühren",
+              "tr": "Vidin–Calafat köprüsü – geçiş ücretleri"
+            },
             "url": "https://www.vidincalafatbridge.bg/en/charges"
           }
         },
@@ -298,7 +343,10 @@
           "de": "Donaubrücke Giurgiu–Ruse: Richtung Bulgarien (Hinweg) seit 01.10.2026 gebührenfrei, Richtung Rumänien (Rückweg) verlangt Bulgarien weiterhin eine Gebühr.",
           "tr": "Giurgiu–Ruse Tuna köprüsü: Bulgaristan yönü (gidiş) 01.10.2026'dan beri ücretsiz, Romanya yönü (dönüş) için Bulgaristan ücret almaya devam ediyor.",
           "source": {
-            "name": "Radio România Internațional – Brückengebühr Giurgiu–Ruse entfällt",
+            "name": {
+              "de": "Radio România Internațional – Brückengebühr Giurgiu–Ruse entfällt",
+              "tr": "Radio România Internațional – Giurgiu–Ruse köprü ücreti kalkıyor"
+            },
             "url": "https://www.rri.ro/actualitate/alerte-si-sfaturi-de-calatorie/taxa-pentru-trecerea-podului-giurgiu-ruse-eliminata-de-la-1-octombrie-id1064500.html"
           }
         }
@@ -311,7 +359,10 @@
       },
       "system": "evignette",
       "shop": {
-        "name": "BG TOLL (Straßenagentur)",
+        "name": {
+          "de": "BG TOLL (Straßenagentur)",
+          "tr": "BG TOLL (Bulgaristan karayolu ajansı)"
+        },
         "url": "https://bgtoll.bg"
       },
       "prices": [
@@ -346,7 +397,10 @@
       ],
       "prices_valid_until": "2027-01-31",
       "source": {
-        "name": "BG TOLL (Straßenagentur) – Vignettenpreise ab 01.08.2026",
+        "name": {
+          "de": "BG TOLL (Straßenagentur) – Vignettenpreise ab 01.08.2026",
+          "tr": "BG TOLL (Bulgaristan karayolu ajansı) – 01.08.2026'dan itibaren vinyet fiyatları"
+        },
         "url": "https://bgtoll.bg"
       },
       "notes": [
@@ -367,18 +421,24 @@
       },
       "system": "hgs",
       "shop": {
-        "name": "KGM – Yabancı plakalı araçlar",
+        "name": {
+          "de": "KGM – Yabancı plakalı araçlar",
+          "tr": "KGM – Yabancı plakalı araçlar"
+        },
         "url": "https://www.kgm.gov.tr/Sayfalar/KGM/SiteTr/Otoyollar/YabanciPlakaliAraclar.aspx"
       },
       "prices": [],
       "source": {
-        "name": "KGM – Karayolları Genel Müdürlüğü",
+        "name": {
+          "de": "KGM – Karayolları Genel Müdürlüğü",
+          "tr": "KGM – Karayolları Genel Müdürlüğü"
+        },
         "url": "https://www.kgm.gov.tr/Sayfalar/KGM/SiteTr/Otoyollar/YabanciPlakaliAraclar.aspx"
       },
       "notes": [
         {
           "de": "Mautpflichtige Autobahnen und Brücken nur mit HGS-Konto mit genug Guthaben – auch mit ausländischem Kennzeichen.",
-          "tr": "Ücretli otoyol ve köprüler yalnızca yeterli bakiyeli HGS ile – yabancı plakalı araçlar dahil."
+          "tr": "Ücretli otoyol ve köprülerden yalnızca yeterli bakiyesi olan HGS ile geçilebilir – yabancı plakalı araçlar dahil."
         },
         {
           "de": "HGS gibt es bei der PTT direkt am Grenzübergang, in PTT-Filialen und Banken.",
@@ -392,7 +452,10 @@
           "de": "Pflicht im Auto: zwei Warndreiecke. Empfohlen: Warnwesten für alle, Verbandkasten und Feuerlöscher.",
           "tr": "Araçta zorunlu: iki üçgen reflektör. Tavsiye edilen: herkes için reflektörlü yelek, ilk yardım çantası ve yangın söndürücü.",
           "source": {
-            "name": "ADAC – Mit dem Fahrzeug in die Türkei",
+            "name": {
+              "de": "ADAC – Mit dem Fahrzeug in die Türkei",
+              "tr": "ADAC – araçla Türkiye'ye"
+            },
             "url": "https://www.adac.de/reise-freizeit/reiseplanung/reiseziele/tuerkei/fahrzeug/"
           }
         }
@@ -514,7 +577,7 @@
       "id": "gruene-karte",
       "text": {
         "de": "Grüne Versicherungskarte – „TR“ darf nicht durchgestrichen sein; Schutz im asiatischen Teil mit der Versicherung klären",
-        "tr": "Yeşil kart sigortası – „TR“ çizili olmamalı; Asya kısmındaki teminatı sigortanla netleştir"
+        "tr": "Yeşil kart sigortası – “TR” çizili olmamalı; Asya kısmındaki teminatı sigortanla netleştir"
       },
       "link": "customs#tr-gruene-karte"
     },
@@ -544,7 +607,7 @@
       "id": "vignetten",
       "text": {
         "de": "Vignetten für deine Route – nur im offiziellen Shop kaufen",
-        "tr": "Güzergâhın için vinyetler – yalnızca resmi siteden al"
+        "tr": "Güzergâhın için vinyetler – yalnızca resmî siteden al"
       }
     },
     {
@@ -561,7 +624,10 @@
         "tr": "Güzergâhındaki her ülkenin zorunlu araç donanımını kontrol et – reflektörlü yelek, üçgen reflektör, ilk yardım çantası ve gündüz farı kuralları her yerde aynı değil"
       },
       "source": {
-        "name": "ÖAMTC – Mitführpflichten für Autofahrer in Europa",
+        "name": {
+          "de": "ÖAMTC – Mitführpflichten für Autofahrer in Europa",
+          "tr": "ÖAMTC – Avrupa'da araçta bulundurulması zorunlu donanım"
+        },
         "url": "https://www.oeamtc.at/thema/reiseplanung/mitfuehrpflichten-fuer-autofahrer-in-europa-16183282"
       }
     },
@@ -579,7 +645,10 @@
         "tr": "Çocuklar yalnızca bir ebeveynle seyahat ediyorsa önerilir: diğer ebeveynin serbest formatta yazılı izni, soyadları farklıysa doğum belgesinin bir kopyası da"
       },
       "source": {
-        "name": "Auswärtiges Amt – Einverständniserklärung für Minderjährige",
+        "name": {
+          "de": "Auswärtiges Amt – Einverständniserklärung für Minderjährige",
+          "tr": "Almanya Dışişleri Bakanlığı – reşit olmayan çocuklar için muvafakatname"
+        },
         "url": "https://www.auswaertiges-amt.de/de/service/fragenkatalog-node/11-kindohneeltern-606308"
       }
     },

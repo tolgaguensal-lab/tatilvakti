@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros.html" import icon with context %}
-{%- set key = "err_404" if code == 404 else ("err_403" if code == 403 else "err_500") %}
+{#- Übrige 4xx (400, 405, 413 …): allgemeiner Text, 5xx: Störung #}
+{%- set key = {404: "err_404", 403: "err_403", 410: "err_410"}.get(code, "err_500" if code >= 500 else "err_400") %}
 {% block title %}{{ t(key ~ "_title") }} – {{ t("app_name") }}{% endblock %}
 {% block main %}
 <header class="pagehead">

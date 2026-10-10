@@ -13,7 +13,7 @@
 {# Status einer Grenzrichtung – JS aktualisiert denselben Aufbau live (data-status) #}
 {% macro status(st, cid, dir, compact=False) -%}
 {%- set txt = status_text(st) -%}
-<div class="status status--{{ st.level }}{% if compact %} status--compact{% endif %}" data-status data-cid="{{ cid }}" data-dir="{{ dir }}">
+<div class="status status--{{ st.level }}{% if compact %} status--compact{% endif %}" data-status data-cid="{{ cid }}" data-dir="{{ dir }}" data-live="{{ 1 if st.state == 'live' else 0 }}">
   <span class="status__dot" aria-hidden="true"></span>
   <span class="status__body">
     <span class="status__main">{{ txt.level_label if compact and st.state != "live" else txt.main }}</span>
@@ -29,12 +29,31 @@
 </div>
 {%- endmacro %}
 
+{# Beide Richtungen eines Übergangs in Listen. Ohne aktuelle Meldung (is-empty) statt zwei grauer
+   Chips eine Zeile; app.js schaltet die Klasse nach jeder Aktualisierung um (data-dirs). #}
+{% macro dirs(st, cid) -%}
+<div class="dirs{% if not is_live(st) %} is-empty{% endif %}" data-dirs>
+  <div class="dirrow"><span class="dirlabel">{{ t("b_dir_to_tr_short") }}</span>{{ status(st.to_tr, cid, "to_tr", compact=True) }}</div>
+  <div class="dirrow"><span class="dirlabel">{{ t("b_dir_to_de_short") }}</span>{{ status(st.to_de, cid, "to_de", compact=True) }}</div>
+  <p class="dirs__empty">{{ t("b_empty_2h", h=window_h) }}</p>
+</div>
+{%- endmacro %}
+
+{# Teilen: WhatsApp direkt (wa.me, funktioniert ohne JS), das Teilen-Menü des Geräts als eigener
+   Knopf – app.js zeigt ihn nur, wo navigator.share existiert. Ein Block je Kontext. #}
+{% macro share(text, url, inline=False) -%}
+<div class="share{% if inline %} share--inline{% endif %}">
+  <a class="{{ 'share__link share__link--wa' if inline else 'btn btn--wa' }}" href="{{ wa_url(text, url) }}" target="_blank" rel="noopener noreferrer">{{ icon("chat", "icon--s") }}{{ t("share_whatsapp") }}<span class="sr-only"> ({{ t("opens_external") }})</span></a>
+  <button class="{{ 'share__link' if inline else 'btn btn--ghost' }}" type="button" data-share data-share-text="{{ text }}" data-share-url="{{ url }}" hidden>{{ icon("share", "icon--s") }}{{ t("share") }}</button>
+</div>
+{%- endmacro %}
+
 {% macro asof(date_str, sources=None, due=False) -%}
 <p class="asof">
   {{ icon("clock", "icon--xs") }}
   <span>{{ t("checked_on", date=fmt_date(date_str | todate)) }}</span>
   {%- if sources %}<span> · {{ t("sources") if sources|length > 1 else t("source") }}:
-    {% for s in sources %}{{ ext(s.url, s.name) }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}
+    {% for s in sources %}{{ ext(s.url, s.name[lang]) }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}
 </p>
 {%- if due %}<p class="due">{{ icon("alert", "icon--xs") }} {{ t("review_due") }}</p>{% endif %}
 {%- endmacro %}

@@ -26,6 +26,17 @@
   --line-a: #0e6b6b;
   --line-b: #4f46e5;
   --line-c: #9d3c8f;
+  /* Feste Mischfarben statt color-mix() (erst ab Safari 16.2 / Chrome 111): Grundfarbe mit Deckkraft
+     (-aNN = NN %) bzw. --brand-line = 45 % --brand + 55 % --line. Bei neuen Grundfarben hier und im
+     Dark-Block nachziehen, tests/test_css.py prüft das. */
+  --bg-a88: rgba(245, 239, 230, .88);
+  --brand-line: #83a69d;
+  --none-a25: rgba(107, 114, 128, .25);
+  --ok-a25: rgba(26, 110, 54, .25);
+  --mid-a25: rgba(138, 83, 0, .25);
+  --bad-a25: rgba(180, 35, 24, .25);
+  --accent-a15: rgba(163, 60, 22, .15);
+  --accent-a45: rgba(163, 60, 22, .45);
   --shadow: 0 1px 2px rgba(27, 35, 48, .05), 0 6px 20px rgba(27, 35, 48, .06);
   --radius: 18px;
   --radius-s: 12px;
@@ -62,6 +73,14 @@
     --line-a: #5fd0c4;
     --line-b: #9c96ff;
     --line-c: #e58ad8;
+    --bg-a88: rgba(16, 22, 29, .88);
+    --brand-line: #437e80;
+    --none-a25: rgba(154, 165, 177, .25);
+    --ok-a25: rgba(99, 217, 147, .25);
+    --mid-a25: rgba(243, 196, 90, .25);
+    --bad-a25: rgba(255, 138, 128, .25);
+    --accent-a15: rgba(255, 158, 112, .15);
+    --accent-a45: rgba(255, 158, 112, .45);
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .25);
     color-scheme: dark;
   }
@@ -102,7 +121,7 @@ p { margin: 0 0 .75em; }
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 10px max(16px, env(safe-area-inset-left)) 10px max(16px, env(safe-area-inset-right));
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  background: var(--bg-a88);
   backdrop-filter: saturate(1.4) blur(10px);
   -webkit-backdrop-filter: saturate(1.4) blur(10px);
   border-bottom: 1px solid var(--line);
@@ -150,7 +169,7 @@ p { margin: 0 0 .75em; }
   box-shadow: var(--shadow);
   margin-bottom: var(--gap);
 }
-.card--brand { border-color: color-mix(in srgb, var(--brand) 45%, var(--line)); background: linear-gradient(var(--surface), var(--surface)) padding-box; }
+.card--brand { border-color: var(--brand-line); background: linear-gradient(var(--surface), var(--surface)) padding-box; }
 .card__title { display: flex; gap: 8px; align-items: center; font-size: 1.1rem; }
 .card__title .icon { color: var(--brand); }
 
@@ -181,7 +200,25 @@ p { margin: 0 0 .75em; }
 .btn--small { min-height: 40px; padding: 0 14px; font-size: .9rem; }
 .btn--block { width: 100%; }
 .btn:active { transform: translateY(1px); }
+/* Gesperrt bzw. „wird gesendet“ (Meldeformular, app.js setzt aria-disabled und aria-busy):
+   blasser Knopf mit drehendem Ring, damit niemand an der Grenze vor einem scheinbar toten Knopf steht */
+.btn:disabled, .btn[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
+.btn[aria-busy="true"] { cursor: progress; }
+.btn[aria-busy="true"]::before {
+  content: ""; width: 16px; height: 16px; flex: none; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 .cta { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; text-decoration: none; margin-top: 4px; min-height: 44px; }
+/* Teilen: WhatsApp-Link und (nur mit navigator.share) Knopf fürs Teilen-Menü des Geräts */
+.share { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.share .btn { margin-top: 0; }
+.share--inline { gap: 0 18px; margin-top: 4px; }
+.share__link {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0; border: 0; background: none;
+  color: var(--brand); font: 700 .88rem/1.2 var(--font); text-decoration: none; cursor: pointer;
+}
+.share__link--wa { color: var(--ok); }
 .cta--accent { color: var(--accent); }
 .cta-row { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; }
 
@@ -202,9 +239,24 @@ fieldset { border: 0; margin: 0 0 12px; padding: 0; min-width: 0; }
   min-height: 48px; padding: 0 12px; border: 2px solid var(--line); border-radius: 12px;
   background: var(--surface); color: var(--ink); font: 600 .95rem/1.1 var(--font); cursor: pointer; text-align: center;
 }
-.seg__opt input { position: absolute; opacity: 0; pointer-events: none; }
-.seg__opt:has(input:checked), .seg__btn.is-active { border-color: var(--brand); background: var(--brand-soft); color: var(--ink); }
-.seg__opt:has(input:focus-visible) { outline: 3px solid var(--accent); outline-offset: 2px; }
+.seg__btn.is-active { border-color: var(--brand); background: var(--brand-soft); color: var(--ink); }
+/* Radios unsichtbar. Auswahl und Fokus zeigt eine Fläche hinter Symbol und Text, die das ganze Feld
+   abdeckt (::after des Text-span). Nur Geschwister-Selektoren, kein :has(): Safari < 15.4 und
+   Chrome < 105 zeigten die Auswahl sonst gar nicht an. */
+.seg__opt, .bucket { position: relative; z-index: 0; }
+.seg__opt input, .bucket input { position: absolute; opacity: 0; pointer-events: none; }
+.seg__opt input:checked ~ span::after, .seg__opt input:focus ~ span::after,
+.bucket input:checked + span::after, .bucket input:focus + span::after {
+  content: ""; position: absolute; top: -2px; right: -2px; bottom: -2px; left: -2px; z-index: -1;
+  border: 2px solid transparent; border-radius: 12px;
+}
+.seg__opt input:checked ~ span::after { border-color: var(--brand); background: var(--brand-soft); }
+.bucket input:checked + span::after { border-color: var(--ink); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--ink); }
+/* Fokusrahmen über :focus für Browser ohne :focus-visible; die Regeln darunter nehmen ihn modernen
+   Browsern nach einem Mausklick wieder weg (ältere verwerfen sie als ungültig, deshalb eigene Regeln) */
+.seg__opt input:focus ~ span::after, .bucket input:focus + span::after { outline: 3px solid var(--accent); outline-offset: 2px; }
+.seg__opt input:focus:not(:focus-visible) ~ span::after { outline: none; }
+.bucket input:focus:not(:focus-visible) + span::after { outline: none; }
 .seg--wide .seg__opt, .seg--wide .seg__btn { min-width: 46%; }
 
 .inline-form { display: flex; gap: 10px; align-items: flex-end; }
@@ -253,6 +305,21 @@ body:not(.mode-plane) .only-plane { display: none; }
 .mini-borders li { border-top: 1px solid var(--line); padding-top: 10px; }
 .mini-borders li:first-child { border-top: 0; padding-top: 0; }
 .mini-borders__name { font-weight: 700; text-decoration: none; display: inline-block; margin-bottom: 4px; }
+/* Wartezeit melden: Auswahl der Übergänge (app.js stellt den zuletzt gemeldeten nach vorn) */
+.picker__title { font-size: 1rem; margin: 16px 0 8px; }
+.picker { list-style: none; margin: 0 0 4px; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.picker__btn {
+  display: grid; align-content: center; gap: 2px; min-height: 64px; height: 100%; padding: 10px 12px;
+  border: 2px solid var(--brand); border-radius: 14px; background: var(--brand-soft); color: var(--ink); text-decoration: none;
+}
+.picker__btn:hover { border-color: var(--accent); }
+.picker__name { font: 800 1.05rem/1.2 var(--font-display); overflow-wrap: anywhere; }
+.picker__sub { font-size: .78rem; line-height: 1.25; color: var(--ink-2); }
+.picker__last { font-size: .75rem; font-weight: 700; color: var(--accent); }
+.srcline { font-size: .82rem; color: var(--ink-2); margin: 8px 0 0; }
+/* Im Fließtext umbrechen wie Text, das Symbol bleibt am Ende des Namens */
+.srcline .ext { display: inline; }
+
 .mini-rules { list-style: none; padding: 0; margin: 0 0 6px; display: grid; gap: 8px; }
 .mini-rules li { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 .mini-rules a { font-weight: 600; text-decoration: none; color: var(--ink); }
@@ -261,14 +328,14 @@ body:not(.mode-plane) .only-plane { display: none; }
 .dirlabel { display: inline-flex; align-items: center; gap: 4px; font-size: .78rem; font-weight: 700; color: var(--ink-2); white-space: nowrap; }
 .dirlabel--back .icon { transform: scaleX(-1); }
 .status { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--none-soft); }
-.status__dot { width: 12px; height: 12px; border-radius: 50%; background: var(--none); margin-top: 6px; flex: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--none) 25%, transparent); }
+.status__dot { width: 12px; height: 12px; border-radius: 50%; background: var(--none); margin-top: 6px; flex: none; box-shadow: 0 0 0 3px var(--none-a25); }
 .status__body { display: grid; min-width: 0; }
 .status__main { font-weight: 800; font-size: 1.05rem; }
 .status__meta { font-size: .8rem; color: var(--ink-2); }
 .status__level { font-weight: 700; }
-.status--ok { background: var(--ok-soft); } .status--ok .status__dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
-.status--mid { background: var(--mid-soft); } .status--mid .status__dot { background: var(--mid); box-shadow: 0 0 0 3px color-mix(in srgb, var(--mid) 25%, transparent); }
-.status--bad { background: var(--bad-soft); } .status--bad .status__dot { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 25%, transparent); }
+.status--ok { background: var(--ok-soft); } .status--ok .status__dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-a25); }
+.status--mid { background: var(--mid-soft); } .status--mid .status__dot { background: var(--mid); box-shadow: 0 0 0 3px var(--mid-a25); }
+.status--bad { background: var(--bad-soft); } .status--bad .status__dot { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-a25); }
 .status--ok .status__level { color: var(--ok); } .status--mid .status__level { color: var(--mid); } .status--bad .status__level { color: var(--bad); }
 .status--compact { padding: 6px 10px; gap: 8px; align-items: center; }
 .status--compact .status__body { display: block; }
@@ -276,6 +343,22 @@ body:not(.mode-plane) .only-plane { display: none; }
 .status--compact .status__dot { margin-top: 0; width: 10px; height: 10px; }
 .status--compact .status__meta { font-size: .75rem; }
 .status--compact.status--none .status__main { font-weight: 600; color: var(--ink-2); }
+
+/* Leerzustand: Übergang ohne aktuelle Meldung (.dirs.is-empty) zeigt eine Zeile statt zweier grauer
+   Chips, eine Liste ganz ohne Meldung (.live.is-empty) nur Namen und einen Hinweis. app.js schaltet
+   is-empty nach jeder Aktualisierung um; ohne JS gilt der Stand vom Server. */
+.dirs { display: grid; gap: 6px; }
+.dirs.is-empty .dirrow { display: none; }
+.dirs__empty { margin: 0; font-size: .85rem; color: var(--ink-2); }
+.dirs:not(.is-empty) .dirs__empty { display: none; }
+.live.is-empty .live__rows { display: none; }
+.live:not(.is-empty) .live__empty { display: none; }
+.live__empty {
+  display: flex; gap: 10px; align-items: flex-start; margin: 0 0 12px; padding: 10px 12px;
+  border-radius: var(--radius-s); background: var(--none-soft); font-size: .92rem;
+}
+.live__empty .icon { color: var(--ink-2); margin-top: 2px; }
+.live.is-empty .crossing__head { padding-bottom: 14px; }
 
 /* ---------- Grenzen ---------- */
 .map-card { padding-bottom: 8px; }
@@ -296,7 +379,9 @@ body:not(.mode-plane) .only-plane { display: none; }
 .map[data-dir="to_tr"] [data-l-to_tr="ok"] .map__dot, .map[data-dir="to_de"] [data-l-to_de="ok"] .map__dot { fill: var(--ok); }
 .map[data-dir="to_tr"] [data-l-to_tr="mid"] .map__dot, .map[data-dir="to_de"] [data-l-to_de="mid"] .map__dot { fill: var(--mid); }
 .map[data-dir="to_tr"] [data-l-to_tr="bad"] .map__dot, .map[data-dir="to_de"] [data-l-to_de="bad"] .map__dot { fill: var(--bad); }
-.map__node:focus-visible .map__halo, .map__node:hover .map__halo { stroke: var(--accent); stroke-width: 3; }
+/* Getrennte Regeln: Browser ohne :focus-visible verwürfen sonst auch den Hover-Zustand */
+.map__node:hover .map__halo { stroke: var(--accent); stroke-width: 3; }
+.map__node:focus-visible .map__halo { stroke: var(--accent); stroke-width: 3; }
 .map-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 16px; list-style: none; padding: 0; margin: 6px 0 0; font-size: .82rem; color: var(--ink-2); }
 .sw { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
 .sw--ok { background: var(--ok); } .sw--mid { background: var(--mid); } .sw--bad { background: var(--bad); } .sw--none { background: var(--none); }
@@ -310,6 +395,8 @@ body:not(.mode-plane) .only-plane { display: none; }
 .crossing__dirs { display: grid; gap: 6px; padding: 0 16px 14px; }
 .dirrow { display: grid; grid-template-columns: 7.2em 1fr; gap: 8px; align-items: center; margin-top: 4px; }
 .dirrow .dirlabel { white-space: normal; }
+/* Unter 360 px: Richtung über dem Status statt daneben – sonst brach „keine aktuelle Meldung“ Wort für Wort um */
+@media (max-width: 359px) { .dirrow { grid-template-columns: 1fr; gap: 2px; } }
 
 .dir-stack { display: grid; gap: 12px; margin-bottom: 10px; }
 @media (min-width: 560px) { .dir-stack { grid-template-columns: 1fr 1fr; } }
@@ -321,15 +408,16 @@ body:not(.mode-plane) .only-plane { display: none; }
 .flash--ok { background: var(--ok-soft); color: var(--ink); }
 .flash--error { background: var(--bad-soft); color: var(--ink); }
 .flash--queued { background: var(--mid-soft); color: var(--ink); }
+.flash--sending { background: var(--none-soft); color: var(--ink); }
+/* Rückmeldung zur Warteschlange auf Seiten ohne Meldeformular (base.html) */
+.notice .flash { margin-bottom: var(--gap); }
 .buckets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .buckets legend { margin-bottom: 6px; }
 @media (min-width: 560px) { .buckets { grid-template-columns: repeat(3, 1fr); } }
-.bucket { position: relative; display: flex; align-items: center; justify-content: center; min-height: 52px; padding: 6px 10px; border: 2px solid var(--line); border-radius: 12px; background: var(--surface); font-weight: 700; cursor: pointer; text-align: center; }
-.bucket input { position: absolute; opacity: 0; pointer-events: none; }
+/* Auswahl und Fokus der Wartezeit: siehe .seg__opt unter Formulare */
+.bucket { display: flex; align-items: center; justify-content: center; min-height: 52px; padding: 6px 10px; border: 2px solid var(--line); border-radius: 12px; background: var(--surface); font-weight: 700; cursor: pointer; text-align: center; }
 .bucket::before { content: ""; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; flex: none; }
 .bucket--ok::before { background: var(--ok); } .bucket--mid::before { background: var(--mid); } .bucket--bad::before { background: var(--bad); }
-.bucket:has(input:checked) { border-color: var(--ink); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--ink); }
-.bucket:has(input:focus-visible) { outline: 3px solid var(--accent); outline-offset: 2px; }
 .hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 
 .pattern { display: block; overflow: visible; }
@@ -354,7 +442,11 @@ body:not(.mode-plane) .only-plane { display: none; }
 @media (min-width: 520px) { .quiet { grid-template-columns: 1fr 1fr; } }
 .quiet__col h3 { font-size: .9rem; color: var(--ink-2); margin-bottom: 6px; }
 .quiet__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.quiet__list li { display: flex; justify-content: space-between; gap: 8px; padding: 8px 12px; border-radius: 10px; background: var(--brand-soft); }
+.quiet__list li { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; padding: 8px 12px; border-radius: 10px; background: var(--brand-soft); }
+.quiet__pct { font-weight: 700; white-space: nowrap; }
+.quiet__why { grid-column: 1 / -1; font-size: .82rem; color: var(--ink-2); }
+.quiet__none { font-size: .88rem; font-weight: 600; margin-bottom: 6px; }
+.quiet__list--none li { background: var(--accent-soft); }
 
 .tl { display: grid; grid-template-columns: 48px 1fr; margin: 6px 0 4px; column-gap: 6px; }
 .tl__months { grid-column: 2; display: block; overflow: visible; }
@@ -362,8 +454,9 @@ body:not(.mode-plane) .only-plane { display: none; }
 .tl__axis { display: flex; flex-direction: column; justify-content: space-between; font-size: 10px; color: var(--ink-2); text-align: right; line-height: 1; padding: 2px 0; }
 .tl__axis span:nth-child(2) { font-weight: 700; color: var(--accent); writing-mode: horizontal-tb; font-size: 9px; }
 .tl__area { display: block; width: 100%; height: 72px; border-bottom: 1px solid var(--line); }
-.tl__fill { fill: color-mix(in srgb, var(--accent) 30%, transparent); stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.tl__all16 { fill: color-mix(in srgb, var(--accent) 12%, transparent); }
+/* Flächen über fill-opacity statt Mischfarbe; fehlt das CSS ganz, greifen die fill-Attribute im Template */
+.tl__fill { fill: var(--accent); fill-opacity: .3; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.tl__all16 { fill: var(--accent); fill-opacity: .12; }
 .tl__labels { list-style: none; margin: 8px 0 0; padding: 0; }
 .tl__labels li { height: 22px; line-height: 22px; font-size: 12px; font-weight: 700; color: var(--ink-2); text-align: right; padding-right: 2px; }
 .tl__labels li.is-you { color: var(--accent); }
@@ -375,14 +468,17 @@ body:not(.mode-plane) .only-plane { display: none; }
 .tl__row.is-you .tl__bar { fill: var(--accent); opacity: 1; }
 .tl__today { stroke: var(--ink); stroke-width: 2; stroke-dasharray: 3 3; }
 .tl__legend { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: .8rem; color: var(--ink-2); }
-.sw--area { background: color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 3px; }
-.sw--all16 { background: color-mix(in srgb, var(--accent) 15%, transparent); border: 1px solid var(--accent); border-radius: 3px; }
+.sw--area { background: var(--accent-a45); border-radius: 3px; }
+.sw--all16 { background: var(--accent-a15); border: 1px solid var(--accent); border-radius: 3px; }
 .sw--you { background: var(--accent); border-radius: 3px; }
+.tl__bayram { fill: var(--mid); fill-opacity: .22; }
+.sw--bayram { background: var(--mid); opacity: .35; border-radius: 3px; }
 
 .facts { display: grid; gap: 10px; margin: 14px 0 8px; }
 .facts div { padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
 .facts dt { font-size: .8rem; font-weight: 700; color: var(--ink-2); }
 .facts dd { margin: 0; font-weight: 700; }
+.facts .facts__sub { font-weight: 400; font-size: .85rem; color: var(--ink-2); margin-top: 2px; }
 
 .table { width: 100%; border-collapse: collapse; font-size: .92rem; }
 .table th, .table td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -400,6 +496,10 @@ body:not(.mode-plane) .only-plane { display: none; }
 .featured__title { font: 800 1.02rem/1.25 var(--font-display); }
 
 .toolbar { position: sticky; top: 58px; z-index: 5; background: var(--bg); padding: 10px 0 2px; margin-top: 10px; }
+/* Sichtbare Toolbar (app.js setzt die Klasse): Sprungziele nach ihr landen darunter statt dahinter,
+   72 px scroll-padding + 128 px Toolbar. Nicht als scroll-padding der ganzen Seite, sonst scrollt der
+   Browser beim Tippen in Suche oder Filter um 250 px. Den Tastaturfokus schiebt app.js nach. */
+html.has-toolbar .toolbar ~ [id], html.has-toolbar .toolbar ~ * [id] { scroll-margin-top: 128px; }
 .search { position: relative; display: block; margin-bottom: 8px; }
 .search .icon { position: absolute; left: 14px; top: 15px; color: var(--ink-2); }
 .search input { padding-left: 42px; }
@@ -413,8 +513,11 @@ body:not(.mode-plane) .only-plane { display: none; }
 
 .rule { border-left: 6px solid var(--none); }
 .rule--ok { border-left-color: var(--ok); } .rule--limit { border-left-color: var(--brand); } .rule--declare { border-left-color: var(--mid); } .rule--no { border-left-color: var(--bad); }
-.rule__head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
-.rule__title { font-size: 1.05rem; margin: 0 0 6px; }
+/* Chip rechts neben dem Titel. Passt nicht einmal das längste Wort des Titels daneben („Versicherungskarte“
+   bei 320 px, mit breiter Systemschrift wie DejaVu Sans auch bei 360 px), rutscht der Chip in die nächste
+   Zeile statt über den Rand. flex-basis 0: Umbruch nur dann, ein zweizeiliger Titel behält den Chip daneben. */
+.rule__head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 10px; align-items: flex-start; }
+.rule__title { flex: 1 1 0; font-size: 1.05rem; margin: 0 0 6px; }
 .rule__text { font-size: 1rem; }
 .rule__more summary { cursor: pointer; font-weight: 700; color: var(--brand); min-height: 32px; }
 .rule__src { font-size: .8rem; color: var(--ink-2); margin: 8px 0 0; }
@@ -434,7 +537,7 @@ body:not(.mode-plane) .only-plane { display: none; }
 .route-card__borders { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
 .route-card__borders li { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: center; }
 .route-card__borders li > a { font-weight: 800; }
-.route-card__borders .status { grid-column: 1 / -1; }
+.route-card__borders .live__rows { grid-column: 1 / -1; }
 .proscons { display: grid; gap: 4px 16px; }
 @media (min-width: 560px) { .proscons { grid-template-columns: 1fr 1fr; } }
 .proscons h3 { font-size: .9rem; color: var(--ink-2); margin: 6px 0 4px; }
@@ -446,6 +549,9 @@ body:not(.mode-plane) .only-plane { display: none; }
 .country { padding: 0; }
 .country__sum { display: flex; align-items: center; gap: 10px; padding: 14px 16px; cursor: pointer; list-style: none; min-height: 56px; }
 .country__sum::-webkit-details-marker { display: none; }
+/* Lange Maut-Bezeichnung (TR, 320 px) rutscht in die nächste Zeile statt über den Rand */
+.country__sum { flex-wrap: wrap; }
+.country__sum .chip { margin-left: auto; }
 .country__code { display: grid; place-items: center; min-width: 38px; height: 28px; border: 2px solid var(--ink); border-radius: 6px; font-weight: 800; font-size: .8rem; background: #fff; color: #111; }
 .country__name { flex: 1; font-weight: 800; }
 .country[open] .country__sum { border-bottom: 1px solid var(--line); }
@@ -463,7 +569,45 @@ body:not(.mode-plane) .only-plane { display: none; }
 .links { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .links--big a { display: flex; gap: 10px; align-items: center; min-height: 48px; font-weight: 700; text-decoration: none; }
 .prose p { max-width: 65ch; }
+.prose h3 { margin-top: 1.2em; }
+.bullets { max-width: 65ch; margin: 0 0 .75em; padding-left: 1.2em; }
+.bullets li { margin-bottom: 4px; }
 address { font-style: normal; margin-bottom: 10px; }
+
+/* ---------- Hinweis „Auf den Startbildschirm“ (fest über der Tabbar, kein Layout-Sprung) ---------- */
+.a2hs {
+  position: fixed; z-index: 25; left: 8px; right: 8px; max-width: 560px; margin: 0 auto;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 8px);
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 12px 4px 12px 12px; border-radius: var(--radius-s);
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow);
+}
+.a2hs__mark { flex: none; margin-top: 2px; }
+.a2hs__body { flex: 1; min-width: 0; }
+.a2hs__title { font: 800 1rem/1.25 var(--font-display); margin: 0 0 2px; }
+.a2hs__text { font-size: .88rem; color: var(--ink-2); margin: 0 0 8px; }
+.a2hs__text:last-child { margin-bottom: 0; }
+.a2hs__steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: .88rem; font-weight: 600; }
+.a2hs__steps li { display: flex; gap: 6px; align-items: flex-start; }
+.a2hs__steps .icon { color: var(--brand); margin-top: 1px; }
+.a2hs__close { flex: none; display: grid; place-items: center; width: 44px; height: 44px; margin-top: -10px; border: 0; border-radius: 10px; background: transparent; color: var(--ink-2); cursor: pointer; }
+.a2hs__how { display: none; }
+@media (max-width: 359px) { .a2hs__mark { display: none; } }
+/* Platz am Seitenende, damit die Karte nichts dauerhaft verdeckt; Sprungziele landen darüber */
+html.has-a2hs { scroll-padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 250px); }
+html.has-a2hs body { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 230px); }
+/* Niedrige Bildschirme (z. B. 320 × 568): nur Titel, Knopf und Schließen. Die volle Karte verdeckte
+   dort rund 40 % der Seite; die iOS-Schritte klappt „So geht's“ auf. */
+@media (max-height: 640px) {
+  .a2hs { padding: 8px 4px 8px 12px; }
+  .a2hs__mark, .a2hs__text { display: none; }
+  .a2hs__title { margin-bottom: 4px; }
+  .a2hs__how { display: inline-flex; align-items: center; min-height: 36px; padding: 0; border: 0; background: none;
+               color: var(--brand); font: inherit; font-size: .88rem; font-weight: 700; text-decoration: underline; cursor: pointer; }
+  .a2hs:not(.is-open) .a2hs__steps { display: none; }
+  html.has-a2hs { scroll-padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 130px); }
+  html.has-a2hs body { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 110px); }
+}
 
 /* ---------- Footer, Tabbar ---------- */
 .footer { max-width: 760px; margin: 10px auto 0; padding: 8px 16px 20px; color: var(--ink-2); font-size: .85rem; text-align: center; }
@@ -483,6 +627,8 @@ address { font-style: normal; margin-bottom: 10px; }
 @media (min-width: 900px) {
   .tabbar { left: 50%; transform: translateX(-50%); width: 560px; bottom: 14px; border: 1px solid var(--line); border-radius: 20px; height: var(--tabbar-h); padding-bottom: 0; }
   body { padding-bottom: calc(var(--tabbar-h) + 32px); }
+  .a2hs { bottom: calc(var(--tabbar-h) + 26px); }
+  html.has-a2hs body { padding-bottom: calc(var(--tabbar-h) + 220px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -490,7 +636,7 @@ address { font-style: normal; margin-bottom: 10px; }
 }
 
 @media print {
-  .tabbar, .topbar, .offline-banner, .btn, .toolbar { display: none !important; }
+  .tabbar, .topbar, .offline-banner, .btn, .toolbar, .a2hs, .share { display: none !important; }
   body { padding: 0; background: #fff; }
   .card { box-shadow: none; break-inside: avoid; }
 }
