@@ -51,6 +51,18 @@ CREATE TABLE IF NOT EXISTS salts (
 );
 """
 
+# Schema-Version der Haupt-DB. init_db schreibt sie als PRAGMA user_version in die Datei, nur
+# aufwärts. Ein älteres Release behandelt eine DB mit höherer Version nicht richtig, z. B. löscht
+# seine Wartung Prüfwerte in Spalten nicht, die es nicht kennt. Deshalb brechen deploy.sh und
+# rollback.sh vor dem Umschalten auf so ein Release ab (scripts/schema_check.py, README → Update
+# und Rollback). Neue Migration: Version um 1 erhöhen, hier eintragen, und beim Start aufräumen,
+# was ein älteres Release in der neuen Fassung hinterlassen kann (wie _clear_orphaned_hashes).
+#   1  reports mit Prüfwert client, kv
+#   2  reports.net (Prüfwert je Anschluss)
+#   3  reports.block (Prüfwert je Netz)
+# Bis Version 3 stand die Version nicht in der Datei, schema_check.py liest sie dort an den Spalten ab.
+SCHEMA_VERSION = 3
+
 
 # So lange wartet eine Verbindung auf die Schreibsperre, bevor sie mit „database is locked“
 # aufgibt – eine Meldung ebenso wie die Prüfung in /healthz
@@ -172,6 +184,7 @@ def init_db(path: str, salt_path: str | None = None) -> None:
         conn.executescript(SCHEMA)
         _clear_orphaned_hashes(conn)
         _drop_legacy_salts(conn)
+        _stamp_schema_version(conn)
     finally:
         conn.close()
     sconn = connect(salt_path)
@@ -219,6 +232,29 @@ def _clear_orphaned_hashes(conn: Connection) -> None:
     except BaseException:
         conn.execute("ROLLBACK")
         raise
+
+
+def _stamp_schema_version(conn: Connection) -> None:
+    """SCHEMA_VERSION als user_version in die Haupt-DB schreiben, erst nach allen Migrationen.
+
+    Nur aufwärts: Läuft nach einem Rollback (rollback.sh --force-schema) ein älteres Release, bleibt
+    die höhere Version stehen, damit deploy.sh und rollback.sh weiter wissen, was die DB enthält.
+    Das Release startet trotzdem, warnt aber im Journal.
+    """
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        found = conn.execute("PRAGMA user_version").fetchone()[0]
+        if found < SCHEMA_VERSION:
+            conn.execute(f"PRAGMA user_version = {int(SCHEMA_VERSION)}")
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    if found > SCHEMA_VERSION:
+        log.warning("Haupt-DB hat Schema-Version %d, dieses Release kennt nur bis %d (Rollback mit "
+                    "--force-schema?). Neuere Daten pflegt es nicht, z. B. Prüfwerte in neueren Spalten. "
+                    "Bald wieder vorwärts ausrollen oder die Sicherung vor dem Deploy zurückspielen "
+                    "(docs/RUNBOOK.md).", found, SCHEMA_VERSION)
 
 
 def _drop_legacy_salts(conn: Connection) -> None:

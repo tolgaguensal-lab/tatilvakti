@@ -6,8 +6,13 @@
 #   sudo scripts/rollback.sh --list          # Releases anzeigen
 #   sudo scripts/rollback.sh --no-preflight  # Notfall: ohne Vorabprüfung umschalten
 #   sudo scripts/rollback.sh --start         # Dienst auch starten, wenn er gestoppt ist
+#   sudo scripts/rollback.sh --force-schema "<Grund>" [<release>]  # Notfall: trotz neuerer DB
 #
-# Prüft das Ziel vorher (Preflight ohne pytest: create_app gegen eine DB-Kopie, alle Seiten),
+# Prüft zuerst die Schema-Version (scripts/schema_check.py aus diesem Release, nicht aus dem Ziel):
+# Hat die DB eine neuere als das Ziel kennt (ein Deploy hat sie umgestellt), bricht es ab und nennt
+# die Wege, darunter passende Sicherungen (z. B. backups/pre-deploy-<release>.db von deploy.sh).
+# --force-schema schaltet trotzdem um; der Grund steht danach im Journal (-t tatilvakti-v2-release).
+# Dann prüft es das Ziel (Preflight ohne pytest: create_app gegen eine DB-Kopie, alle Seiten),
 # schaltet current atomar um (previous zeigt danach auf das bisherige Release, ein zweiter
 # Aufruf geht also wieder vor), startet den Dienst neu und wartet auf /healthz. Neu gestartet
 # wird, wenn der Dienst läuft, gerade startet oder abgestürzt ist ('failed', auch nach
@@ -38,7 +43,8 @@ while [ $# -gt 0 ]; do
             exit 0 ;;
         --no-preflight) PREFLIGHT=0; shift ;;
         --start) START=1; shift ;;
-        -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+        --force-schema) force_reason "${2-}"; FORCE_SCHEMA=$2; shift 2 ;;
+        -h|--help) sed -n '2,/^set -/{/^#/p}' "$0"; exit 0 ;;
         -*) die "unbekannte Option: $1 (siehe --help)" ;;
         *) TARGET=releases/${1#releases/}; shift ;;
     esac
@@ -53,6 +59,11 @@ if [ -z "$TARGET" ]; then
 fi
 [ -x "$BASE/$TARGET/.venv/bin/gunicorn" ] || die "$BASE/$TARGET ist kein vollständiges Release"
 [ "$TARGET" != "$CUR" ] || die "$TARGET ist bereits aktiv"
+
+if ! check_schema "$BASE/$TARGET"; then
+    schema_hint "sudo $LIB_DIR/rollback.sh --force-schema \"<Grund>\" ${TARGET#releases/}" "$LIB_DIR/restore.sh"
+    die "Schema-Version: $TARGET passt nicht zur Datenbank, nichts umgeschaltet."
+fi
 
 PREFLIGHT_BUILD=
 if [ "$PREFLIGHT" = 1 ]; then
@@ -72,4 +83,9 @@ if [ "$WANTED" = 1 ]; then
 else
     log "$SERVICE ist gestoppt ($(service_state)), kein Neustart. Starten: systemctl start $SERVICE"
 fi
+if [ -n "$FORCE_SCHEMA" ] && [ -n "$SCHEMA_DB" ] && [ "$SCHEMA_DB" -gt "$SCHEMA_RELEASE" ]; then
+    log "Die Datenbank hat weiter Schema-Version $SCHEMA_DB, $TARGET kennt bis $SCHEMA_RELEASE. Passende"
+    log "Sicherung (siehe oben) zurückspielen: sudo $LIB_DIR/restore.sh <Sicherung>, oder bald vorwärts."
+fi
+warn_snapshot_prune "$BASE/$TARGET"
 log "Rollback fertig"

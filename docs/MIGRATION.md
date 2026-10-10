@@ -311,6 +311,8 @@ sudo /opt/tatilvakti-v2/current/scripts/rollback.sh --list     # verfügbare Rel
 
 `deploy.sh` rollt selbst zurück, wenn ein neues Release nach dem Neustart `/healthz` nicht mit der erwarteten Build-ID beantwortet, und startet das alte Release wieder. `rollback.sh` startet den Dienst auch dann neu, wenn systemd ihn nach mehreren Fehlstarts aufgegeben hat (`failed`, start-limit-hit). Einen bewusst gestoppten Dienst startet es nur mit `--start`.
 
+Sicherung vor jedem Deploy (`backups/pre-deploy-<release>.db`) und Abbruch, wenn das Ziel die Schema-Version der Datenbank nicht kennt: README → Update und Rollback. Ablauf bei einer Störung und Wiederaufbau auf einem neuen Host: [RUNBOOK.md](RUNBOOK.md).
+
 ### 7.2 Zurück zur Alt-App
 
 1. Alt-App starten und lokal prüfen:

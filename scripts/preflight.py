@@ -14,7 +14,9 @@ Benutzer nicht Eigentümer der DB ist.
 Prüft der Reihe nach:
 1. Konfiguration aus der Env-Datei: TV_BASE_URL, TV_TRUST_PROXY, Impressum, keine Pfad-Variablen.
 2. create_app() gegen eine Online-KOPIE der Produktions-DB in einem temporären Verzeichnis:
-   Datenvalidierung und Schema. Echte DB und Salts-Datei bleiben unberührt.
+   Datenvalidierung und Schema. Echte DB und Salts-Datei bleiben unberührt. Vorher die
+   Schema-Version der Kopie (scripts/schema_check.py): Ist sie neuer, als dieses Release kennt,
+   gibt es eine WARNUNG. Abbrechen tun deploy.sh und rollback.sh selbst (dort mit --force-schema).
 3. Alle GET-Routen (jede Seite, jeder Grenzübergang, /healthz, /sw.js, Sitemap …) und jede URL
    der Precache-Liste aus /sw.js: kein Status ab 400. Sonst fehlt die Seite offline; bei einem
    Asset, einer Start- oder Offline-Seite installiert sich der neue Service Worker gar nicht (der
@@ -28,6 +30,7 @@ Letzte Zeile bei Erfolg: "preflight ok build=<id>". Exit-Code 1 bei jedem Fehler
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -138,6 +141,19 @@ def copy_db(src: Path, dst: Path) -> None:
         source.close()
 
 
+def check_schema(db: Path, rep: Report) -> None:
+    """Schema-Version der DB-Kopie gegen die dieses Releases (schema_check.py liegt daneben)."""
+    spec = importlib.util.spec_from_file_location("tv_schema_check", Path(__file__).with_name("schema_check.py"))
+    schema_check = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(schema_check)
+    have, known = schema_check.db_version(db), schema_check.release_version(ROOT)
+    if have > known:
+        rep.warn(f"Datenbank hat Schema-Version {have}, dieses Release kennt nur bis {known}. deploy.sh und "
+                 "rollback.sh schalten so nur mit --force-schema um (README → Update und Rollback)")
+    else:
+        rep.ok(f"Schema-Version: Datenbank {have}, Release {known}")
+
+
 def route_urls(app, cids: list[str]) -> list[str]:
     """Alle GET-Routen ohne Pflichtparameter, Routen mit <cid> für jeden Grenzübergang."""
     adapter = app.url_map.bind("localhost")
@@ -173,6 +189,7 @@ def check_app(env: dict[str, str], db: Path | None, tmp: Path, rep: Report) -> s
         check_owner(db)
         copy_db(db, tmp / "tatilvakti.db")
         rep.ok(f"Kopie der Datenbank für den Test: {db}")
+        check_schema(tmp / "tatilvakti.db", rep)  # vor create_app, das die Version der Kopie anhebt
     else:
         rep.warn(f"keine bestehende Datenbank ({db}), Test mit leerer DB")
 
