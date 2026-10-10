@@ -82,6 +82,13 @@ jobs:
         run: |
           npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/pw" playwright@1.56.1
           "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+      # Feste Systemschrift für die Layout-Prüfungen: tests/test_e2e.py setzt tests/e2e/fonts.conf
+      # und bricht ab, wenn fc-match dafür nicht DejaVu Sans liefert. Die letzte Zeile zeigt es im Log.
+      - name: Schrift für die Browser-Tests (DejaVu Sans)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends fontconfig fonts-dejavu-core
+          FONTCONFIG_FILE="$PWD/tests/e2e/fonts.conf" fc-match system-ui
       - name: Browser-Tests
         env:
           TV_E2E: "1"
