@@ -279,22 +279,44 @@ sudo /opt/tatilvakti-v2/current/scripts/tv-flask.sh purge-reports --crossing kap
 
 - `tatilvakti-v2-backup.timer` sichert nachts um 03:40 Ortszeit per SQLite-Online-Backup nach `/var/lib/tatilvakti-v2/backups/tatilvakti-<UTC-Zeit>.db`. Ein `cp` der Datei würde im WAL-Modus die jüngsten Meldungen verlieren. Die Kopie behält von jeder Meldung nur Übergang, Richtung, Wartezeit-Bereich und Zeitpunkte. Alles andere wird geleert: die Prüfwerte (`client`, `net`, `block`) und auch Spalten oder Tabellen, die `backup.py` nicht kennt (dann mit WARNUNG im Journal). Die Tagesschlüssel liegen in einer eigenen Datei und werden nie gesichert. Sofort sichern: `sudo systemctl start tatilvakti-v2-backup.service`.
 - **Aufbewahrung:** lokal 14 Tage (`--keep-days` in der Unit). Der Datenschutztext nennt diese Frist, `tests/test_share.py` gleicht sie mit der Unit ab. Zusätzlich empfohlen: eine Kopie außerhalb des Hosts, z. B. 30 Tage. Dafür nur `backups/` kopieren, nie die laufende DB samt `-wal`/`-shm` und nie `/run/tatilvakti-v2`. Wer extern sichert, muss diese Frist im Datenschutztext ergänzen (`i_privacy_reports_keep` in `de.json` und `tr.json`).
-- **Restore** (einmal testen):
+- **Restore** nur mit `scripts/restore.sh` (als root), erst prüfen, dann zurückspielen:
 
   ```bash
-  B=/var/lib/tatilvakti-v2/backups/tatilvakti-<zeit>.db
-  sudo -u tatilvakti-v2 /opt/tatilvakti-v2/current/.venv/bin/python \
-       /opt/tatilvakti-v2/current/scripts/backup.py --verify "$B"
-  # Dienst und Timer anhalten: Die Wartung (alle 5 Min.) legte sonst in der Lücke eine leere DB an
-  sudo systemctl stop tatilvakti-v2-maintenance.timer tatilvakti-v2-backup.timer
-  sudo systemctl stop tatilvakti-v2-maintenance.service tatilvakti-v2-backup.service tatilvakti-v2.service
-  # bisherige tatilvakti.db samt -wal/-shm beiseitelegen, nach erfolgreichem Restore löschen
-  sudo install -m 0600 -o tatilvakti-v2 -g tatilvakti-v2 "$B" /var/lib/tatilvakti-v2/tatilvakti.db
-  sudo systemctl start tatilvakti-v2.service tatilvakti-v2-maintenance.timer tatilvakti-v2-backup.timer
+  sudo ls /var/lib/tatilvakti-v2/backups/      # Dateinamen tragen die UTC-Zeit
+  sudo /opt/tatilvakti-v2/current/scripts/restore.sh --check /var/lib/tatilvakti-v2/backups/tatilvakti-<zeit>.db
+  sudo /opt/tatilvakti-v2/current/scripts/restore.sh /var/lib/tatilvakti-v2/backups/tatilvakti-<zeit>.db
   ```
 
+  `restore.sh` prüft die Sicherung an einer Kopie neben der DB (`backup.py --verify`: `integrity_check`, Meldungszahl, keine Prüfwerte). Ist sie fehlerhaft, bricht es ab, bevor es etwas anhält. Sonst stoppt es Timer, Wartung, Backup und Dienst (die Wartung legte in der Lücke sonst eine leere DB an), verschiebt `tatilvakti.db` samt `-wal`, `-shm` und `-journal` nach `/var/lib/tatilvakti-v2/pre-restore-<UTC-Zeit>/`, legt die geprüfte Kopie an ihren Platz (Dienstbenutzer, `0600`) und prüft sie dort noch einmal. Dann startet es Dienst und Timer und wartet wie `deploy.sh` auf `/healthz`. Das Verschieben ist der wichtigste Schritt: Eine nach einem Absturz liegengebliebene `-wal` legte SQLite sonst über die Sicherung, mit alten Meldungen oder einer beschädigten DB, und `/healthz` bemerkt das nicht. Scheitert ein Schritt, nachdem der Dienst gestoppt ist, nennt die Ausgabe die Befehle zurück auf den alten Stand, mit den echten Pfaden. `--check` ändert nichts: Es prüft die Sicherung ebenso und startet die App des aktiven Releases auf einer Kopie (Preflight ohne pytest: `create_app`, `/healthz`, alle Seiten); ohne Dateinamen nimmt es die neueste Sicherung.
+- Zurückspielen lassen sich nur Sicherungen von `backup.py`, auch deren Kopien von außerhalb. Eine Dateikopie der laufenden DB (WAL-Modus) lehnt `restore.sh` ab, ihr fehlen oft die jüngsten Meldungen aus der `-wal`.
+- `pre-restore-<zeit>/` löscht `restore.sh` nie. Solange es da ist, geht es zurück auf den alten Stand: Timer und Dienste stoppen, die zurückgespielte `tatilvakti.db` samt `-wal`, `-shm` und `-journal` löschen, die Dateien aus `pre-restore-<zeit>/` zurück nach `/var/lib/tatilvakti-v2/` verschieben, Dienst und Timer starten (Meldungen seit dem Restore gehen dabei verloren). Löschen, sobald die Seite geprüft ist, spätestens nach 48 h: Die alte DB enthält Prüfwerte, die die Wartung sonst nach 48 h löscht. Die Sicherung enthält keine, die Limits je Anschluss und Netz beginnen nach einem Restore also neu.
+- Die Schlüssel-DB (`/run/tatilvakti-v2/salts.db`) gehört nicht zum Restore. Sie wird nie gesichert und bleibt, wie sie ist; fehlt sie, legt die App sie neu an.
+- `restore.sh` nimmt dieselbe Sperre wie `deploy.sh` und `rollback.sh` (`/opt/tatilvakti-v2/.lock`). Während des Restores darf kein anderer Prozess die DB offen halten (z. B. `tv-flask.sh` oder eine `sqlite3`-Sitzung).
 - Neue Tabellen oder Spalten im Schema (`tatilvakti/db.py`) muss `scripts/backup.py` kennen: als Inhalt (`KEEP_TABLES`, `REPORT_COLUMNS`) oder als Prüfwert bzw. Schlüssel (`HASH_COLUMNS`, `SECRET_TABLES`). Sonst schlägt `tests/test_scripts.py` fehl und damit auch der Preflight von `deploy.sh`.
-- `backup.py` und `preflight.py` öffnen die Produktions-DB nur als deren Eigentümer. Als root angelegte `-wal`/`-shm`-Dateien könnte der Dienst sonst nicht mehr beschreiben.
+- `backup.py` und `preflight.py` öffnen die Produktions-DB nur als deren Eigentümer (`restore.sh` ruft beide als Dienstbenutzer auf). Als root angelegte `-wal`/`-shm`-Dateien könnte der Dienst sonst nicht mehr beschreiben.
+
+**Restore-Drill.** Eine Sicherung ist erst belegt, wenn sie einmal zurückgespielt wurde. Automatisch geschieht das bei jedem Testlauf, also auch im Preflight von `deploy.sh`: `tests/test_scripts.py` erzeugt eine echte Sicherung mit `backup.py`, spielt sie mit `restore.sh` über eine DB mit liegengebliebener `-wal` zurück (systemctl-Attrappe), startet die App darauf und setzt eine Meldung ab; dazu kaputte Sicherungen und ein Ausfall nach dem Start. Was nur auf Hermes zu sehen ist (Benutzer, Rechte, Pfade, Units), zeigt der Drill:
+
+1. **Vor dem Launch einmal mit echtem Restore**, solange v2 nur über die Test-Subdomain erreichbar ist. Vorher eine Testmeldung absetzen, damit die Sicherung nicht leer ist:
+
+   ```bash
+   sudo systemctl start tatilvakti-v2-backup.service && journalctl -u tatilvakti-v2-backup -n 1 -o cat
+   sudo /opt/tatilvakti-v2/current/scripts/restore.sh /var/lib/tatilvakti-v2/backups/tatilvakti-<zeit>.db
+   curl -s http://127.0.0.1:3096/healthz
+   ```
+
+   Prüfen: Das Skript endet mit „Restore fertig“ und derselben Meldungszahl wie `reports=…` im Backup-Journal. `/healthz` zeigt `db` und `salt_db` `true`, `status` ist nicht `down`. Eine Seite über die Test-Subdomain laden. Danach `pre-restore-<zeit>/` und die Testmeldung löschen (MIGRATION.md, Prüfliste e, Schritt 5).
+2. **Nach dem Launch monatlich** und nach jeder Änderung an `scripts/backup.py`, am Schema (`tatilvakti/db.py`) oder an den Units, ohne Eingriff in den Betrieb:
+
+   ```bash
+   sudo /opt/tatilvakti-v2/current/scripts/restore.sh --check
+   ```
+
+   Prüfen: „preflight ok“ und als letzte Zeile „Restore-Probe ok: <sicherung>, N Meldungen“. Ein echter Restore kostet nach dem Launch die Meldungen seit der Sicherung, deshalb nur im Ernstfall.
+3. **Dokumentieren:** je Drill eine Zeile in diese Tabelle und committen. Bei einem Fehlschlag die Ausgabe des Skripts aufheben.
+
+   | Datum | Art (Restore oder `--check`) | Sicherung | Meldungen laut Sicherung / danach | `/healthz` (`status`, `db`, `salt_db`) | Ergebnis |
+   |---|---|---|---|---|---|
 
 ## Datenpflege
 

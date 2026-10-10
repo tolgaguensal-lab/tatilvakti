@@ -44,12 +44,13 @@ link_target() {  # $1 = Linkname in BASE; leer, wenn es ihn nicht gibt
     readlink "$BASE/$1" 2>/dev/null || true
 }
 
-# Nur ein deploy.sh/rollback.sh zur Zeit: beide setzen current/previous und räumen releases/ auf.
-# Die Sperre gilt bis zum Ende des Skripts (fd 9 bleibt offen).
+# Nur ein deploy.sh/rollback.sh/restore.sh zur Zeit: deploy.sh und rollback.sh setzen
+# current/previous und räumen releases/ auf, alle drei starten den Dienst neu, restore.sh tauscht
+# die DB aus. Die Sperre gilt bis zum Ende des Skripts (fd 9 bleibt offen).
 take_lock() {
     [ -d "$BASE" ] || die "$BASE fehlt"
     exec 9>"$BASE/.lock"
-    flock -n 9 || die "deploy.sh oder rollback.sh läuft bereits (Sperre $BASE/.lock)"
+    flock -n 9 || die "deploy.sh, rollback.sh oder restore.sh läuft bereits (Sperre $BASE/.lock)"
 }
 
 # Zustand laut systemd: active, activating, reloading, deactivating, inactive, failed …
