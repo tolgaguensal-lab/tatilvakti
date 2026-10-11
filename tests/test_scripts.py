@@ -116,6 +116,38 @@ def test_config_check_treats_separator_only_address_as_missing(capsys):
     assert "Impressum-Angaben gesetzt" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("hosting, days", [
+    ("", ""), ("Beispiel Hosting GmbH, Musterstadt", ""), ("  ", "7"), ("Beispiel Hosting GmbH", "sieben"),
+    ("Beispiel Hosting GmbH", "-1"), ("Beispiel Hosting GmbH", "12345"), ("Beispiel Hosting GmbH", " 7 "),
+    ("Beispiel Hosting GmbH", "0"),
+])
+def test_config_check_warns_like_the_app_about_privacy_details(hosting, days, capsys):
+    """Hoster und Proxy-Log-Frist (Datenschutztext): nur Warnung, dieselbe Regel wie privacy_details()."""
+    from tatilvakti import privacy_details
+    pre = load_script("preflight")
+    env = {"TV_HOSTING_PROVIDER": hosting, "TV_PROXY_LOG_DAYS": days}
+    rep = pre.Report()
+    pre.check_config(env, rep)
+    out = capsys.readouterr().out
+    assert rep.errors == []
+    missing = privacy_details(env)["missing"]
+    assert ("WARNUNG  Datenschutztext unvollständig" in out) is bool(missing)
+    for name in missing:
+        assert name in out
+    if not missing:
+        assert f"Datenschutz-Angaben gesetzt: Hoster, Proxy-Log {int(days)} Tage" in out
+
+
+def test_env_example_documents_the_privacy_details():
+    text = (DEPLOY / "tatilvakti-v2.env.example").read_text(encoding="utf-8")
+    pre = load_script("preflight")
+    env = pre.parse_env_file(text)
+    assert env["TV_HOSTING_PROVIDER"] == "" and env["TV_PROXY_LOG_DAYS"] == ""  # Betreiber trägt sie ein
+    assert "0 = es gibt kein solches Protokoll" in text and "Auftragsverarbeiter" in text
+    # Mehrere Protokolle mit IP (Pangolin-Request-Log, Traefik-accessLog samt logrotate): die längste Frist
+    assert "die längste Frist eintragen" in text and "logrotate" in text
+
+
 def test_parse_env_file_like_systemd():
     pre = load_script("preflight")
     env = pre.parse_env_file('# Kommentar\n; auch\nA=1\nB="zwei Wörter"\nC=x y;z\n'
@@ -1186,6 +1218,24 @@ def test_rollback_with_an_unreadable_database_says_so(releases):
     assert res.returncode == 0 and releases.link("current") == "releases/r1", res.stdout + res.stderr
     assert "übersteuert (--force-schema): DB defekt, Restore folgt" in releases.journal()
     assert "Die Datenbank hat weiter" not in res.stdout
+
+
+def test_release_python_files_are_precompiled_and_checked_in_ci():
+    """Das Release ist für den Dienst schreibgeschützt: deploy.sh erzeugt die .pyc für jede
+    Python-Datei im Wurzelverzeichnis (wsgi.py, gunicorn.conf.py, die gunicorn beim Start lädt),
+    und die CI prüft dieselben Dateien mit compileall auf Syntax, auch mit der Mindestversion."""
+    def compileall_line(path: Path) -> str:
+        lines = [line for line in path.read_text(encoding="utf-8").splitlines() if "-m compileall" in line]
+        assert len(lines) == 1, path
+        return lines[0]
+
+    top_level = sorted(p.name for p in ROOT.glob("*.py"))
+    assert {"wsgi.py", "gunicorn.conf.py"} <= set(top_level)
+    deploy = compileall_line(SCRIPTS / "deploy.sh")
+    ci = compileall_line(ROOT / ".github" / "workflows" / "ci.yml").split()
+    for name in top_level:
+        assert f'"$REL/{name}"' in deploy, name
+        assert name in ci, name
 
 
 # ---------------------------------------------------------------- restore.sh mit systemctl-Attrappe

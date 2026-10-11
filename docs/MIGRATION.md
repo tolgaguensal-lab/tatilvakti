@@ -117,9 +117,9 @@ Das HTTPS-Request-Log von Pangolin speichert laut [Pangolin-Doku](https://docs.p
 
 - [ ] In den Organisationseinstellungen von Pangolin die Aufbewahrung der HTTPS-Request-Logs abschalten oder kürzen (z. B. 1–7 Tage). Den Wert notieren.
 - [ ] Prüfen, ob die Einstellung wirkt: Bei abgeschalteter Aufbewahrung darf nach einer Testanfrage kein neuer Eintrag im Request-Log erscheinen, sonst keiner, der älter als die Frist ist. Pangolin hatte hier Fehler: In Version 1.13.0 erschienen Request-Logs trotz abgeschalteter Aufbewahrung ([Issue #2061](https://github.com/fosrl/pangolin/issues/2061), geschlossen). Version 1.22.0 behebt laut [Release Notes](https://github.com/fosrl/pangolin/releases/tag/1.22.0) einen Fehler, durch den die Aufbewahrung der Access-Logs ein falsches Feld der Organisationseinstellungen las. Deshalb eine aktuelle Version einsetzen.
-- [ ] Traefik-`accessLog` in der Pangolin-Konfiguration prüfen: abschalten oder die Client-IP weglassen. Dazu unter `fields.names` sowohl `ClientHost` als auch `ClientAddr` auf `drop` setzen und Header nicht loggen (`fields.headers.defaultMode: drop`, der Traefik-Standard; [Traefik-Doku](https://doc.traefik.io/traefik/v3.1/observability/access-logs/)).
+- [ ] Traefik-`accessLog` in der Pangolin-Konfiguration prüfen: abschalten oder die Client-IP weglassen. Dazu unter `fields.names` sowohl `ClientHost` als auch `ClientAddr` auf `drop` setzen und Header nicht loggen (`fields.headers.defaultMode: drop`, der Traefik-Standard; [Traefik-Doku](https://doc.traefik.io/traefik/v3.1/observability/access-logs/)). Mit CrowdSec schaltet Pangolin das `accessLog` (`config/traefik/logs/access.log`) selbst ein und CrowdSec wertet die IP aus. Bleibt sie drin, bestimmt nur logrotate, wie lange sie liegt: ohne Rotation unbegrenzt, mit der Vorlage aus der [Pangolin-Doku](https://docs.pangolin.net/self-host/advanced/traefik-log-rotation) (`daily`, `rotate 7`) bis zu 8 Tage. Den Wert notieren.
 - [ ] AVV mit dem VPS-Anbieter bzw. Pangolin Cloud abschließen oder abrufen. Bei Anbietern außerhalb der EU die Drittlandübermittlung prüfen.
-- [ ] Ergebnis (Empfänger, Log-Frist) in die Datenschutzhinweise von v2 übernehmen (`de.json` und `tr.json`, Abschnitt Datenschutz der Info-Seite). Der Text sagt schon „Die IP-Adresse selbst speichert die App nicht“ und erwähnt, dass der vorgeschaltete Proxy die aufgerufene Adresse samt `?land=` protokollieren kann. Es fehlen noch die Empfänger (Hoster, Pangolin) und die konkrete Log-Frist. Beides muss der Betreiber liefern.
+- [ ] Ergebnis in `/etc/tatilvakti-v2.env` eintragen (README → Konfiguration), nicht in `de.json`/`tr.json`: `TV_HOSTING_PROVIDER` (Name und Sitz des Hosters; laufen Server und Proxy bei verschiedenen Anbietern, beide mit `;` getrennt) und `TV_PROXY_LOG_DAYS` (die längste Frist aller Protokolle mit IP-Adresse aus den Punkten oben, `0` = keins; behält das Traefik-`accessLog` die IP ohne Rotation, gibt es keinen gültigen Wert). Danach `sudo systemctl restart tatilvakti-v2`. Prüfen: `/healthz` auf dem Server → `privacy_ok` `true` (siehe 6a), und die Info-Seite (`/de/info#datenschutz`, `/tr/bilgi#datenschutz`) nennt Hoster, Inhalt und Frist des Protokolls statt „folgen noch“. Die App rät nichts: Solange ein Wert fehlt oder ungültig ist, steht dort, dass die Angabe folgt, und `/healthz` meldet `privacy` unter `attention`. Der Text nennt als Inhalt Zeitpunkt, IP-Adresse, daraus ermitteltes Land, Browserkennung und aufgerufene Adresse (Pangolin-Request-Log ab Werk). Speichert ein Protokoll mehr, z. B. den Referer (Standardformat `common` des Traefik-`accessLog`), oder sitzt ein Anbieter außerhalb der EU, den Text in `de.json` und `tr.json` ergänzen.
 
 ### 2.7 Manifest-id und alte Start-URL
 
@@ -130,7 +130,7 @@ Das HTTPS-Request-Log von Pangolin speichert laut [Pangolin-Doku](https://docs.p
 ### 2.8 Impressum und Datenschutzhinweise
 
 - [ ] `TV_OPERATOR_NAME`, `TV_OPERATOR_ADDRESS`, `TV_OPERATOR_EMAIL` in `/etc/tatilvakti-v2.env` gesetzt (`/healthz` auf dem Server → `imprint_ok: true`, siehe 6a). Das Impressum erscheint nur mit allen drei Angaben, die Anschrift braucht mindestens eine Zeile (Zeilen mit `;` trennen). Fehlt eine Angabe, steht auf der Info-Seite „noch nicht eingerichtet“.
-- [ ] Empfänger und Log-Frist des Proxys aus 2.6 stehen im Datenschutztext.
+- [ ] `TV_HOSTING_PROVIDER` und `TV_PROXY_LOG_DAYS` aus 2.6 in `/etc/tatilvakti-v2.env` gesetzt (`/healthz` auf dem Server → `privacy_ok: true`, siehe 6a). Fehlt eine Angabe, steht auf der Info-Seite, dass sie folgt.
 - [ ] Alle Dienste, die nach 2.1–2.6 weiterlaufen, sind in den Hinweisen von v2 abgedeckt.
 - [ ] Alte Impressums- und Datenschutz-URLs stehen in Anhang A (Ziel `/de/info#impressum` bzw. `/de/info#datenschutz`).
 
@@ -182,7 +182,7 @@ Je nach Ergebnis von 1.1. Sobald v2 oder der Kill-Switch auf einem Gerät aktiv 
 **Voraussetzungen:**
 
 - [ ] Abschnitt 2 entschieden, alles, was vorher passieren muss, ist erledigt (Push-Versand und Scraper gestoppt, Hinweise für weiterlaufende Dienste in v2).
-- [ ] `/healthz` wie in 6a: auf dem Server `status` `ok` und `imprint_ok` `true`, über die Test-Subdomain HTTP 200.
+- [ ] `/healthz` wie in 6a: auf dem Server `status` `ok`, `imprint_ok` und `privacy_ok` `true`, über die Test-Subdomain HTTP 200.
 - [ ] `TV_LEGACY_SW_PATHS` gesetzt, falls der alte Worker nicht unter `/sw.js` liegt (Abschnitt 3).
 - [ ] Weiterleitungstabelle aus Anhang A in `tatilvakti/data/redirects.json` eingetragen und ausgeliefert.
 - [ ] Zeitpunkt außerhalb der Reisespitzen (nicht am Wochenende vor Ferienbeginn). Jedes Gerät lädt nach dem Wechsel die Offline-Daten neu.
@@ -221,7 +221,7 @@ curl -s -o /dev/null -w '%{http_code}\n' "$D/healthz"          # von außen (z. 
 curl -s http://127.0.0.1:3096/healthz | python3 -m json.tool      # auf Hermes: alle Details
 ```
 
-Erwartet: von außen HTTP 200; auf dem Server `status` `ok`. Bei `attention` (weiter HTTP 200) stehen die Pflegehinweise in `attention`. Außerdem `down` leer, `db` `true`, `build` wie in der Ausgabe von `deploy.sh`, `due_items` leer (sonst sind Daten zu prüfen, README → Datenpflege), `imprint_ok` `true`, `proxy.trust_proxy` `1`, `proxy.forwarded_ignored` `false`.
+Erwartet: von außen HTTP 200; auf dem Server `status` `ok`. Bei `attention` (weiter HTTP 200) stehen die Pflegehinweise in `attention`. Außerdem `down` leer, `db` `true`, `build` wie in der Ausgabe von `deploy.sh`, `due_items` leer (sonst sind Daten zu prüfen, README → Datenpflege), `imprint_ok` `true`, `privacy_ok` `true` (sonst 2.6, letzter Punkt), `proxy.trust_proxy` `1`, `proxy.forwarded_ignored` `false`.
 
 HTTP 503 mit `status` `down` heißt: Melden geht nicht, die Gründe stehen in `down` (`db`: Haupt-DB nimmt keine Meldung an; `salt_db`: Schlüssel-DB nicht nutzbar). Ursache: `journalctl -u tatilvakti-v2 -n 50`. Ein externer Uptime-Monitor prüft `$D/healthz` auf den Statuscode (200 gut, alles andere Alarm); Pflegehinweise sind kein Ausfall (README → Logs und Monitoring).
 
@@ -386,4 +386,4 @@ Neue Ziele in v2: `/de/` · `/de/ferien` · `/de/ferien/<zeitraum>` · `/de/rout
 | Ergebnis der Generalprobe (4.4) | |
 | Restore-Drill (4.5): Datum, Sicherung, Meldungen laut Sicherung / danach, `/healthz` (`status`, `db`, `salt_db`) | |
 | Weiterlaufende Dienste für die Datenschutzhinweise (2.1–2.6) | |
-| Pangolin: Version, wo es läuft, Anbindung von Hermes (Site mit Newt oder Pangolin auf Hermes), Aufbewahrung der Request-Logs (Organisation), Hoster, AVV | |
+| Pangolin: Version, wo es läuft, Anbindung von Hermes (Site mit Newt oder Pangolin auf Hermes), Aufbewahrung der Request-Logs (Organisation), Traefik-`accessLog` mit IP und Rotation, Hoster, AVV, eingetragene `TV_HOSTING_PROVIDER`/`TV_PROXY_LOG_DAYS` | |

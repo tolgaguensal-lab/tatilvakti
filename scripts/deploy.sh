@@ -103,8 +103,9 @@ log "venv mit gehashten Abhängigkeiten (requirements.txt)"
 python3 -m venv "$REL/.venv"
 "$REL/.venv/bin/pip" install --quiet --disable-pip-version-check --no-input \
     --require-hashes -r "$REL/requirements.txt"
-# Der Code ist für den Dienst schreibgeschützt (ProtectSystem=strict): .pyc jetzt erzeugen
-"$REL/.venv/bin/python" -m compileall -q "$REL/tatilvakti" "$REL/wsgi.py" >/dev/null
+# Der Code ist für den Dienst schreibgeschützt (ProtectSystem=strict): .pyc jetzt erzeugen, auch für
+# gunicorn.conf.py (lädt gunicorn beim Start aus dem Arbeitsverzeichnis)
+"$REL/.venv/bin/python" -m compileall -q "$REL/tatilvakti" "$REL/wsgi.py" "$REL/gunicorn.conf.py" >/dev/null
 
 PREFLIGHT_ARGS=(--no-tests)
 if [ "$TESTS" = 1 ]; then
