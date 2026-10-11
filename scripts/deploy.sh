@@ -1,19 +1,25 @@
 #!/usr/bin/env bash
 # Neues Release von tatilvakti v2 bauen, prüfen und aktivieren. Als root, aus einem Git-Klon:
 #
-#   sudo scripts/deploy.sh [--rev <git-rev>] [--no-tests] [--keep <n>]
+#   sudo scripts/deploy.sh [--rev <git-rev>] [--no-tests] [--keep <n>] [--force-schema "<Grund>"]
 #
 # 1. git archive <rev> → /opt/tatilvakti-v2/releases/<UTC-Zeit>-<commit> (nur Eingechecktes)
-# 2. eigenes venv je Release, Pakete nur mit passenden Hashes aus requirements.txt
-# 3. Preflight als Dienstbenutzer: Konfiguration, create_app gegen eine DB-Kopie, alle Seiten
+# 2. Schema-Version (scripts/schema_check.py): Kennt das Release die der Datenbank nicht (älterer
+#    Stand per --rev) oder ist eine der Versionen nicht lesbar, Abbruch mit den Wegen;
+#    --force-schema übersteuert das mit Begründung.
+# 3. eigenes venv je Release, Pakete nur mit passenden Hashes aus requirements.txt
+# 4. Preflight als Dienstbenutzer: Konfiguration, create_app gegen eine DB-Kopie, alle Seiten
 #    und die Precache-Liste, pytest (in einem Wegwerf-venv; das Laufzeit-venv bleibt ohne pytest)
-# 4. erst dann: Symlink current atomar umschalten, previous zeigt auf das bisherige Release
-# 5. soll der Dienst laufen (aktiv, startet gerade oder abgestürzt): reset-failed und Neustart,
+# 5. Sicherung der Datenbank mit scripts/backup.py als Dienstbenutzer (ohne Prüfwerte, konsistent)
+#    nach /var/lib/tatilvakti-v2/backups/pre-deploy-<release>.db; die neuesten 3 bleiben und je
+#    ältere Schema-Version die neueste. Fehlt Platz oder scheitert sie, endet deploy.sh hier.
+# 6. erst dann: Symlink current atomar umschalten, previous zeigt auf das bisherige Release
+# 7. soll der Dienst laufen (aktiv, startet gerade oder abgestürzt): reset-failed und Neustart,
 #    /healthz muss die neue Build-ID melden, sonst automatisch zurück und Neustart des alten Releases
-# 6. alte Releases aufräumen (die neuesten --keep bleiben, Standard 5, current/previous immer)
+# 8. alte Releases aufräumen (die neuesten --keep bleiben, Standard 5, current/previous immer)
 #
-# Scheitert ein Schritt vor 4, ändert sich am laufenden Dienst nichts. Gleichzeitige Läufe von
-# deploy.sh und rollback.sh verhindert eine Sperre (/opt/tatilvakti-v2/.lock).
+# Scheitert ein Schritt vor 6, ändert sich am laufenden Dienst nichts. Gleichzeitige Läufe von
+# deploy.sh, rollback.sh und restore.sh verhindert eine Sperre (/opt/tatilvakti-v2/.lock).
 set -euo pipefail
 umask 022
 
@@ -29,7 +35,8 @@ while [ $# -gt 0 ]; do
         --rev) REV=${2:?--rev braucht einen Wert}; shift 2 ;;
         --no-tests) TESTS=0; shift ;;
         --keep) KEEP=${2:?--keep braucht einen Wert}; shift 2 ;;
-        -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+        --force-schema) force_reason "${2-}"; FORCE_SCHEMA=$2; shift 2 ;;
+        -h|--help) sed -n '2,/^set -/{/^#/p}' "$0"; exit 0 ;;
         *) die "unbekannte Option: $1 (siehe --help)" ;;
     esac
 done
@@ -73,6 +80,25 @@ mkdir -m 0755 "$REL"
 "${GIT[@]}" archive --format=tar "$COMMIT" | tar -x --no-same-owner --no-same-permissions -C "$REL"
 printf '%s\n' "$COMMIT" >"$REL/REVISION"
 
+# schema_check.py und backup.py laufen als Dienstbenutzer. Lesbare Kopie, denn den Klon darf er
+# vielleicht nicht lesen (z. B. im Home-Verzeichnis). Diese Fassung, nicht die des Releases: Sie
+# kennt die Prüfung und --pre-deploy auch dann, wenn --rev einen älteren Stand ausrollt.
+install -m 0644 "$LIB_DIR/schema_check.py" "$LIB_DIR/backup.py" "$WORK/"
+HELPERS=$WORK
+ACTIVE=$(link_target current)  # bisher aktives Release (leer beim ersten Deploy)
+# restore.sh für Weg 2 aus dem bisherigen Release: Ein älteres Ziel hat es vielleicht nicht
+RESTORE=$BASE/${ACTIVE:-current}/scripts/restore.sh
+FORCE_CMD="sudo $HERE/deploy.sh --rev $REV --force-schema \"<Grund>\""
+SCHEMA_RC=0
+check_schema "$REL" || SCHEMA_RC=$?
+case $SCHEMA_RC in
+    0) ;;
+    2) schema_unreadable_hint "$FORCE_CMD"
+       die "Schema-Version nicht lesbar, nichts umgeschaltet." ;;
+    *) schema_hint "$FORCE_CMD" "$RESTORE"
+       die "Schema-Version: $NAME passt nicht zur Datenbank, nichts umgeschaltet." ;;
+esac
+
 log "venv mit gehashten Abhängigkeiten (requirements.txt)"
 python3 -m venv "$REL/.venv"
 "$REL/.venv/bin/pip" install --quiet --disable-pip-version-check --no-input \
@@ -94,9 +120,22 @@ PREFLIGHT_BUILD=
 run_preflight "$REL" "${PREFLIGHT_ARGS[@]}" || die "Preflight fehlgeschlagen, nichts umgeschaltet."
 [ -n "$PREFLIGHT_BUILD" ] || die "Preflight lieferte keine Build-ID"
 
+pre_deploy_snapshot "$NAME" \
+    || die "Sicherung vor dem Umschalten fehlgeschlagen, nichts umgeschaltet. Platz schaffen bzw. Ursache" \
+           "beheben, dann erneut (backups/ wie in README → Backup und Restore)."
+NOTE=
+if [ -n "$SNAPSHOT" ]; then
+    NOTE="Datenstand vor dem Deploy: $SNAPSHOT"
+    if [ -n "$SCHEMA_DB" ] && [ "$SCHEMA_DB" -gt 0 ] && [ "$SCHEMA_RELEASE" -gt "$SCHEMA_DB" ]; then
+        # Das neue Release hat die DB beim Start umgestellt; das alte kennt die neue Fassung nicht
+        NOTE+=". $NAME hat die Datenbank evtl. schon auf Schema-Version $SCHEMA_RELEASE umgestellt."
+        NOTE+=" Zurück auf den Stand vor dem Deploy: sudo $REL/scripts/restore.sh $SNAPSHOT"
+    fi
+fi
+
 # Ab hier bleibt das Release stehen, auch wenn es zurückgerollt wird (zur Analyse)
 ACTIVATED=1
-activate_release "releases/$NAME" "$PREFLIGHT_BUILD"
+activate_release "releases/$NAME" "$PREFLIGHT_BUILD" "$NOTE"
 
 # Aufräumen: die neuesten KEEP Releases behalten, current und previous nie löschen
 CUR=$(link_target current)
@@ -119,4 +158,13 @@ for f in "$REL"/deploy/*.service "$REL"/deploy/*.timer; do
     fi
 done
 
+warn_snapshot_prune "$REL"  # nur bei --rev mit einem Stand von vor dieser Sicherung
 log "fertig: $NAME"
+[ -z "$ACTIVE" ] || log "Zurück auf $ACTIVE: sudo $BASE/current/scripts/rollback.sh"
+if [ -n "$SNAPSHOT" ] && [ -n "$FORCE_SCHEMA" ] && [ -n "$SCHEMA_DB" ] && [ "$SCHEMA_DB" -gt "$SCHEMA_RELEASE" ]; then
+    # Die eben angelegte Sicherung hat die Version der DB, ist also nicht die für Weg 2
+    log "Datenstand vor dem Deploy: $SNAPSHOT (Schema-Version $SCHEMA_DB, für $NAME zu neu)"
+elif [ -n "$SNAPSHOT" ]; then
+    log "Datenstand vor dem Deploy: $SNAPSHOT (README → Update und Rollback)"
+fi
+forced_schema_note "$NAME" "$RESTORE"

@@ -69,6 +69,7 @@ Jeder Punkt beantwortet eine Frage, die sich aus dem Code von v2 allein nicht kl
 
 - [ ] **Pangolin:** Wo läuft es (eigene Hardware, VPS-Anbieter oder Pangolin Cloud) und in welcher Version? Welche Aufbewahrung ist in den Organisationseinstellungen für die HTTPS-Request-Logs eingestellt? Ist im Traefik von Pangolin ein `accessLog` aktiv?
 - [ ] **VM „Hermes“:** Bei welchem Anbieter läuft sie?
+- [ ] **Anbindung:** Läuft Pangolin bzw. Traefik auf Hermes selbst, oder ist Hermes eine Site eines Pangolin auf einem anderen Rechner (z. B. mit Newt)? Prüfen und Folgen für den Wiederaufbau: [RUNBOOK.md](RUNBOOK.md), Abschnitt 4.
 - [ ] **Auftragsverarbeitung:** Gibt es einen AVV (Art. 28 DSGVO) mit diesen Anbietern?
 
 ---
@@ -311,6 +312,8 @@ sudo /opt/tatilvakti-v2/current/scripts/rollback.sh --list     # verfügbare Rel
 
 `deploy.sh` rollt selbst zurück, wenn ein neues Release nach dem Neustart `/healthz` nicht mit der erwarteten Build-ID beantwortet, und startet das alte Release wieder. `rollback.sh` startet den Dienst auch dann neu, wenn systemd ihn nach mehreren Fehlstarts aufgegeben hat (`failed`, start-limit-hit). Einen bewusst gestoppten Dienst startet es nur mit `--start`.
 
+Sicherung vor jedem Deploy (`backups/pre-deploy-<release>.db`) und Abbruch, wenn das Ziel die Schema-Version der Datenbank nicht kennt: README → Update und Rollback. Ablauf bei einer Störung und Wiederaufbau auf einem neuen Host: [RUNBOOK.md](RUNBOOK.md).
+
 ### 7.2 Zurück zur Alt-App
 
 1. Alt-App starten und lokal prüfen:
@@ -383,4 +386,4 @@ Neue Ziele in v2: `/de/` · `/de/ferien` · `/de/ferien/<zeitraum>` · `/de/rout
 | Ergebnis der Generalprobe (4.4) | |
 | Restore-Drill (4.5): Datum, Sicherung, Meldungen laut Sicherung / danach, `/healthz` (`status`, `db`, `salt_db`) | |
 | Weiterlaufende Dienste für die Datenschutzhinweise (2.1–2.6) | |
-| Pangolin: Version, Aufbewahrung der Request-Logs (Organisation), Hoster, AVV | |
+| Pangolin: Version, wo es läuft, Anbindung von Hermes (Site mit Newt oder Pangolin auf Hermes), Aufbewahrung der Request-Logs (Organisation), Hoster, AVV | |

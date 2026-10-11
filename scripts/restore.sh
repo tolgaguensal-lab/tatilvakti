@@ -5,6 +5,9 @@
 #   sudo /opt/tatilvakti-v2/current/scripts/restore.sh --start <sicherung>    # danach alles starten
 #   sudo /opt/tatilvakti-v2/current/scripts/restore.sh --check [<sicherung>]  # Probe, ändert nichts
 #
+# Sicherungen: backups/tatilvakti-<zeit>.db (nachts) und backups/pre-deploy-<release>.db (deploy.sh,
+# direkt vor dem Umschalten auf <release>), beide von scripts/backup.py, auch Kopien davon.
+#
 # 1. Sicherung als Kopie neben die DB legen (Dienstbenutzer, 0600), mit backup.py --verify prüfen.
 #    Ist sie fehlerhaft, endet das Skript hier, Dienst und DB bleiben unverändert.
 # 2. Timer, Wartung, Backup und Dienst stoppen (die Wartung legte sonst in der Lücke eine leere DB an).
@@ -20,7 +23,7 @@
 # pre-restore-<UTC-Zeit>/zurueck.txt, falls niemand mehr die Ausgabe liest.
 #
 # --check: nur Schritt 1, dazu der Preflight des aktiven Releases gegen die Kopie (create_app,
-# /healthz, alle Seiten). Ohne Angabe die neueste Sicherung. Für den Restore-Drill (README).
+# /healthz, alle Seiten). Ohne Angabe die neueste nächtliche Sicherung. Für den Restore-Drill (README).
 #
 # Die Schlüssel-DB (/run/tatilvakti-v2/salts.db) bleibt unberührt, sie wird nie gesichert.
 # deploy.sh, rollback.sh und restore.sh laufen nie gleichzeitig (Sperre /opt/tatilvakti-v2/.lock).
@@ -35,7 +38,6 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PYTHON=${TV_RESTORE_PYTHON:-python3}
 DATA_DIR=$(dirname "$DB")
 NAME=${DB##*/}
-BACKUP_DIR=$DATA_DIR/backups
 TIMERS=("$APP-maintenance.timer" "$APP-backup.timer")
 JOBS=("$APP-maintenance.service" "$APP-backup.service")
 # Alles, was SQLite beim Öffnen von tatilvakti.db mitliest
@@ -65,7 +67,8 @@ if [ -z "$SRC" ]; then
     [ "$CHECK" = 1 ] || die "Sicherung angeben, z. B. $BACKUP_DIR/tatilvakti-<zeit>.db (siehe --help)"
     [ -d "$BACKUP_DIR" ] || die "$BACKUP_DIR fehlt, es lief noch keine Sicherung." \
         "Jetzt sichern: systemctl start $APP-backup.service"
-    # Die Dateinamen tragen die UTC-Zeit, die neueste steht also sortiert am Ende
+    # Die Dateinamen tragen die UTC-Zeit, die neueste steht also sortiert am Ende. Der Drill prüft
+    # die nächtlichen Sicherungen; eine vor dem Deploy (pre-deploy-*.db) nur mit Dateinamen.
     SRC=$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'tatilvakti-*.db' | sort | tail -n 1)
     [ -n "$SRC" ] || die "keine Sicherung in $BACKUP_DIR"
 fi
