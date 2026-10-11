@@ -17,11 +17,22 @@
 
 <nav class="chips" aria-label="{{ t('hol_period') }}">
   {%- for p in periods %}
-  <a class="chips__item{% if p.id == period.id %} is-active{% endif %}" href="{{ href('holidays', slug=p.slug[lang]) }}"{% if p.id == period.id %} aria-current="page"{% endif %}>{{ p.label[lang] }}</a>
+  <a class="chips__item{% if p.id == period.id %} is-active{% endif %}" data-state-link href="{{ href('holidays', slug=p.slug[lang]) }}{% if land %}?land={{ land }}{% endif %}"{% if p.id == period.id %} aria-current="page"{% endif %}>{{ p.label[lang] }}{% if p.id == next_id %} <span class="chips__badge">{{ t("hol_next_badge") }}</span>{% endif %}</a>
   {%- endfor %}
 </nav>
 
-<form class="card inline-form" method="get" action="{{ href('holidays', slug=period.slug[lang]) }}" data-prefs>
+{#- Normales GET-Formular (bewusst ohne data-prefs): ohne JS schickt es Zeitraum + Bundesland an
+    die Übersicht, die per 301 auf die Zeitraum-Seite weiterleitet; mit JS gilt dasselbe, das
+    Bundesland wirkt zusätzlich sofort client-seitig (data-pref="state"). #}
+<form class="card inline-form" method="get" action="{{ href('holidays') }}">
+  <label class="field">
+    <span class="field__label">{{ t("hol_period") }}</span>
+    <select name="zeitraum">
+      {%- for p in periods %}
+      <option value="{{ p.id }}"{% if p.id == period.id %} selected{% endif %}>{{ p.label[lang] }}</option>
+      {%- endfor %}
+    </select>
+  </label>
   <label class="field">
     <span class="field__label">{{ t("hol_state") }}</span>
     <select name="land" data-pref="state">
@@ -31,7 +42,7 @@
       {%- endfor %}
     </select>
   </label>
-  <button class="btn btn--ghost js-hide" type="submit">OK</button>
+  <button class="btn btn--ghost" type="submit">OK</button>
 </form>
 
 <section class="personal" aria-live="polite">

@@ -95,7 +95,8 @@ def test_every_period_has_its_own_page_with_title_and_h1(app, client, lang, base
         title = re.search(r"<title>(.*?)</title>", html).group(1)
         h1 = re.sub(r"<[^>]+>", "", re.search(r"<h1>(.*?)</h1>", html, re.S).group(1)).strip()
         assert period.label[lang] in title and period.label[lang] in h1, (title, h1)
-        assert f'aria-current="page">{period.label[lang]}</a>' in html  # Zeitraum-Chip aktiv
+        assert re.search(rf'aria-current="page">{re.escape(period.label[lang])}\s?'
+                         r'(?:<span class="chips__badge">[^<]*</span>)?</a>', html)  # Zeitraum-Chip aktiv
         titles.add(title)
         h1s.add(h1)
     assert len(titles) == len(h1s) == len(_periods(app))
@@ -154,11 +155,14 @@ def test_unknown_query_shows_the_radar(client):
 
 
 def test_internal_period_links_use_paths(client):
+    """Interne Links bleiben crawlbare Pfade; ?zeitraum= gibt es nur im Auswahl-Formular
+    (kein <a href>), das die Übersicht per 301 auf den Pfad weiterleitet."""
     for path in ("/de/ferien", "/de/ferien/sommer-2027?land=NW", "/tr/tatil/yaz-2027?land=NW"):
         html = client.get(path).get_data(as_text=True)
-        assert "zeitraum" not in html, path
+        assert not any("zeitraum=" in href for href in re.findall(r'href="([^"]+)"', html)), path
     html = client.get("/de/ferien/sommer-2027").get_data(as_text=True)
-    assert 'action="/de/ferien/sommer-2027"' in html  # Bundesland-Auswahl ohne JS bleibt im Zeitraum
+    # Auswahl-Formular: Zeitraum + Bundesland ohne JS über die Übersicht (301 auf den Pfad)
+    assert 'action="/de/ferien"' in html and 'name="zeitraum"' in html and 'name="land"' in html
 
 
 def test_holiday_page_personalises_server_side(client):
