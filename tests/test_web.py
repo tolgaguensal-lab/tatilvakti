@@ -432,6 +432,25 @@ def test_healthz_lists_due_rules_and_prices(operated_app):
     assert not any(v["review_due"] for v in data["datasets"].values())
 
 
+def test_healthz_reminds_of_bulgarian_prices_before_the_page_marks_them_outdated(operated_app, clock):
+    """Issue #2: BG hat die Preise zum 01.08.2026 geändert und kann es wieder tun. Der Prüftermin
+    (review_after) mahnt in /healthz, solange die Routenseite die Preise noch als gültig zeigt."""
+    bg = operated_app.extensions["tv"].content.transit["countries"]["BG"]
+    review = datetime.fromisoformat(bg["review_after"])
+    assert review < datetime.fromisoformat(bg["prices_valid_until"])
+    client = operated_app.test_client()
+
+    def bg_due():
+        return [d for d in client.get("/healthz").get_json()["due_items"] if d["item"] == "BG"]
+
+    clock.now = review.replace(hour=12, tzinfo=timezone.utc)  # am Prüftermin selbst noch nicht fällig
+    assert bg_due() == []
+    clock.now += timedelta(days=1)
+    assert bg_due() == [{"dataset": "transit", "item": "BG", "field": "review_after", "date": bg["review_after"]}]
+    bg_html = client.get("/de/route").get_data(as_text=True).split('id="land-BG"', 1)[1].split("</details>", 1)[0]
+    assert "is-outdated" not in bg_html and "vermutlich veraltet" not in bg_html
+
+
 def test_healthz_flags_whole_datasets_after_review_date(operated_app, clock):
     clock.now = datetime(2100, 1, 1, 9, 0, tzinfo=timezone.utc)
     data = operated_app.test_client().get("/healthz").get_json()
