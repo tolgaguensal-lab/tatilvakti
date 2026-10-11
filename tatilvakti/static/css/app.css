@@ -428,7 +428,8 @@ body:not(.mode-plane) .only-plane { display: none; }
 .pattern__axis { stroke: var(--ink-2); stroke-width: 1; }
 .pattern__bar--ok { fill: var(--ok); } .pattern__bar--mid { fill: var(--mid); } .pattern__bar--bad { fill: var(--bad); } .pattern__bar--none { fill: var(--line); }
 .pattern__bar { transition: opacity .15s ease; }
-.pattern__bar:hover, .pattern__bar:focus-visible { opacity: .72; }
+.pattern__bar:hover { opacity: .72; }
+.pattern__bar:focus-visible { opacity: .72; }
 .pattern__tick { font-size: 11px; fill: var(--ink-2); }
 .pattern__lvl { font-size: 10px; fill: var(--ink-2); }
 .pattern__now { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 3; }
