@@ -69,6 +69,7 @@ Jeder Punkt beantwortet eine Frage, die sich aus dem Code von v2 allein nicht kl
 
 - [ ] **Pangolin:** Wo läuft es (eigene Hardware, VPS-Anbieter oder Pangolin Cloud) und in welcher Version? Welche Aufbewahrung ist in den Organisationseinstellungen für die HTTPS-Request-Logs eingestellt? Ist im Traefik von Pangolin ein `accessLog` aktiv?
 - [ ] **VM „Hermes“:** Bei welchem Anbieter läuft sie?
+- [ ] **Anbindung:** Läuft Pangolin bzw. Traefik auf Hermes selbst, oder ist Hermes eine Site eines Pangolin auf einem anderen Rechner (z. B. mit Newt)? Prüfen und Folgen für den Wiederaufbau: [RUNBOOK.md](RUNBOOK.md), Abschnitt 4.
 - [ ] **Auftragsverarbeitung:** Gibt es einen AVV (Art. 28 DSGVO) mit diesen Anbietern?
 
 ---
@@ -385,4 +386,4 @@ Neue Ziele in v2: `/de/` · `/de/ferien` · `/de/ferien/<zeitraum>` · `/de/rout
 | Ergebnis der Generalprobe (4.4) | |
 | Restore-Drill (4.5): Datum, Sicherung, Meldungen laut Sicherung / danach, `/healthz` (`status`, `db`, `salt_db`) | |
 | Weiterlaufende Dienste für die Datenschutzhinweise (2.1–2.6) | |
-| Pangolin: Version, Aufbewahrung der Request-Logs (Organisation), Hoster, AVV | |
+| Pangolin: Version, wo es läuft, Anbindung von Hermes (Site mit Newt oder Pangolin auf Hermes), Aufbewahrung der Request-Logs (Organisation), Hoster, AVV | |

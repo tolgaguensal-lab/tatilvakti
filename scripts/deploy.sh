@@ -5,13 +5,14 @@
 #
 # 1. git archive <rev> → /opt/tatilvakti-v2/releases/<UTC-Zeit>-<commit> (nur Eingechecktes)
 # 2. Schema-Version (scripts/schema_check.py): Kennt das Release die der Datenbank nicht (älterer
-#    Stand per --rev), Abbruch mit den Wegen; --force-schema übersteuert das mit Begründung.
+#    Stand per --rev) oder ist eine der Versionen nicht lesbar, Abbruch mit den Wegen;
+#    --force-schema übersteuert das mit Begründung.
 # 3. eigenes venv je Release, Pakete nur mit passenden Hashes aus requirements.txt
 # 4. Preflight als Dienstbenutzer: Konfiguration, create_app gegen eine DB-Kopie, alle Seiten
 #    und die Precache-Liste, pytest (in einem Wegwerf-venv; das Laufzeit-venv bleibt ohne pytest)
 # 5. Sicherung der Datenbank mit scripts/backup.py als Dienstbenutzer (ohne Prüfwerte, konsistent)
-#    nach /var/lib/tatilvakti-v2/backups/pre-deploy-<release>.db; die neuesten 3 bleiben. Fehlt
-#    Platz oder scheitert sie, endet deploy.sh hier.
+#    nach /var/lib/tatilvakti-v2/backups/pre-deploy-<release>.db; die neuesten 3 bleiben und je
+#    ältere Schema-Version die neueste. Fehlt Platz oder scheitert sie, endet deploy.sh hier.
 # 6. erst dann: Symlink current atomar umschalten, previous zeigt auf das bisherige Release
 # 7. soll der Dienst laufen (aktiv, startet gerade oder abgestürzt): reset-failed und Neustart,
 #    /healthz muss die neue Build-ID melden, sonst automatisch zurück und Neustart des alten Releases
@@ -85,10 +86,18 @@ printf '%s\n' "$COMMIT" >"$REL/REVISION"
 install -m 0644 "$LIB_DIR/schema_check.py" "$LIB_DIR/backup.py" "$WORK/"
 HELPERS=$WORK
 ACTIVE=$(link_target current)  # bisher aktives Release (leer beim ersten Deploy)
-if ! check_schema "$REL"; then
-    schema_hint "sudo $HERE/deploy.sh --rev $REV --force-schema \"<Grund>\"" "$BASE/${ACTIVE:-current}/scripts/restore.sh"
-    die "Schema-Version: $NAME passt nicht zur Datenbank, nichts umgeschaltet."
-fi
+# restore.sh für Weg 2 aus dem bisherigen Release: Ein älteres Ziel hat es vielleicht nicht
+RESTORE=$BASE/${ACTIVE:-current}/scripts/restore.sh
+FORCE_CMD="sudo $HERE/deploy.sh --rev $REV --force-schema \"<Grund>\""
+SCHEMA_RC=0
+check_schema "$REL" || SCHEMA_RC=$?
+case $SCHEMA_RC in
+    0) ;;
+    2) schema_unreadable_hint "$FORCE_CMD"
+       die "Schema-Version nicht lesbar, nichts umgeschaltet." ;;
+    *) schema_hint "$FORCE_CMD" "$RESTORE"
+       die "Schema-Version: $NAME passt nicht zur Datenbank, nichts umgeschaltet." ;;
+esac
 
 log "venv mit gehashten Abhängigkeiten (requirements.txt)"
 python3 -m venv "$REL/.venv"
@@ -152,4 +161,10 @@ done
 warn_snapshot_prune "$REL"  # nur bei --rev mit einem Stand von vor dieser Sicherung
 log "fertig: $NAME"
 [ -z "$ACTIVE" ] || log "Zurück auf $ACTIVE: sudo $BASE/current/scripts/rollback.sh"
-[ -z "$SNAPSHOT" ] || log "Datenstand vor dem Deploy: $SNAPSHOT (README → Update und Rollback)"
+if [ -n "$SNAPSHOT" ] && [ -n "$FORCE_SCHEMA" ] && [ -n "$SCHEMA_DB" ] && [ "$SCHEMA_DB" -gt "$SCHEMA_RELEASE" ]; then
+    # Die eben angelegte Sicherung hat die Version der DB, ist also nicht die für Weg 2
+    log "Datenstand vor dem Deploy: $SNAPSHOT (Schema-Version $SCHEMA_DB, für $NAME zu neu)"
+elif [ -n "$SNAPSHOT" ]; then
+    log "Datenstand vor dem Deploy: $SNAPSHOT (README → Update und Rollback)"
+fi
+forced_schema_note "$NAME" "$RESTORE"

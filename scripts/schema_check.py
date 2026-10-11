@@ -12,8 +12,10 @@ des Ziel-Releases: Ältere Releases kennen die Prüfung nicht.
         --release /opt/tatilvakti-v2/releases/<release> [--backups /var/lib/tatilvakti-v2/backups]
 
 Erste Zeile: "schema db=<n> release=<m>" (n = 0: noch keine DB bzw. leer). Exit-Code 0, wenn das
-Release die DB kennt (m ≥ n), sonst 1, ebenso wenn etwas nicht lesbar ist. Mit --backups nennt
-es dann die Sicherungen, die das Release kennt (neueste zuerst), z. B. die vor dem Deploy.
+Release die DB kennt (m ≥ n), sonst 1. Mit --backups nennt es dann die Sicherungen, die das Release
+kennt (neueste zuerst), z. B. die vor dem Deploy. Exit-Code 2 (EXIT_UNREADABLE), wenn sich eine der
+beiden Versionen nicht lesen lässt, etwa bei falschen Rechten an -wal/-shm oder einer beschädigten
+DB: Dann ist nichts über die Versionen bekannt, und die Ausgabe nennt nur den Grund.
 
 DBs ohne user_version und Releases ohne SCHEMA_VERSION (beide von vor dieser Prüfung) ordnet es an
 den Spalten von reports ein (LEGACY_COLUMNS). Nur Standardbibliothek, läuft mit dem python3
@@ -38,6 +40,8 @@ LEGACY_COLUMNS = (("block", 3), ("net", 2))
 BACKUP_GLOBS = ("tatilvakti-*.db", "pre-deploy-*.db")
 STAMP_RE = re.compile(r"-(\d{8}T\d{6}Z)[-.]")
 SHOW_BACKUPS = 3
+EXIT_NEWER = 1       # DB neuer, als das Release kennt
+EXIT_UNREADABLE = 2  # Version von DB oder Release nicht lesbar
 
 
 def legacy_version(columns: set[str]) -> int:
@@ -112,10 +116,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.db.exists():
             check_owner(args.db)
         have = db_version(args.db)
-        known = release_version(args.release)
     except (OSError, sqlite3.Error) as exc:
-        print(f"FEHLER: Schema-Version nicht lesbar: {exc}")
-        return 1
+        print(f"FEHLER: Schema-Version der Datenbank {args.db} nicht lesbar: {exc}")
+        return EXIT_UNREADABLE
+    try:
+        known = release_version(args.release)
+    except OSError as exc:
+        print(f"FEHLER: Schema-Version von {args.release.name} nicht lesbar: {exc}")
+        return EXIT_UNREADABLE
     print(f"schema db={have} release={known}")
     if have <= known:
         return 0
@@ -125,14 +133,14 @@ def main(argv: list[str] | None = None) -> int:
             backups = suitable_backups(args.backups, known) if args.backups.is_dir() else []
         except OSError as exc:
             print(f"Sicherungen in {args.backups} nicht lesbar: {exc}")
-            return 1
+            return EXIT_NEWER
         if backups:
             print(f"Sicherungen mit Schema-Version bis {known}, neueste zuerst:")
             for path, version in backups:
                 print(f"  {path}  (Schema-Version {version})")
         else:
             print(f"Keine Sicherung mit Schema-Version bis {known} in {args.backups}.")
-    return 1
+    return EXIT_NEWER
 
 
 if __name__ == "__main__":

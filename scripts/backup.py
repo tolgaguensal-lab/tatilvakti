@@ -27,9 +27,10 @@ Sicherung vor dem Umschalten (scripts/deploy.sh, Audit d4-kein-db-snapshot-vor-u
 
 Ergebnis: <dest>/pre-deploy-<release>.db, also pre-deploy-<UTC-Zeit>-<commit>.db, gleich bereinigt
 und geprüft. Vorher prüft das Skript den freien Platz (check_space) und bricht ab, statt die Platte
-des laufenden Dienstes zu füllen. Danach bleiben nur die neuesten --keep-snapshots solcher
-Sicherungen (Standard 3); die nächtlichen rührt dieser Aufruf nicht an. Ältere als --keep-days
-löscht jeder Lauf, auch der nächtliche: Der Datenschutztext nennt eine Frist für alle Sicherungen.
+des laufenden Dienstes zu füllen. Danach bleiben die neuesten --keep-snapshots solcher Sicherungen
+(Standard 3) und dazu je ältere Schema-Version die neueste (prune_snapshots); die nächtlichen rührt
+dieser Aufruf nicht an. Ältere als --keep-days löscht jeder Lauf, auch der nächtliche: Der
+Datenschutztext nennt eine Frist für alle Sicherungen.
 
 Nur als Eigentümer der DB ausführen (in Produktion: tatilvakti-v2-backup.service). Als root
 angelegte -wal/-shm-Dateien könnte der Dienst danach nicht mehr beschreiben; das Skript bricht
@@ -38,6 +39,7 @@ deshalb ab, wenn der aufrufende Benutzer nicht Eigentümer der DB ist.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import re
 import shutil
@@ -52,10 +54,14 @@ NAME_RE = re.compile(r"^tatilvakti-(\d{8}T\d{6}Z)\.db$")
 # wie unter /opt/tatilvakti-v2/releases (deploy.sh). Die Zeit im Namen ist der Beginn des Deploys.
 RELEASE_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{4,40}$")
 SNAPSHOT_RE = re.compile(r"^pre-deploy-(\d{8}T\d{6}Z)-[0-9a-f]{4,40}\.db$")
-# Reste abgebrochener Läufe (TMP_RE: beide Arten). Sie können Prüfwerte enthalten (vor scrub),
-# deshalb räumt sie jeder nächtliche Lauf weg, auch die eines abgebrochenen Deploys.
+# Reste abgebrochener Läufe. Sie können Prüfwerte enthalten (vor scrub), deshalb räumt sie jeder
+# nächtliche Lauf weg, auch die eines abgebrochenen Deploys, diese aber erst ab TMP_MIN_AGE_S.
+NIGHTLY_TMP_RE = re.compile(r"^\.tatilvakti-\d{8}T\d{6}Z\.db\.tmp$")
 SNAPSHOT_TMP_RE = re.compile(r"^\.pre-deploy-\d{8}T\d{6}Z-[0-9a-f]{4,40}\.db\.tmp$")
-TMP_RE = re.compile(r"^\.tatilvakti-\d{8}T\d{6}Z\.db\.tmp$|" + SNAPSHOT_TMP_RE.pattern)
+# Mindestalter (mtime) eines Rests von --pre-deploy, bevor der nächtliche Lauf ihn löscht: Läuft
+# gerade ein Deploy, schreibt backup.py vielleicht noch daran (Kopie, dann VACUUM).
+# Eigene Reste löscht der nächtliche Lauf sofort, zwei davon gleichzeitig startet systemd nicht.
+TMP_MIN_AGE_S = 3600
 # Standard für --keep-days; deploy.sh gibt keinen Wert mit. test_backup_default_matches_the_unit
 # hält ihn gleich mit der Unit (und damit mit dem Datenschutztext).
 KEEP_DAYS = 14
@@ -250,47 +256,89 @@ def _expired(taken: datetime, keep_days: int, now: datetime) -> bool:
     return (now - taken).total_seconds() > keep_days * 86400 - PRUNE_SLACK_S
 
 
+def _stale(path: Path) -> bool:
+    """Rest einer Sicherung vor dem Deploy, an dem kein laufender Deploy mehr schreibt?"""
+    try:
+        return time.time() - path.stat().st_mtime > TMP_MIN_AGE_S
+    except FileNotFoundError:
+        return False
+
+
 def prune(dest: Path, keep_days: int, now: datetime, keep: Path | None = None) -> list[Path]:
     """Löscht Sicherungen, die keep_days alt sind (nach Zeitstempel im Dateinamen, mit
     PRUNE_SLACK_S Spielraum), auch die vor einem Deploy (pre-deploy-….db), und Reste abgebrochener
-    Läufe beider Arten (….db.tmp).
+    Läufe beider Arten (….db.tmp; die eines Deploys ab TMP_MIN_AGE_S).
 
     So löscht der nächtliche Lauf am Tag keep_days die Sicherung von damals, statt sie bis zum
     nächsten Lauf liegen zu lassen. keep wird nie gelöscht (Standard: die neueste vorhandene).
+    Fehlt eine Datei beim Löschen schon (gleichzeitiger Deploy), zählt sie trotzdem als gelöscht.
     """
     if keep is None:
         backups = [p for p in dest.iterdir() if _taken(p) is not None]
         keep = max(backups, key=_taken, default=None)
     removed = []
     for path in sorted(dest.iterdir()):
-        if TMP_RE.match(path.name):
-            path.unlink()
+        if NIGHTLY_TMP_RE.match(path.name) or (SNAPSHOT_TMP_RE.match(path.name) and _stale(path)):
+            path.unlink(missing_ok=True)
             removed.append(path)
             continue
         taken = _taken(path)
         if taken is None or path == keep:
             continue
         if _expired(taken, keep_days, now):
-            path.unlink()
+            path.unlink(missing_ok=True)
             removed.append(path)
     return removed
 
 
-def prune_snapshots(dest: Path, keep_days: int, now: datetime, keep: Path, count: int = KEEP_SNAPSHOTS) -> list[Path]:
-    """Nach einer Sicherung vor dem Deploy: nur die neuesten count Sicherungen dieser Art behalten
-    (keep zählt mit und bleibt immer), ältere als keep_days ebenso löschen, dazu Reste
-    abgebrochener Läufe dieser Art. Nächtliche Sicherungen und deren Reste bleiben unberührt, die
-    verwaltet der nächtliche Lauf mit der Frist aus der Unit."""
+def _load_schema_check():
+    """scripts/schema_check.py laden. Es liegt immer daneben: im Release unter scripts/ und in der
+    Kopie, die deploy.sh anlegt (wie in preflight.py)."""
+    spec = importlib.util.spec_from_file_location("tv_schema_check", Path(__file__).with_name("schema_check.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _version(version_of, path: Path) -> int | None:
+    """Schema-Version einer Sicherung, None, wenn sie nicht lesbar ist (oder gerade gelöscht wurde)."""
+    try:
+        return version_of(path)
+    except (OSError, sqlite3.Error):
+        return None
+
+
+def prune_snapshots(dest: Path, keep_days: int, now: datetime, keep: Path, count: int = KEEP_SNAPSHOTS,
+                    version_of=None) -> list[Path]:
+    """Nach einer Sicherung vor dem Deploy: die neuesten count Sicherungen dieser Art behalten (keep
+    zählt mit und bleibt immer) und dazu je Schema-Version unter der von keep die neueste. Ältere als
+    keep_days löscht es trotzdem (außer keep), ebenso Reste abgebrochener Läufe dieser Art.
+
+    Warum je ältere Schema-Version: Nach `deploy.sh --rev <alt> --force-schema` soll Weg 2 aus
+    schema_hint (release-lib.sh) die Sicherung zurückspielen, die das ältere Release kennt, und die
+    hat schema_check.py eben noch genannt. Liegen seit dem Deploy, der die Version erhöht hat, mehrere
+    Deploys, wäre sie unter den neuesten count nicht mehr dabei. version_of liest die Schema-Version
+    einer Datei (Standard: db_version aus schema_check.py). Nächtliche Sicherungen und deren Reste
+    bleiben unberührt, die verwaltet der nächtliche Lauf mit der Frist aus der Unit."""
+    if version_of is None:
+        version_of = _load_schema_check().db_version
     snapshots = sorted((p for p in dest.iterdir() if SNAPSHOT_RE.match(p.name) and _taken(p) is not None),
                        key=lambda p: (_taken(p), p.name), reverse=True)
     newest = [keep] + [p for p in snapshots if p != keep][:count - 1]
+    top, seen = _version(version_of, keep), set()
+    for path in snapshots:  # neueste zuerst: die erste je Version ist deren neueste
+        version = _version(version_of, path) if path != keep else None
+        # 0 heißt: keine Tabelle reports, also keine Meldungen, die ein Rollback bräuchte
+        if version and top is not None and version < top and version not in seen:
+            seen.add(version)
+            newest.append(path)
     removed = []
     for path in sorted(dest.iterdir()):
         if SNAPSHOT_TMP_RE.match(path.name):
-            path.unlink()
+            path.unlink(missing_ok=True)
             removed.append(path)
         elif path in snapshots and path != keep and (path not in newest or _expired(_taken(path), keep_days, now)):
-            path.unlink()
+            path.unlink(missing_ok=True)
             removed.append(path)
     return removed
 
@@ -319,7 +367,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pre-deploy", metavar="RELEASE",
                         help="Sicherung vor dem Umschalten (deploy.sh): pre-deploy-RELEASE.db, Platz vorher prüfen")
     parser.add_argument("--keep-snapshots", type=int, default=KEEP_SNAPSHOTS,
-                        help=f"mit --pre-deploy: so viele solcher Sicherungen behalten (Standard {KEEP_SNAPSHOTS})")
+                        help=f"mit --pre-deploy: so viele solcher Sicherungen behalten (Standard {KEEP_SNAPSHOTS}), "
+                             "dazu je ältere Schema-Version die neueste")
     args = parser.parse_args(argv)
     os.umask(0o077)
     try:
@@ -338,6 +387,8 @@ def main(argv: list[str] | None = None) -> int:
             parser.error(f"--pre-deploy erwartet den Namen des Releases (<UTC-Zeit>-<Commit>): {args.pre_deploy!r}")
         if args.keep_snapshots < 1:
             parser.error("--keep-snapshots muss mindestens 1 sein")
+        # Vor der Sicherung laden: Fehlt schema_check.py, bleibt nichts liegen
+        version_of = _load_schema_check().db_version if snapshot else None
         now = datetime.now(timezone.utc)
         started = time.monotonic()
         try:
@@ -355,7 +406,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"WARNUNG: unbekannte Tabellen/Spalten in der Kopie geleert: {', '.join(info['unknown'])}. "
                   "scripts/backup.py prüfen (KEEP_TABLES, REPORT_COLUMNS, HASH_COLUMNS).", file=sys.stderr)
         if snapshot:
-            removed = prune_snapshots(args.dest, args.keep_days, now, keep=target, count=args.keep_snapshots)
+            removed = prune_snapshots(args.dest, args.keep_days, now, keep=target, count=args.keep_snapshots,
+                                      version_of=version_of)
         else:
             removed = prune(args.dest, args.keep_days, now, keep=target)
         print(f"ok {target} reports={info['reports']} bytes={target.stat().st_size} "

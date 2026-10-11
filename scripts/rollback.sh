@@ -4,13 +4,14 @@
 #   sudo scripts/rollback.sh                 # auf das vorige Release (Symlink previous)
 #   sudo scripts/rollback.sh <release>       # auf ein bestimmtes Release aus releases/
 #   sudo scripts/rollback.sh --list          # Releases anzeigen
-#   sudo scripts/rollback.sh --no-preflight  # Notfall: ohne Vorabprüfung umschalten
+#   sudo scripts/rollback.sh --no-preflight  # Notfall: ohne Preflight umschalten (Schema-Prüfung bleibt)
 #   sudo scripts/rollback.sh --start         # Dienst auch starten, wenn er gestoppt ist
 #   sudo scripts/rollback.sh --force-schema "<Grund>" [<release>]  # Notfall: trotz neuerer DB
 #
 # Prüft zuerst die Schema-Version (scripts/schema_check.py aus diesem Release, nicht aus dem Ziel):
 # Hat die DB eine neuere als das Ziel kennt (ein Deploy hat sie umgestellt), bricht es ab und nennt
 # die Wege, darunter passende Sicherungen (z. B. backups/pre-deploy-<release>.db von deploy.sh).
+# Ebenso, wenn sich eine der Versionen nicht lesen lässt (z. B. Rechte an -wal/-shm, beschädigte DB).
 # --force-schema schaltet trotzdem um; der Grund steht danach im Journal (-t tatilvakti-v2-release).
 # Dann prüft es das Ziel (Preflight ohne pytest: create_app gegen eine DB-Kopie, alle Seiten),
 # schaltet current atomar um (previous zeigt danach auf das bisherige Release, ein zweiter
@@ -60,10 +61,16 @@ fi
 [ -x "$BASE/$TARGET/.venv/bin/gunicorn" ] || die "$BASE/$TARGET ist kein vollständiges Release"
 [ "$TARGET" != "$CUR" ] || die "$TARGET ist bereits aktiv"
 
-if ! check_schema "$BASE/$TARGET"; then
-    schema_hint "sudo $LIB_DIR/rollback.sh --force-schema \"<Grund>\" ${TARGET#releases/}" "$LIB_DIR/restore.sh"
-    die "Schema-Version: $TARGET passt nicht zur Datenbank, nichts umgeschaltet."
-fi
+FORCE_CMD="sudo $LIB_DIR/rollback.sh --force-schema \"<Grund>\" ${TARGET#releases/}"
+SCHEMA_RC=0
+check_schema "$BASE/$TARGET" || SCHEMA_RC=$?
+case $SCHEMA_RC in
+    0) ;;
+    2) schema_unreadable_hint "$FORCE_CMD"
+       die "Schema-Version nicht lesbar, nichts umgeschaltet." ;;
+    *) schema_hint "$FORCE_CMD" "$LIB_DIR/restore.sh"
+       die "Schema-Version: $TARGET passt nicht zur Datenbank, nichts umgeschaltet." ;;
+esac
 
 PREFLIGHT_BUILD=
 if [ "$PREFLIGHT" = 1 ]; then
@@ -83,9 +90,6 @@ if [ "$WANTED" = 1 ]; then
 else
     log "$SERVICE ist gestoppt ($(service_state)), kein Neustart. Starten: systemctl start $SERVICE"
 fi
-if [ -n "$FORCE_SCHEMA" ] && [ -n "$SCHEMA_DB" ] && [ "$SCHEMA_DB" -gt "$SCHEMA_RELEASE" ]; then
-    log "Die Datenbank hat weiter Schema-Version $SCHEMA_DB, $TARGET kennt bis $SCHEMA_RELEASE. Passende"
-    log "Sicherung (siehe oben) zurückspielen: sudo $LIB_DIR/restore.sh <Sicherung>, oder bald vorwärts."
-fi
+forced_schema_note "$TARGET" "$LIB_DIR/restore.sh"
 warn_snapshot_prune "$BASE/$TARGET"
 log "Rollback fertig"

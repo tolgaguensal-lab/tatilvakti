@@ -30,7 +30,8 @@ LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 HELPERS=$LIB_DIR
 FORCE_SCHEMA=   # Begründung aus --force-schema (deploy.sh, rollback.sh)
 SCHEMA_DB=      # von check_schema gesetzt: Schema-Version der DB …
-SCHEMA_RELEASE= # … und die, die das geprüfte Release kennt
+SCHEMA_RELEASE= # … und die, die das geprüfte Release kennt (beide leer, wenn nicht lesbar)
+SCHEMA_BACKUP=  # … und bei einer neueren DB die neueste Sicherung, die das Release kennt
 SNAPSHOT=       # von pre_deploy_snapshot gesetzt: Sicherung vor dem Umschalten
 
 log() { printf '%s  %s\n' "$(date '+%H:%M:%S')" "$*"; }
@@ -105,9 +106,10 @@ force_reason() {  # $1 = Wert nach --force-schema
 
 # Schema-Version (Audit d2-schema-version-rollback): Kennt das Release die Schema-Version der DB?
 # schema_check.py liest als Dienstbenutzer user_version der DB und SCHEMA_VERSION des Releases.
-# Setzt SCHEMA_DB und SCHEMA_RELEASE (leer, wenn nicht lesbar). Bei einer neueren DB nennt die
-# Ausgabe passende Sicherungen, und die Funktion endet mit Fehler, außer FORCE_SCHEMA enthält eine
-# Begründung: Die steht dann auch im Journal (journalctl -t tatilvakti-v2-release).
+# Setzt SCHEMA_DB, SCHEMA_RELEASE und SCHEMA_BACKUP. Endet mit 1, wenn die DB neuer ist (die Ausgabe
+# nennt dann passende Sicherungen, danach schema_hint), mit 2, wenn eine Version nicht lesbar ist
+# (danach schema_unreadable_hint). Beides nicht, wenn FORCE_SCHEMA eine Begründung enthält: Die
+# steht dann auch im Journal (journalctl -t tatilvakti-v2-release).
 check_schema() {  # $1 = Release-Verzeichnis
     local out rc=0 versions text
     out=$(cd / && as_service_user python3 "$HELPERS/schema_check.py" \
@@ -115,6 +117,8 @@ check_schema() {  # $1 = Release-Verzeichnis
     versions=$(sed -n '1s/^schema db=\([0-9][0-9]*\) release=\([0-9][0-9]*\)$/\1 \2/p' <<<"$out")
     SCHEMA_DB=${versions% *}
     SCHEMA_RELEASE=${versions#* }
+    # Erste Zeile der Liste "  <Pfad>  (Schema-Version <n>)" von schema_check.py
+    SCHEMA_BACKUP=$(sed -n '/^  .*  (Schema-Version [0-9][0-9]*)$/{s/^  \(.*\)  (Schema-Version [0-9]*)$/\1/p;q;}' <<<"$out")
     if [ "$rc" = 0 ] && [ -n "$versions" ]; then
         text="Schema-Version: Datenbank $SCHEMA_DB, ${1##*/} kennt bis $SCHEMA_RELEASE"
         if [ "$SCHEMA_DB" -gt 0 ] && [ "$SCHEMA_RELEASE" -gt "$SCHEMA_DB" ]; then
@@ -123,9 +127,10 @@ check_schema() {  # $1 = Release-Verzeichnis
         log "$text"
         return 0
     fi
-    [ "$rc" != 0 ] || out="unerwartete Ausgabe von schema_check.py: $out"
+    [ "$rc" != 0 ] || { out="unerwartete Ausgabe von schema_check.py: $out"; rc=2; }
+    [ -n "$versions" ] || rc=2  # ohne beide Versionen ist nichts bekannt, auch bei einem anderen Fehler
     sed '/^schema db=/d' <<<"$out" >&2
-    [ -n "$FORCE_SCHEMA" ] || return 1
+    [ -n "$FORCE_SCHEMA" ] || return "$rc"
     text="Schema-Prüfung für ${1##*/} übersteuert (--force-schema): $FORCE_SCHEMA"
     log "WARNUNG: $text"
     logger -t "$APP-release" -p user.warning -- "$text" 2>/dev/null || true
@@ -147,11 +152,35 @@ Mehr: docs/RUNBOOK.md, README → Update und Rollback.
 EOF
 }
 
+# Hinweis, wenn check_schema eine Version nicht lesen konnte (Ende mit 2): Dann ist nicht bekannt,
+# ob das Ziel die Datenbank kennt. Meist liegt die Ursache an der Datenbank selbst.
+schema_unreadable_hint() {  # $1 = Aufruf mit --force-schema
+    cat >&2 <<EOF
+Ohne lesbare Schema-Version lässt sich nicht prüfen, ob das Ziel die Datenbank kennt. Erst die
+Ursache beheben, bei der Datenbank meist falsche Rechte an tatilvakti.db-wal/-shm (docs/RUNBOOK.md 2d)
+oder eine beschädigte Datei (2e, dann Restore 3c), danach erneut. Notfall, ohne diese Prüfung:
+  $1
+EOF
+}
+
+# Abschluss nach --force-schema auf ein Release, das die Schema-Version der DB nicht kennt: Die DB
+# behält ihre Version. Weg 2 aus schema_hint braucht jetzt noch die passende Sicherung.
+forced_schema_note() {  # $1 = aktives Release, $2 = restore.sh zum Zurückspielen
+    { [ -n "$FORCE_SCHEMA" ] && [ -n "$SCHEMA_DB" ] && [ "$SCHEMA_DB" -gt "$SCHEMA_RELEASE" ]; } || return 0
+    log "Die Datenbank hat weiter Schema-Version $SCHEMA_DB, ${1##*/} kennt bis $SCHEMA_RELEASE."
+    if [ -n "$SCHEMA_BACKUP" ]; then
+        log "Weg 2, passende Sicherung zurückspielen: sudo $2 $SCHEMA_BACKUP"
+    else
+        log "Keine passende Sicherung gefunden (siehe oben)."
+    fi
+    log "Sonst bald vorwärts: ein neueres Release ausrollen (README → Update und Rollback → Schema-Version)."
+}
+
 # Sicherung vor dem Umschalten (Audit d4-kein-db-snapshot-vor-umschalten): backup.py als
 # Dienstbenutzer nach BACKUP_DIR/pre-deploy-<release>.db, konsistent per Online-Backup, ohne
-# Prüfwerte und Schlüssel. backup.py prüft vorher den Platz und behält danach nur die neuesten 3
-# solcher Sicherungen. Setzt SNAPSHOT (leer ohne DB, etwa beim ersten Deploy). Endet mit Fehler,
-# wenn die Sicherung scheitert.
+# Prüfwerte und Schlüssel. backup.py prüft vorher den Platz und behält danach die neuesten 3 solcher
+# Sicherungen und je ältere Schema-Version die neueste (die nennt schema_hint für Weg 2). Setzt
+# SNAPSHOT (leer ohne DB, etwa beim ersten Deploy). Endet mit Fehler, wenn die Sicherung scheitert.
 pre_deploy_snapshot() {  # $1 = Name des neuen Releases (<UTC-Zeit>-<Commit>)
     local out
     SNAPSHOT=
@@ -171,12 +200,15 @@ pre_deploy_snapshot() {  # $1 = Name des neuen Releases (<UTC-Zeit>-<Commit>)
 }
 
 # Releases von vor der Sicherung vor dem Deploy kennen pre-deploy-*.db nicht, ihre nächtliche
-# Sicherung löscht sie also nicht nach 14 Tagen (Datenschutztext). Dann den Befehl dafür nennen.
+# Sicherung löscht sie also nicht nach 14 Tagen (Datenschutztext), ebenso wenig Reste abgebrochener
+# Sicherungen (.pre-deploy-*.db.tmp, mit Prüfwerten). Dann die Befehle dafür nennen.
 warn_snapshot_prune() {  # $1 = Release-Verzeichnis, das jetzt aktiv ist
     grep -q -- '--pre-deploy' "$1/scripts/backup.py" 2>/dev/null && return 0
-    [ -n "$(find "$BACKUP_DIR" -maxdepth 1 -name 'pre-deploy-*.db' -print -quit 2>/dev/null)" ] || return 0
+    [ -n "$(find "$BACKUP_DIR" -maxdepth 1 \( -name 'pre-deploy-*.db' -o -name '.pre-deploy-*.db.tmp' \) \
+        -print -quit 2>/dev/null)" ] || return 0
     log "WARNUNG: ${1##*/} löscht Sicherungen vor dem Deploy (pre-deploy-*.db) nachts nicht. Solange es"
-    log "aktiv ist, ab 14 Tagen von Hand: sudo find $BACKUP_DIR -name 'pre-deploy-*.db' -mtime +13 -delete"
+    log "aktiv ist, ab 14 Tagen von Hand: sudo find $BACKUP_DIR -maxdepth 1 -name 'pre-deploy-*.db' -mtime +13 -delete"
+    log "Reste abgebrochener Sicherungen (mit Prüfwerten) gleich: sudo find $BACKUP_DIR -maxdepth 1 -name '.pre-deploy-*.db.tmp' -delete"
 }
 
 # Wartet bis zu HEALTH_TRIES Versuche lang (im Sekundentakt), bis /healthz gesund ist und (falls
@@ -232,5 +264,6 @@ activate_release() {  # $1 = releases/<name>, $2 = erwartete Build-ID, $3 = Hinw
     if [ -n "$old_prev" ]; then set_link "$old_prev" previous; else rm -f "$BASE/previous"; fi
     log "Automatisch zurück auf $prev"
     restart_service "" || die "Auch $prev startet nicht. Notfall: docs/MIGRATION.md → Rollback"
+    warn_snapshot_prune "$BASE/$prev"
     die "Deploy zurückgerollt. Das fehlerhafte Release bleibt zur Analyse unter $BASE/$new"
 }

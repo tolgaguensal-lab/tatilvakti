@@ -511,20 +511,68 @@ def test_pre_deploy_keeps_three_and_leaves_nightly_backups_alone(tmp_path):
         [dest / snapshots[0], dest / snapshots[1]])
 
 
+def test_pre_deploy_keeps_the_newest_snapshot_of_each_older_schema_version(tmp_path, capsys):
+    """Weg 2 nach `deploy.sh --rev <alt> --force-schema` (schema_hint in release-lib.sh): schema_check.py
+    nennt die Sicherung vor dem Deploy, der die Schema-Version erhöht hat (B), danach sichert der
+    erzwungene Deploy selbst und räumt auf. Liegen seit B zwei weitere Deploys, sind die neuesten 3
+    alle neuer; B muss trotzdem bleiben: je ältere Schema-Version die neueste, bis zur Frist."""
+    bk, sc = load_script("backup"), load_script("schema_check")
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    dest = tmp_path / "backups"
+    v1, v2, db = tmp_path / "v1.db", tmp_path / "v2.db", tmp_path / "tatilvakti.db"
+    legacy_db(v1, ("client",))
+    legacy_db(v2, ("client", "net"))
+    make_db(db)  # SCHEMA_VERSION
+
+    def deploy(source: Path, days: int, commit: str) -> Path:
+        """Sicherung vor dem Deploy wie deploy.sh sie aufruft, mit Aufräumen"""
+        release = f"{(now - timedelta(days=days)).strftime('%Y%m%dT%H%M%SZ')}-{commit * 10}"
+        assert bk.main(["--db", str(source), "--dest", str(dest), "--pre-deploy", release]) == 0
+        return dest / f"pre-deploy-{release}.db"
+
+    first = deploy(v1, 9, "1")
+    older_b = deploy(v2, 8, "8")
+    b = deploy(v2, 3, "b")
+    c, d = deploy(db, 2, "c"), deploy(db, 1, "d")  # c hat die DB umgestellt
+    # Die ältere Sicherung mit Schema 2 ist weg, die neueste je Version bleibt
+    assert sorted(dest.iterdir()) == sorted([first, b, c, d])
+    release = tmp_path / "rel"
+    (release / "tatilvakti").mkdir(parents=True)
+    (release / "tatilvakti" / "db.py").write_text(old_db_py("client", "net"), encoding="utf-8")
+    capsys.readouterr()
+    assert sc.main(["--db", str(db), "--release", str(release), "--backups", str(dest)]) == 1
+    named = capsys.readouterr().out
+    assert f"  {b}  (Schema-Version 2)" in named and str(older_b) not in named
+
+    forced = deploy(db, 0, "a")  # der erzwungene Deploy von rel
+    assert sorted(dest.iterdir()) == sorted([first, b, c, d, forced])
+    capsys.readouterr()
+    assert sc.main(["--db", str(db), "--release", str(release), "--backups", str(dest)]) == 1
+    assert capsys.readouterr().out.splitlines()[3] == f"  {b}  (Schema-Version 2)"
+    # Die Frist gilt auch für sie: 14 Tage nach ihrem Deploy sind B und die mit Schema 1 weg
+    later = now + timedelta(days=11, hours=1)
+    assert bk.prune_snapshots(dest, 14, later, keep=forced) == sorted([first, b])
+    assert sorted(dest.iterdir()) == sorted([c, d, forced])
+
+
 def test_nightly_prune_applies_the_deadline_to_pre_deploy_snapshots(tmp_path):
     """Der Datenschutztext nennt 14 Tage für alle Sicherungen auf dem Server. Der nächtliche Lauf
     löscht deshalb auch Sicherungen vor dem Deploy ab Tag 14 (gleicher Spielraum wie bei den
-    nächtlichen) und Reste abgebrochener Deploys, die noch Prüfwerte enthalten können."""
+    nächtlichen) und Reste abgebrochener Deploys, die noch Prüfwerte enthalten können. Diese erst ab
+    TMP_MIN_AGE_S: An einem jüngeren schreibt vielleicht gerade ein Deploy (sonst bräche er ab)."""
     bk = load_script("backup")
     now = datetime(2026, 10, 30, 3, 41, tzinfo=timezone.utc)
     old = snapshot_name(now - timedelta(days=13, hours=23, minutes=50))
     young = snapshot_name(now - timedelta(days=13, hours=20))
     leftover = f".pre-deploy-20261029T120000Z-{'a' * 10}.db.tmp"
+    running = f".pre-deploy-20261030T034000Z-{'b' * 10}.db.tmp"  # ein Deploy schreibt gerade daran
     newest = backup_name(now)
-    for name in (old, young, leftover, newest):
+    for name in (old, young, leftover, running, newest):
         (tmp_path / name).write_text("x")
+    stale = (tmp_path / leftover).stat().st_mtime - bk.TMP_MIN_AGE_S - 60  # abgebrochen, älter als 1 h
+    os.utime(tmp_path / leftover, (stale, stale))
     assert sorted(p.name for p in bk.prune(tmp_path, 14, now, keep=tmp_path / newest)) == sorted([old, leftover])
-    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([young, newest])
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([young, running, newest])
     # Ohne neue Sicherung bleibt die neueste vorhandene, auch wenn es eine vor dem Deploy ist
     (tmp_path / newest).unlink()
     assert bk.prune(tmp_path, 1, now + timedelta(days=30)) == []
@@ -708,8 +756,8 @@ def test_schema_check_names_suitable_backups(tmp_path, capsys):
     assert sc.main(["--db", str(tmp_path / "fehlt.db"), "--release", str(release)]) == 0
     assert capsys.readouterr().out.splitlines() == [f"schema db={SCHEMA_VERSION} release={SCHEMA_VERSION}",
                                                     "schema db=0 release=2"]
-    assert sc.main(["--db", str(db), "--release", str(tmp_path / "kein-release")]) == 1
-    assert "FEHLER: Schema-Version nicht lesbar" in capsys.readouterr().out
+    assert sc.main(["--db", str(db), "--release", str(tmp_path / "kein-release")]) == sc.EXIT_UNREADABLE == 2
+    assert "FEHLER: Schema-Version von kein-release nicht lesbar" in capsys.readouterr().out
 
 
 def test_preflight_reports_the_schema_version(tmp_path, capsys):
@@ -997,11 +1045,13 @@ def test_rollback_refuses_a_release_that_does_not_know_the_schema(releases):
     note = "Schema-Prüfung für r1 übersteuert (--force-schema): Startseite leer, Fix folgt"
     assert f"WARNUNG: {note}" in res.stdout
     assert releases.journal() == f"-t tatilvakti-v2-release -p user.warning -- {note}\n"
-    assert f"Die Datenbank hat weiter Schema-Version {SCHEMA_VERSION}, releases/r1 kennt bis 2" in res.stdout
+    assert f"Die Datenbank hat weiter Schema-Version {SCHEMA_VERSION}, r1 kennt bis 2." in res.stdout
+    assert f"Weg 2, passende Sicherung zurückspielen: sudo {SCRIPTS}/restore.sh {snapshot}" in res.stdout
     # r1 ist von vor der Sicherung vor dem Deploy: Seine nächtliche Sicherung löscht pre-deploy-*.db
     # nicht, rollback.sh nennt den Befehl für die 14 Tage aus dem Datenschutztext
     assert ("WARNUNG: r1 löscht Sicherungen vor dem Deploy (pre-deploy-*.db) nachts nicht" in res.stdout
-            and f"sudo find {releases.backups} -name 'pre-deploy-*.db' -mtime +13 -delete" in res.stdout)
+            and f"sudo find {releases.backups} -maxdepth 1 -name 'pre-deploy-*.db' -mtime +13 -delete" in res.stdout
+            and f"sudo find {releases.backups} -maxdepth 1 -name '.pre-deploy-*.db.tmp' -delete" in res.stdout)
     # Zurück nach vorn: r2 kennt die Version, keine Prüfung schlägt an, kein Hinweis zum Löschen
     (releases.base / "releases" / "r2" / "scripts").mkdir()
     shutil.copy2(SCRIPTS / "backup.py", releases.base / "releases" / "r2" / "scripts" / "backup.py")
@@ -1070,13 +1120,72 @@ def test_pre_deploy_snapshot_from_the_release_lib(releases):
 
 def test_automatic_rollback_names_the_pre_deploy_snapshot(releases):
     """Startet das neue Release nicht sauber, nennt deploy.sh vor dem Abbruch die Sicherung vor dem
-    Umschalten (Hinweis an activate_release)."""
+    Umschalten (Hinweis an activate_release). Ist das alte Release von vor dieser Sicherung (r1 hat
+    kein backup.py mit --pre-deploy), nennt es wie rollback.sh die Befehle zum Löschen von Hand."""
     releases.setup("r1", None, "active")
     (releases.base / "releases" / "r2" / "BROKEN").touch()
+    releases.backups.mkdir(parents=True)
+    (releases.backups / f"pre-deploy-{RELEASE}.db").write_text("x")
     res = releases.activate("r2", "build-r2", "Datenstand vor dem Deploy: /x/pre-deploy-r2.db")
     assert res.returncode == 1 and "Deploy zurückgerollt" in res.stderr, res.stdout + res.stderr
     assert "Datenstand vor dem Deploy: /x/pre-deploy-r2.db" in res.stdout
     assert releases.link("current") == "releases/r1"
+    assert ("WARNUNG: r1 löscht Sicherungen vor dem Deploy (pre-deploy-*.db) nachts nicht" in res.stdout
+            and f"sudo find {releases.backups} -maxdepth 1 -name '.pre-deploy-*.db.tmp' -delete" in res.stdout)
+
+
+def test_forced_deploy_keeps_and_names_the_backup_for_way_2(releases):
+    """`deploy.sh --rev <alt> --force-schema` in der Reihenfolge von deploy.sh: check_schema wird
+    übersteuert (Grund im Journal), pre_deploy_snapshot sichert und räumt auf, am Ende nennt
+    forced_schema_note die Sicherung, die schema_check.py genannt hat. Sicherungen B(2), C(3), D(3),
+    dann die des erzwungenen Deploys: B liegt danach noch da."""
+    from tatilvakti.db import init_db
+    bk = load_script("backup")
+    releases.schema("r1", old_db_py("client", "net"))
+    releases.db.parent.mkdir()
+    old = releases.db.parent / "alt.db"
+    legacy_db(old, ("client", "net"))
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+
+    def name(days: int, commit: str) -> str:
+        return f"{(now - timedelta(days=days)).strftime('%Y%m%dT%H%M%SZ')}-{commit * 10}"
+
+    b = bk.backup(old, releases.backups, now, release=name(3, "b"))[0]
+    init_db(str(releases.db))
+    for days, commit in ((2, "c"), (1, "d")):
+        bk.backup(releases.db, releases.backups, now, release=name(days, commit))
+    code = ('FORCE_SCHEMA="Startseite leer, Fix folgt" && check_schema "$1" && pre_deploy_snapshot "$2" '
+            '&& forced_schema_note "$2" /x/restore.sh')
+    res = releases.lib(code, str(releases.base / "releases" / "r1"), name(0, "a"))
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert f"  {b}  (Schema-Version 2)" in res.stderr and b.exists()
+    assert sorted(p.name for p in releases.backups.iterdir()) == sorted(
+        f"pre-deploy-{name(days, commit)}.db" for days, commit in ((3, "b"), (2, "c"), (1, "d"), (0, "a")))
+    assert f"Die Datenbank hat weiter Schema-Version {SCHEMA_VERSION}, {name(0, 'a')} kennt bis 2." in res.stdout
+    assert f"Weg 2, passende Sicherung zurückspielen: sudo /x/restore.sh {b}" in res.stdout
+    assert "übersteuert (--force-schema): Startseite leer, Fix folgt" in releases.journal()
+
+
+def test_rollback_with_an_unreadable_database_says_so(releases):
+    """Ist die Schema-Version nicht lesbar (beschädigte DB, Rechte an -wal/-shm), ist nicht bekannt, ob
+    das Ziel die DB kennt: rollback.sh schaltet nicht um, auch nicht mit --no-preflight. Die Meldung
+    nennt dann diesen Grund und die Prüfschritte, nicht die Wege für eine neuere DB."""
+    releases.setup("r2", "r1", "active")
+    releases.db.parent.mkdir()
+    releases.db.write_text("keine Datenbank\n" * 64)
+    res = releases.rollback("--no-preflight")
+    assert res.returncode == 1, res.stdout + res.stderr
+    assert (f"FEHLER: Schema-Version der Datenbank {releases.db} nicht lesbar: file is not a database"
+            in res.stderr)
+    assert "docs/RUNBOOK.md 2d" in res.stderr and 'rollback.sh --force-schema "<Grund>" r1' in res.stderr
+    assert res.stderr.rstrip().endswith("FEHLER: Schema-Version nicht lesbar, nichts umgeschaltet.")
+    assert "passt nicht zur Datenbank" not in res.stderr and "Ein älteres Release" not in res.stderr
+    assert releases.link("current") == "releases/r2" and releases.calls() == []
+    # Notfall: mit Begründung trotzdem, ohne Hinweis auf eine Sicherung (die Versionen sind unbekannt)
+    res = releases.rollback("--no-preflight", "--force-schema", "DB defekt, Restore folgt")
+    assert res.returncode == 0 and releases.link("current") == "releases/r1", res.stdout + res.stderr
+    assert "übersteuert (--force-schema): DB defekt, Restore folgt" in releases.journal()
+    assert "Die Datenbank hat weiter" not in res.stdout
 
 
 # ---------------------------------------------------------------- restore.sh mit systemctl-Attrappe
