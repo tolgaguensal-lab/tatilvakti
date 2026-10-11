@@ -200,19 +200,37 @@ def _forint(value: str) -> int:
 
 def test_hungary_lists_the_annual_vignette_and_when_it_ends():
     """Issue #2: Jahresvignette je Klasse (NÚSZ-Tabelle). Sie gilt nur bis 31.01. des Folgejahres,
-    nicht 12 Monate ab Kauf – Label-Jahr, Hinweis und Preisablauf müssen zusammenpassen."""
+    nicht 12 Monate ab Kauf – Label-Jahr, Hinweis und Preisablauf müssen zusammenpassen.
+    Gemeint ist die landesweite: Die für ein Komitat (vármegyei) kostet nur einen Bruchteil und
+    gilt nur dort; ohne „landesweit“ läge die Verwechslung im Shop nahe."""
     hu = load_content().transit["countries"]["HU"]
     year = int(hu["prices_valid_until"][:4])
     prices = {p["label"]["de"].split(" (")[0]: p for p in hu["prices"]}
     for cls in ("D1", "D2"):
         annual = prices[f"Jahr {year} · {cls}"]
-        assert annual["label"]["tr"] == f"{year} yıllık · {cls}"
+        assert annual["label"]["de"] == f"Jahr {year} · {cls} (landesweit)"
+        assert annual["label"]["tr"] == f"{year} yıllık · {cls} (ülke geneli)"
         assert _forint(prices[f"10 Tage · {cls}"]["value"]) < _forint(annual["value"])
     assert _forint(prices[f"Jahr {year} · D1"]["value"]) < _forint(prices[f"Jahr {year} · D2"]["value"])
     note = next(n for n in hu["notes"] if "Jahresvignette" in n["de"])
-    assert "nicht 12 Monate" in note["de"] and f"31.01.{year + 1}" in note["de"]
-    assert "12 ay değil" in note["tr"] and f"31.01.{year + 1}" in note["tr"]
+    assert "nicht 12 Monate" in note["de"] and f"für {year} " in note["de"] and f"31.01.{year + 1}" in note["de"]
+    assert "12 ay değil" in note["tr"] and f"{year} vinyetinin" in note["tr"] and f"31.01.{year + 1}" in note["tr"]
+    assert "landesweite" in note["de"] and "ülke geneli" in note["tr"].lower()
+    assert "vármegyei" in note["de"] and "vármegyei" in note["tr"]
     assert note["source"]["url"].startswith("https://nemzetiutdij.hu/")
+
+
+def _lei(value: str) -> int:
+    assert value.endswith(" Lei"), value
+    return int(value[:-4])
+
+
+def test_romania_lists_the_electric_tariff_as_the_cheapest():
+    """Ordin MTI 888/2026: Elektroautos haben einen eigenen Tarif (10 Tage 27 Lei), günstiger als Euro 6."""
+    prices = load_content().transit["countries"]["RO"]["prices"]
+    electric = next(p for p in prices if "Elektro" in p["label"]["de"])
+    assert "Elektrikli" in electric["label"]["tr"] and electric["label"]["de"].startswith("10 Tage")
+    assert _lei(electric["value"]) < min(_lei(p["value"]) for p in prices if p is not electric)
 
 
 def test_romania_names_the_other_vignette_durations():
@@ -227,7 +245,8 @@ def test_romania_names_the_other_vignette_durations():
     ("prices_valid_until", "31.12.2026", "transit.BG.prices_valid_until: ungültiges Datum"),
     ("prices_valid_until", None, "transit.BG.prices_valid_until: ungültiges Datum"),
     ("review_after", "2026-12-32", "transit.BG.review_after: ungültiges Datum"),
-    ("review_after", "2027-02-01", "transit.BG.review_after: 2027-02-01 liegt nach prices_valid_until"),
+    ("review_after", "2027-02-01", "transit.BG.review_after: 2027-02-01 liegt nicht vor prices_valid_until"),
+    ("review_after", "2027-01-31", "transit.BG.review_after: 2027-01-31 liegt nicht vor prices_valid_until"),
 ])
 def test_validation_checks_the_check_dates_of_a_country(field, value, message):
     """/healthz und die Routenseite rechnen mit beiden Daten: ein kaputtes Datum fällt beim Start auf."""
@@ -239,6 +258,17 @@ def test_validation_checks_the_check_dates_of_a_country(field, value, message):
 def test_review_date_without_prices_is_allowed():
     content = load_content()
     content.transit["countries"]["HR"]["review_after"] = "2027-02-28"  # z. B. vor dem Start von CroLibertas
+    assert validate(content) == []
+
+
+@pytest.mark.parametrize("value", ["kaputt", "2027-02-30", None, 20270228])
+def test_validation_checks_the_review_date_of_a_crossing(value):
+    """/healthz (due_items) liest review_after je Übergang: ein kaputtes Datum fällt beim Start auf."""
+    content = load_content()
+    crossing = content.crossings["crossings"][0]
+    crossing["review_after"] = value
+    assert f"crossings.{crossing['id']}.review_after: ungültiges Datum {value!r}" in validate(content)
+    crossing["review_after"] = "2027-02-28"
     assert validate(content) == []
 
 

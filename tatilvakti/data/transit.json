@@ -192,8 +192,8 @@
         },
         {
           "label": {
-            "de": "Jahr 2026 · D1",
-            "tr": "2026 yıllık · D1"
+            "de": "Jahr 2026 · D1 (landesweit)",
+            "tr": "2026 yıllık · D1 (ülke geneli)"
           },
           "value": "61.760 Ft"
         },
@@ -206,8 +206,8 @@
         },
         {
           "label": {
-            "de": "Jahr 2026 · D2",
-            "tr": "2026 yıllık · D2"
+            "de": "Jahr 2026 · D2 (landesweit)",
+            "tr": "2026 yıllık · D2 (ülke geneli)"
           },
           "value": "87.650 Ft"
         }
@@ -230,12 +230,12 @@
           "tr": "D1 yalnızca sürücü dahil en fazla 7 koltuklu, 3,5 tona kadar araçlar için geçerlidir. Daha fazla koltuk, karavan veya kamyonet: D2. Belirleyici olan, ruhsattaki araç sınıfı (J alanı) ve koltuk sayısıdır (S.1 alanı)."
         },
         {
-          "de": "Die Jahresvignette gilt nicht 12 Monate, sondern vom Kauf bis zum 31. Januar des Folgejahres: Die für 2026 läuft am 31.01.2027 ab.",
-          "tr": "Yıllık vinyet 12 ay değil, satın aldığın günden ertesi yılın 31 Ocak'ına kadar geçerlidir: 2026 vinyetinin süresi 31.01.2027'de doluyor.",
+          "de": "Die landesweite Jahresvignette gilt nicht 12 Monate, sondern vom Kauf bis zum 31. Januar des Folgejahres: Die für 2026 läuft am 31.01.2027 ab. Nicht verwechseln mit den viel günstigeren Jahresvignetten für ein einzelnes Komitat („vármegyei“): Sie gelten nur auf den Strecken, die zu diesem Komitat gehören.",
+          "tr": "Ülke geneli yıllık vinyet 12 ay değil, satın aldığın günden ertesi yılın 31 Ocak'ına kadar geçerlidir: 2026 vinyetinin süresi 31.01.2027'de doluyor. Çok daha ucuz olan, tek bir ile ait yıllık vinyetlerle (“vármegyei”) karıştırma: Bunlar yalnızca o ile ait yol kesimlerinde geçerlidir.",
           "source": {
             "name": {
-              "de": "NÚSZ – Verordnung 45/2020 (ITM) zur Autobahnvignette, englische Fassung",
-              "tr": "NÚSZ – otoyol vinyetine ilişkin 45/2020 (ITM) sayılı yönetmelik, İngilizce metin"
+              "de": "NÚSZ – Verordnung 45/2020 (ITM) zur Autobahnvignette, englische Fassung, Stand 15.10.2022",
+              "tr": "NÚSZ – otoyol vinyetine ilişkin 45/2020 (ITM) sayılı yönetmelik, İngilizce metin (15.10.2022 itibarıyla)"
             },
             "url": "https://nemzetiutdij.hu/api/uploads/45_2020_itm_2022_10_15_eng_pdf_411976c021.pdf"
           }
@@ -310,6 +310,13 @@
         "url": "https://etoll.ro"
       },
       "prices": [
+        {
+          "label": {
+            "de": "10 Tage · Pkw (Kat. A) · Elektro",
+            "tr": "10 gün · Otomobil (A kategorisi) · Elektrikli"
+          },
+          "value": "27 Lei"
+        },
         {
           "label": {
             "de": "10 Tage · Pkw (Kat. A) · Euro 6",

@@ -408,11 +408,12 @@ def validate(content: Content) -> list[str]:
         # kaputtes Datum ließe sonst beide abstürzen. review_after (optional) ist ein Prüftermin nur
         # für /healthz, z. B. für BG, das die Preise zuletzt mitten im Jahr geändert hat (01.08.2026).
         # Er liegt vor dem Preisablauf: Die Mahnung kommt, bevor die Seite die Preise als veraltet zeigt.
+        # Am selben Tag wäre er wertlos, prices_valid_until mahnt in /healthz ohnehin.
         valid_until, review = (_check_date(country[f], f"transit.{code}.{f}", problems) if f in country else None
                                for f in ("prices_valid_until", "review_after"))
-        if valid_until and review and review > valid_until:
-            problems.append(f"transit.{code}.review_after: {review} liegt nach prices_valid_until {valid_until}, "
-                            "/healthz mahnte erst nach dem Preisablauf")
+        if valid_until and review and review >= valid_until:
+            problems.append(f"transit.{code}.review_after: {review} liegt nicht vor prices_valid_until {valid_until}, "
+                            "/healthz mahnte erst mit dem Preisablauf")
         for price in country.get("prices", []):
             if not _is_bilingual(price.get("label")):
                 problems.append(f"transit.{code}: Preis-Label nicht zweisprachig")
@@ -465,6 +466,8 @@ def validate(content: Content) -> list[str]:
                 problems.append(f"crossings.{cid}: unbekannte Quelle {ref}")
         if not crossing.get("tz"):
             problems.append(f"crossings.{cid}: Zeitzone fehlt")
+        if "review_after" in crossing:  # liest /healthz (due_items): ein kaputtes Datum ließe es abstürzen
+            _check_date(crossing["review_after"], f"crossings.{cid}.review_after", problems)
 
     problems += validate_redirects(content.redirects)
     return problems
