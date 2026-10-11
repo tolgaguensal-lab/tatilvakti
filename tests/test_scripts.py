@@ -142,6 +142,8 @@ def test_env_example_documents_the_privacy_details():
     env = pre.parse_env_file(text)
     assert env["TV_HOSTING_PROVIDER"] == "" and env["TV_PROXY_LOG_DAYS"] == ""  # Betreiber trägt sie ein
     assert "0 = es gibt kein solches Protokoll" in text and "Auftragsverarbeiter" in text
+    # Mehrere Protokolle mit IP (Pangolin-Request-Log, Traefik-accessLog samt logrotate): die längste Frist
+    assert "die längste Frist eintragen" in text and "logrotate" in text
 
 
 def test_parse_env_file_like_systemd():
@@ -676,6 +678,24 @@ def test_rollback_refuses_while_locked(releases):
         res = releases.rollback("--no-preflight")
     assert res.returncode == 1 and "läuft bereits" in res.stderr
     assert releases.link("current") == "releases/r2" and releases.calls() == []
+
+
+def test_release_python_files_are_precompiled_and_checked_in_ci():
+    """Das Release ist für den Dienst schreibgeschützt: deploy.sh erzeugt die .pyc für jede
+    Python-Datei im Wurzelverzeichnis (wsgi.py, gunicorn.conf.py, die gunicorn beim Start lädt),
+    und die CI prüft dieselben Dateien mit compileall auf Syntax, auch mit der Mindestversion."""
+    def compileall_line(path: Path) -> str:
+        lines = [line for line in path.read_text(encoding="utf-8").splitlines() if "-m compileall" in line]
+        assert len(lines) == 1, path
+        return lines[0]
+
+    top_level = sorted(p.name for p in ROOT.glob("*.py"))
+    assert {"wsgi.py", "gunicorn.conf.py"} <= set(top_level)
+    deploy = compileall_line(SCRIPTS / "deploy.sh")
+    ci = compileall_line(ROOT / ".github" / "workflows" / "ci.yml").split()
+    for name in top_level:
+        assert f'"$REL/{name}"' in deploy, name
+        assert name in ci, name
 
 
 # ---------------------------------------------------------------- restore.sh mit systemctl-Attrappe

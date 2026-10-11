@@ -458,18 +458,26 @@ def privacy_section(tmp_path, clock, path, **config):
 
 @pytest.mark.parametrize("path, words", [
     ("/de/info", ["Hosting: Beispiel Hosting GmbH, Musterstadt (als Auftragsverarbeiter nach Art. 28 DSGVO",
-                  "Der Proxy führt ein Zugriffsprotokoll", "deine IP-Adresse", "auch wenn du eine Wartezeit meldest",
+                  "Der Proxy führt ein Zugriffsprotokoll", "auch wenn du eine Wartezeit meldest",
+                  "Es enthält zu jeder Anfrage den Zeitpunkt, deine IP-Adresse, das daraus ermittelte Land, "
+                  "die Browserkennung (User-Agent) und die aufgerufene Adresse",
                   "Betrieb und Sicherheit der Seite (Art. 6 Abs. 1 lit. f DSGVO)", "nach 7 Tagen gelöscht"]),
     ("/tr/bilgi", ["Barındırma hizmeti: Beispiel Hosting GmbH, Musterstadt (GDPR md. 28 uyarınca veri işleyen",
-                   "Proxy sunucusu bir erişim kaydı tutar", "IP adresin", "bekleme süresi bildirdiğinde de",
+                   "Proxy sunucusu bir erişim kaydı tutar", "bekleme süresi bildirdiğinde de",
+                   "her istek için zaman, IP adresin, IP adresinden belirlenen ülke, tarayıcı bilgisi (User-Agent) "
+                   "ve açılan adres yer alır",
                    "işletilmesi ve güvenliğidir (GDPR md. 6/1-f)", "7 gün sonra silinir"]),
 ])
 def test_privacy_text_names_the_hoster_and_the_proxy_log(tmp_path, clock, path, words):
     """Art. 13 Abs. 1 lit. e und Abs. 2 lit. a DSGVO: Empfänger und Speicherdauer aus TV_HOSTING_PROVIDER
-    und TV_PROXY_LOG_DAYS. Das Proxy-Log verknüpft IP, Übergang und Uhrzeit einer Meldung."""
+    und TV_PROXY_LOG_DAYS. Das Proxy-Log verknüpft IP, Übergang und Uhrzeit einer Meldung.
+
+    Inhalt des Protokolls ausdrücklich, ohne „unter anderem“: die Felder des Pangolin-Request-Logs ab
+    Werk (docs/MIGRATION.md 2.6), auch das aus der IP ermittelte Land und der User-Agent."""
     html, plain, health = privacy_section(tmp_path, clock, path, **PRIVACY)
     for word in words:
         assert word in plain, word
+    assert "unter anderem" not in plain and "başka bilgilerin yanında" not in plain
     assert 'class="due"' not in html  # nichts mehr offen
     assert (health["privacy_ok"], "privacy" in health["attention"]) == (True, False)
 

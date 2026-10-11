@@ -162,8 +162,9 @@ def privacy_details(config) -> dict:
     """Empfänger und Speicherdauer für den Datenschutztext (Art. 13 Abs. 1 lit. e, Abs. 2 lit. a DSGVO).
 
     hosting: Name und Sitz des Hosters aus TV_HOSTING_PROVIDER, '' solange leer.
-    proxy_log_days: aus TV_PROXY_LOG_DAYS, so viele Tage bewahrt der Reverse-Proxy sein Request-Log
-    (mit IP-Adresse) auf; 0 heißt, er führt keins. None, solange leer oder keine ganze Zahl.
+    proxy_log_days: aus TV_PROXY_LOG_DAYS, so viele Tage bewahrt der Reverse-Proxy Anfragen samt
+    IP-Adresse auf (bei mehreren Protokollen die längste Frist); 0 heißt, er führt keins. None,
+    solange leer oder keine ganze Zahl.
     missing: die Variablen, die noch fehlen oder ungültig sind.
 
     Nichts davon rät die App: Fehlt eine Angabe, sagt die Info-Seite, dass sie folgt. Dieselbe
