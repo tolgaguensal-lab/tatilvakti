@@ -1362,6 +1362,20 @@ hold() {
 }
 """
 
+# mv-Attrappe: hält beim Verschieben der -wal an wie hold() und ruft danach das echte mv auf
+MV_HOLD = """\
+import os, signal, sys, time
+signal.signal(signal.SIGINT, signal.SIG_DFL)
+stub = os.environ["STUB"]
+if any("tatilvakti.db-wal" in arg for arg in sys.argv[1:]):
+    open(os.path.join(stub, "waiting"), "w").close()
+    for _ in range(600):
+        if os.path.exists(os.path.join(stub, "go")):
+            break
+        time.sleep(0.05)
+os.execv({mv!r}, ["mv", *sys.argv[1:]])
+"""
+
 RESTORE_STUB = "#!/usr/bin/env bash" + HOLD + r"""
 # systemctl-Attrappe für restore.sh: jeder Aufruf mit allen Argumenten in $STUB/calls. Units sind
 # 'active', außer $STUB/state-<unit> nennt einen anderen Zustand. Nach dem Start liegt /healthz als
@@ -1685,8 +1699,10 @@ def test_restore_names_the_way_back_when_interrupted(restore, where, sig, group,
     if where in ("stop", "start"):
         (restore.stub / f"hold-{where}").touch()
     else:
-        stub_mv.write_text("#!/usr/bin/env bash" + HOLD + 'case "$*" in *tatilvakti.db-wal*) hold ;; esac\n'
-                           f'exec {shutil.which("mv")} "$@"\n')
+        # In Python statt Bash: Eine Bash-Schleife überlebt ein SIGINT an die Gruppe, wenn ihr sleep
+        # gerade regulär endet (Bash wertet das als vom Kind behandelt; etwa 1 von 300 Läufen). Mit
+        # SIG_DFL stirbt die Attrappe wie ein echtes mv sofort am Signal.
+        stub_mv.write_text(f"#!{sys.executable}\n" + MV_HOLD.format(mv=shutil.which("mv")))
         stub_mv.chmod(0o755)
     proc = subprocess.Popen(["bash", str(SCRIPTS / "restore.sh"), str(backup)], env=restore.env,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
