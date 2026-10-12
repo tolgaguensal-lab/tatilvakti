@@ -790,6 +790,14 @@ def test_schema_check_names_suitable_backups(tmp_path, capsys):
                                                     "schema db=0 release=2"]
     assert sc.main(["--db", str(db), "--release", str(tmp_path / "kein-release")]) == sc.EXIT_UNREADABLE == 2
     assert "FEHLER: Schema-Version von kein-release nicht lesbar" in capsys.readouterr().out
+    # restore.sh prüft eine Kopie der Sicherung: Dann heißt sie in den Meldungen auch so
+    assert sc.main(["--db", str(db), "--release", str(release), "--label", "Sicherung"]) == 1
+    assert (f"FEHLER: Die Sicherung hat Schema-Version {SCHEMA_VERSION}, rel kennt nur bis 2."
+            in capsys.readouterr().out.splitlines())
+    broken = tmp_path / "kaputt.db"
+    broken.write_text("keine Datenbank\n" * 64)
+    assert sc.main(["--db", str(broken), "--release", str(ROOT), "--label", "Sicherung"]) == 2
+    assert f"FEHLER: Schema-Version der Sicherung {broken} nicht lesbar" in capsys.readouterr().out
 
 
 def test_preflight_reports_the_schema_version(tmp_path, capsys):
@@ -1220,6 +1228,90 @@ def test_rollback_with_an_unreadable_database_says_so(releases):
     assert "Die Datenbank hat weiter" not in res.stdout
 
 
+@pytest.mark.parametrize("args, needle", [
+    (["--no-snapshot"], "--no-snapshot braucht eine Begründung"),
+    (["--no-snapshot", "  "], "--no-snapshot braucht eine Begründung"),
+    (["--no-snapshot", "--no-tests"], "--no-snapshot braucht eine Begründung"),
+    (["--no-snapshot", "Platte fast voll", "--force-schema", "Startseite leer"],
+     "--no-snapshot nicht zusammen mit --force-schema"),
+    (["--force-schema", "Startseite leer", "--rev", "HEAD~1", "--no-snapshot", "Platte fast voll"],
+     "--no-snapshot nicht zusammen mit --force-schema"),
+])
+def test_deploy_no_snapshot_needs_a_reason_and_not_with_force_schema(releases, args, needle):
+    """Notfall deploy.sh --no-snapshot "<Grund>": ohne Grund kein Deploy. Mit --force-schema (älteres
+    Release auf neuerem Schema) ist die Sicherung vor dem Umschalten der einzige Weg zurück, deshalb
+    lehnt deploy.sh die Kombination ab, bevor es irgendetwas baut."""
+    releases.setup("r2", "r1", "active")
+    res = releases.bash(str(SCRIPTS / "deploy.sh"), *args)
+    assert res.returncode == 1 and needle in res.stderr, res.stdout + res.stderr
+    assert sorted(p.name for p in (releases.base / "releases").iterdir()) == ["r1", "r2"]
+    assert releases.calls() == [] and releases.journal() == "" and not (releases.base / ".lock").exists()
+
+
+def test_skip_snapshot_warns_and_names_the_newest_nightly_backup(releases):
+    """deploy.sh --no-snapshot (skip_snapshot aus release-lib.sh): keine Sicherung vor dem Umschalten,
+    der Grund steht im Journal, die WARNUNG nennt die neueste nächtliche Sicherung samt Alter bzw.
+    sagt, dass es keine gibt. Ohne DB (erstes Deploy) gibt es ohnehin nichts zu sichern."""
+    code = ('NO_SNAPSHOT="Platte fast voll, Hotfix" && skip_snapshot "$1" && echo "SNAPSHOT=$SNAPSHOT" '
+            '&& no_snapshot_note')
+    res = releases.lib(code, RELEASE)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "Keine Datenbank" in res.stdout and "WARNUNG" not in res.stdout and releases.journal() == ""
+
+    releases.db.parent.mkdir()
+    make_db(releases.db)
+    res = releases.lib(code, RELEASE)
+    assert res.returncode == 0, res.stdout + res.stderr
+    note = f"Sicherung vor dem Umschalten auf {RELEASE} übersprungen (--no-snapshot): Platte fast voll, Hotfix"
+    assert f"WARNUNG: {note}" in res.stdout
+    assert releases.journal() == f"-t tatilvakti-v2-release -p user.warning -- {note}\n"
+    assert f"WARNUNG: Es gibt auch keine nächtliche Sicherung in {releases.backups}" in res.stdout
+    assert res.stdout.endswith(f"SNAPSHOT=\nKeine Sicherung vor dem Deploy (--no-snapshot) und keine "
+                               f"nächtliche in {releases.backups}\n")
+    assert not releases.backups.exists()
+
+    # Nächtliche Sicherungen: die neueste nach dem Namen, nicht die vor einem Deploy oder eine Kopie
+    bk = load_script("backup")
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    bk.backup(releases.db, releases.backups, now - timedelta(days=1, hours=5))
+    newest = bk.backup(releases.db, releases.backups, now - timedelta(hours=5, minutes=1))[0]
+    bk.backup(releases.db, releases.backups, now, release=f"{(now - timedelta(hours=1)):%Y%m%dT%H%M%SZ}-0123456789")
+    (releases.backups / "tatilvakti-kopie.db").write_bytes(newest.read_bytes())
+    # Das neue Release stellt die DB um (check_schema vorher): Dann ist das bisherige ohne Sicherung
+    # nur mit einer älteren oder mit --force-schema zu erreichen
+    res = releases.lib('SCHEMA_DB=2 SCHEMA_RELEASE=3 && ' + code, RELEASE)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert (f"WARNUNG: Jüngster Datenstand zum Zurückspielen ist damit die nächtliche Sicherung {newest} "
+            "(5 h alt). Meldungen seither gingen dabei verloren.") in res.stdout
+    assert f"WARNUNG: {RELEASE} stellt die Datenbank beim Start auf Schema-Version 3 um" in res.stdout
+    assert res.stdout.endswith(f"Keine Sicherung vor dem Deploy (--no-snapshot), jüngster Datenstand: "
+                               f"{newest} (5 h alt)\n")
+
+
+@pytest.mark.parametrize("ago, age", [
+    (timedelta(minutes=42, seconds=10), "42 Min. alt"),
+    (timedelta(hours=47, minutes=59), "47 h alt"),
+    (timedelta(days=3, hours=1), "3 Tage alt"),
+])
+def test_newest_nightly_backup_age(releases, tmp_path, ago, age):
+    stamp = (datetime.now(timezone.utc) - ago).strftime("%Y%m%dT%H%M%SZ")
+    dest = tmp_path / "sicherungen"
+    dest.mkdir()
+    (dest / f"tatilvakti-{stamp}.db").touch()
+    res = releases.lib('BACKUP_DIR=$1 && newest_nightly && echo "$NIGHTLY|$NIGHTLY_AGE"', str(dest))
+    assert res.stdout == f"{dest}/tatilvakti-{stamp}.db|{age}\n", res.stderr
+    res = releases.lib('BACKUP_DIR=$1 && newest_nightly && echo "[$NIGHTLY|$NIGHTLY_AGE]"', str(tmp_path / "fehlt"))
+    assert res.stdout == "[|]\n", res.stderr
+
+
+def test_ci_runs_on_pull_requests_and_main():
+    """CI-Trigger (README → CI): jeder Pull Request, Pushes nur auf main, dazu manuelle Läufe für
+    einen beliebigen Branch. Ein Push auf jeden Branch liefe mit offenem Pull Request doppelt."""
+    text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    on = text.split("\non:\n", 1)[1].split("\n\n", 1)[0]
+    assert on.splitlines() == ["  push:", "    branches: [main]", "  pull_request:", "  workflow_dispatch:"]
+
+
 def test_release_python_files_are_precompiled_and_checked_in_ci():
     """Das Release ist für den Dienst schreibgeschützt: deploy.sh erzeugt die .pyc für jede
     Python-Datei im Wurzelverzeichnis (wsgi.py, gunicorn.conf.py, die gunicorn beim Start lädt),
@@ -1302,9 +1394,9 @@ def db_state(path: Path) -> tuple[str, int | None]:
 
 
 class Restore:
-    """Testaufbau für restore.sh unter tmp_path: opt/ (nur für die Sperre), lib/ als
-    /var/lib/tatilvakti-v2 mit backups/, Dienstbenutzer ist der aufrufende Benutzer (kein root
-    nötig), systemctl-Attrappe."""
+    """Testaufbau für restore.sh unter tmp_path: opt/ (für die Sperre, mit release() auch ein aktives
+    Release), lib/ als /var/lib/tatilvakti-v2 mit backups/, Dienstbenutzer ist der aufrufende
+    Benutzer (kein root nötig), systemctl- und logger-Attrappe."""
 
     def __init__(self, tmp_path: Path):
         import pwd
@@ -1317,14 +1409,40 @@ class Restore:
         self.base.mkdir()
         self.backups.mkdir(parents=True)
         (self.stub / "bin").mkdir(parents=True)
-        systemctl = self.stub / "bin" / "systemctl"
-        systemctl.write_text(RESTORE_STUB)
-        systemctl.chmod(0o755)
+        for name, text in (("systemctl", RESTORE_STUB), ("logger", LOGGER_STUB)):
+            stub = self.stub / "bin" / name
+            stub.write_text(text)
+            stub.chmod(0o755)
         self.env = {**os.environ, "PATH": f"{self.stub / 'bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}",
                     "STUB": str(self.stub), "TV_RELEASE_BASE": str(self.base), "TV_RELEASE_DB": str(self.db),
                     "TV_RELEASE_USER": pwd.getpwuid(os.getuid()).pw_name,
                     "TV_RELEASE_HEALTH_URL": (self.stub / "healthz.json").as_uri(),
                     "TV_RELEASE_HEALTH_TRIES": "1", "TV_RESTORE_PYTHON": sys.executable}
+
+    def release(self, db_py: str | None = None) -> Path:
+        """Aktives Release r1 (current): venv-Python als Hülle um dieses Python, scripts/ und
+        tatilvakti/ aus diesem Stand (für den Preflight von --check) bzw. nur tatilvakti/db.py mit
+        db_py (für die Schema-Prüfung), dazu eine Env-Datei."""
+        release = self.base / "releases" / "r1"
+        (release / ".venv" / "bin").mkdir(parents=True)
+        python = release / ".venv" / "bin" / "python"
+        python.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+        python.chmod(0o755)
+        (release / "scripts").symlink_to(SCRIPTS)
+        if db_py is None:
+            (release / "tatilvakti").symlink_to(ROOT / "tatilvakti")
+        else:
+            (release / "tatilvakti").mkdir()
+            (release / "tatilvakti" / "db.py").write_text(db_py)
+        os.symlink("releases/r1", self.base / "current")
+        env_file = self.tmp / "tatilvakti-v2.env"
+        env_file.write_text("TV_BASE_URL=https://tatilvakti.guenlab.de\nTV_TRUST_PROXY=1\n")
+        self.env["TV_RELEASE_ENV_FILE"] = str(env_file)
+        return release
+
+    def journal(self) -> str:
+        path = self.stub / "journal"
+        return path.read_text() if path.exists() else ""
 
     def backup(self, when: datetime = datetime(2026, 10, 7, 3, 40, tzinfo=timezone.utc),
                release: str | None = None) -> Path:
@@ -1453,6 +1571,8 @@ def test_restore_without_previous_db(restore):
     assert "Keine bisherige Datenbank vorhanden" in res.stdout
     assert db_state(restore.db) == ("ok", 20) and restore.pre_restore() == []
     assert restore.calls() == RESTORE_STOP_START
+    # Noch kein aktives Release: Nichts läuft auf der DB, deploy.sh prüft die Schema-Version selbst
+    assert f"Kein aktives Release ({restore.base}/current), keine Schema-Prüfung" in res.stdout
 
 
 def _broken(restore: Restore, kind: str) -> Path:
@@ -1645,22 +1765,16 @@ def test_restore_check_starts_the_app_on_the_newest_backup(restore):
     restore.backup(datetime(2026, 10, 8, 12, tzinfo=timezone.utc), release="20261008T120000Z-0123456789")
     older.write_bytes(older.read_bytes()[:4096] + b"\xff" * 4096)  # die ältere ist kaputt
     before = restore.crash()
-    release = restore.base / "releases" / "r1"
-    (release / ".venv" / "bin").mkdir(parents=True)
-    python = release / ".venv" / "bin" / "python"
-    python.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
-    python.chmod(0o755)
-    (release / "scripts").symlink_to(SCRIPTS)
-    os.symlink("releases/r1", restore.base / "current")
-    env_file = restore.tmp / "tatilvakti-v2.env"
-    env_file.write_text("TV_BASE_URL=https://tatilvakti.guenlab.de\nTV_TRUST_PROXY=1\n")
-    restore.env["TV_RELEASE_ENV_FILE"] = str(env_file)
+    restore.release()
 
     res = restore.run("--check")
     assert res.returncode == 0, res.stdout + res.stderr
     assert "preflight ok build=" in res.stdout
+    assert f"Schema-Version: Sicherung {SCHEMA_VERSION}, r1 kennt bis {SCHEMA_VERSION}\n" in res.stdout
     assert f"Schema-Version: Datenbank {SCHEMA_VERSION}, Release {SCHEMA_VERSION}" in res.stdout
-    assert "Restore-Probe ok: tatilvakti-20261007T034000Z.db, 20 Meldungen" in res.stdout
+    assert res.stdout.endswith("Restore-Probe ok: tatilvakti-20261007T034000Z.db, 20 Meldungen. "
+                               "Dienst und Datenbank unverändert.\n")
+    assert "WARNUNG: " not in res.stdout
     res = restore.run("--check", str(older))
     assert res.returncode == 1 and "Sicherung fehlerhaft" in res.stderr
     assert "Abgebrochen, nichts geändert." in res.stderr
@@ -1688,3 +1802,113 @@ def test_restore_accepts_a_pre_deploy_snapshot(restore):
     assert res.returncode == 0, res.stdout + res.stderr
     assert f"Restore fertig: pre-deploy-{RELEASE}.db, 20 Meldungen" in res.stdout
     assert db_state(restore.db) == ("ok", 20) and restore.calls() == RESTORE_STOP_START
+
+
+def test_restore_refuses_a_backup_newer_than_the_active_release(restore):
+    """Audit d2-schema-version-rollback beim Restore: Ist die Sicherung neuer, als das aktive Release
+    kennt (z. B. eine nächtliche nach rollback.sh --force-schema), pflegte es deren Daten nicht
+    richtig. Abbruch vor dem Stoppen, mit den Wegen und den Sicherungen, die das Release kennt.
+    --force-schema spielt trotzdem zurück, der Grund steht dann im Journal."""
+    fits = restore.backup()
+    newer = restore.backup(datetime(2026, 10, 8, 3, 40, tzinfo=timezone.utc))
+    set_user_version(newer, SCHEMA_VERSION + 1)  # Sicherungen behalten die Version ihrer DB
+    assert load_script("backup").main(["--verify", str(newer)]) == 0
+    restore.release()
+    before = restore.crash()
+    res = restore.run(str(newer))
+    assert res.returncode == 1, res.stdout + res.stderr
+    assert (f"FEHLER: Die Sicherung hat Schema-Version {SCHEMA_VERSION + 1}, r1 kennt nur bis {SCHEMA_VERSION}."
+            in res.stderr)
+    assert f"  {fits}  (Schema-Version {SCHEMA_VERSION})" in res.stderr
+    assert f"Erst ein Release aktivieren, das Schema-Version {SCHEMA_VERSION + 1} kennt" in res.stderr
+    assert f'sudo {SCRIPTS}/restore.sh --force-schema "<Grund>" {newer.resolve()}' in res.stderr
+    assert res.stderr.endswith(f"FEHLER: Sicherung zu neu für r1: {newer.resolve()}\nAbgebrochen, nichts geändert.\n")
+    assert restore.files() == before and restore.pre_restore() == [] and restore.calls() == []
+    assert restore.journal() == ""
+
+    res = restore.run("--force-schema", "Daten von gestern nötig, Release folgt", str(newer))
+    assert res.returncode == 0, res.stdout + res.stderr
+    note = (f"Schema-Prüfung der Sicherung {newer.resolve()} für r1 übersteuert (--force-schema): "
+            "Daten von gestern nötig, Release folgt")
+    assert f"WARNUNG: {note}" in res.stdout
+    assert restore.journal() == f"-t tatilvakti-v2-release -p user.warning -- {note}\n"
+    assert db_state(restore.db) == ("ok", 20) and user_version(restore.db) == SCHEMA_VERSION + 1
+    assert restore.calls() == RESTORE_STOP_START
+    assert (f"Die Datenbank hat jetzt Schema-Version {SCHEMA_VERSION + 1}, r1 kennt bis {SCHEMA_VERSION}. "
+            "Bald vorwärts:") in res.stdout
+
+
+@pytest.mark.parametrize("columns, db_py, line", [
+    # Stand 9d351e0 ohne user_version (Version 2): Das aktuelle Release stellt sie beim Start um
+    (("client", "net"), None, f"Schema-Version: Sicherung 2, r1 kennt bis {SCHEMA_VERSION} (stellt sie beim Start um)"),
+    # Stand a996bbb ohne user_version (alle Spalten, Version 3) für ein Release, das nur bis 2 kennt
+    (("client", "net", "block"), old_db_py("client", "net"),
+     "FEHLER: Die Sicherung hat Schema-Version 3, r1 kennt nur bis 2."),
+])
+def test_restore_places_backups_without_user_version(restore, clock, columns, db_py, line):
+    """Sicherungen von vor der Schema-Version (user_version 0) ordnet restore.sh wie deploy.sh an den
+    Spalten von reports ein. Eine ältere Sicherung passt immer: init_db ergänzt die Spalten und hebt
+    user_version an. Eine neuere lehnt es ab."""
+    src = restore.tmp / "alt" / "tatilvakti.db"
+    src.parent.mkdir()
+    legacy_db(src, columns)
+    backup = load_script("backup").backup(src, restore.backups, datetime(2026, 10, 7, 3, 40, tzinfo=timezone.utc))[0]
+    assert user_version(backup) == 0
+    restore.release(db_py)
+    before = restore.crash()
+    res = restore.run(str(backup))
+    if db_py is not None:
+        assert res.returncode == 1 and line in res.stderr, res.stdout + res.stderr
+        assert "Keine Sicherung mit Schema-Version bis 2" in res.stderr
+        assert restore.files() == before and restore.calls() == []
+        return
+    assert res.returncode == 0 and line in res.stdout, res.stdout + res.stderr
+    assert "Restore fertig: tatilvakti-20261007T034000Z.db, 0 Meldungen" in res.stdout
+    from tatilvakti import create_app
+    create_app({"TESTING": True, "TV_DB_PATH": str(restore.db), "TV_CLOCK": clock})
+    assert user_version(restore.db) == SCHEMA_VERSION
+    assert load_script("schema_check").db_version(restore.db) == SCHEMA_VERSION
+
+
+def test_restore_check_only_reports_a_newer_schema_version(restore):
+    """Restore-Drill: --check bricht wegen der Schema-Version nicht ab (es prüft die Sicherung selbst),
+    sagt aber in der letzten Zeile, dass ein echtes Zurückspielen --force-schema bräuchte."""
+    backup = restore.backup()
+    set_user_version(backup, SCHEMA_VERSION + 1)
+    before = restore.crash()
+    restore.release()
+    res = restore.run("--check", str(backup))
+    assert res.returncode == 0, res.stdout + res.stderr
+    warning = f"Die Sicherung hat Schema-Version {SCHEMA_VERSION + 1}, r1 kennt nur bis {SCHEMA_VERSION}."
+    assert f"  WARNUNG: {warning}\n" in res.stdout and "preflight ok build=" in res.stdout
+    ok, last = res.stdout.splitlines()[-2:]
+    assert ok.endswith("Restore-Probe ok: tatilvakti-20261007T034000Z.db, 20 Meldungen. "
+                       "Dienst und Datenbank unverändert.")
+    assert last.endswith(f'WARNUNG: {warning} Zurückspielen nur mit --force-schema "<Grund>" '
+                         "(README → Backup und Restore).")
+    assert restore.files() == before and restore.calls() == [] and restore.journal() == ""
+    res = restore.run("--check", "--force-schema", "Probe", str(backup))
+    assert res.returncode == 1 and "--check ändert nichts, --force-schema passt nicht dazu" in res.stderr
+
+
+def test_restore_with_an_unreadable_schema_version(restore):
+    """Lässt sich eine Schema-Version nicht lesen (hier fehlt dem aktiven Release tatilvakti/db.py), ist
+    unbekannt, ob das Release die Sicherung kennt: kein Restore ohne --force-schema "<Grund>"."""
+    backup = restore.backup()
+    release = restore.release("")
+    (release / "tatilvakti" / "db.py").unlink()
+    before = restore.crash()
+    res = restore.run("--start", str(backup))
+    assert res.returncode == 1, res.stdout + res.stderr
+    assert "FEHLER: Schema-Version von r1 nicht lesbar" in res.stderr
+    assert "Ohne lesbare Schema-Version lässt sich nicht prüfen, ob r1 die Sicherung kennt" in res.stderr
+    assert f'sudo {SCRIPTS}/restore.sh --start --force-schema "<Grund>" {backup.resolve()}' in res.stderr
+    assert res.stderr.endswith(f"FEHLER: Schema-Version nicht lesbar: {backup.resolve()}\n"
+                               "Abgebrochen, nichts geändert.\n")
+    assert restore.files() == before and restore.calls() == [] and restore.journal() == ""
+    res = restore.run("--force-schema", "--start", str(backup))
+    assert res.returncode == 1 and "--force-schema braucht eine Begründung" in res.stderr
+    res = restore.run("--force-schema", "Release defekt, Restore eilt", str(backup))
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "übersteuert (--force-schema): Release defekt, Restore eilt" in restore.journal()
+    assert db_state(restore.db) == ("ok", 20) and "Die Datenbank hat jetzt" not in res.stdout

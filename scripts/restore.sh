@@ -4,12 +4,17 @@
 #   sudo /opt/tatilvakti-v2/current/scripts/restore.sh /var/lib/tatilvakti-v2/backups/tatilvakti-<zeit>.db
 #   sudo /opt/tatilvakti-v2/current/scripts/restore.sh --start <sicherung>    # danach alles starten
 #   sudo /opt/tatilvakti-v2/current/scripts/restore.sh --check [<sicherung>]  # Probe, ändert nichts
+#   sudo /opt/tatilvakti-v2/current/scripts/restore.sh --force-schema "<Grund>" <sicherung>  # Notfall
 #
 # Sicherungen: backups/tatilvakti-<zeit>.db (nachts) und backups/pre-deploy-<release>.db (deploy.sh,
 # direkt vor dem Umschalten auf <release>), beide von scripts/backup.py, auch Kopien davon.
 #
 # 1. Sicherung als Kopie neben die DB legen (Dienstbenutzer, 0600), mit backup.py --verify prüfen.
-#    Ist sie fehlerhaft, endet das Skript hier, Dienst und DB bleiben unverändert.
+#    Ist sie fehlerhaft, endet das Skript hier, Dienst und DB bleiben unverändert. Ebenso, wenn
+#    ihre Schema-Version neuer ist, als das aktive Release (current) kennt, oder sich nicht lesen
+#    lässt (scripts/schema_check.py wie bei deploy.sh und rollback.sh): Das ältere Release pflegte
+#    neuere Daten nicht richtig. --force-schema spielt trotzdem zurück; der Grund steht danach im
+#    Journal (-t tatilvakti-v2-release). Eine ältere Sicherung stellt das Release beim Start um.
 # 2. Timer, Wartung, Backup und Dienst stoppen (die Wartung legte sonst in der Lücke eine leere DB an).
 # 3. tatilvakti.db samt -wal, -shm und -journal nach pre-restore-<UTC-Zeit>/ verschieben, nie löschen.
 #    Eine liegengebliebene -wal (Absturz, SIGKILL) legte SQLite sonst über die Sicherung: alte Daten
@@ -24,6 +29,7 @@
 #
 # --check: nur Schritt 1, dazu der Preflight des aktiven Releases gegen die Kopie (create_app,
 # /healthz, alle Seiten). Ohne Angabe die neueste nächtliche Sicherung. Für den Restore-Drill (README).
+# Eine zu neue Schema-Version meldet --check nur (WARNUNG am Ende), es bricht deshalb nicht ab.
 #
 # Die Schlüssel-DB (/run/tatilvakti-v2/salts.db) bleibt unberührt, sie wird nie gesichert.
 # deploy.sh, rollback.sh und restore.sh laufen nie gleichzeitig (Sperre /opt/tatilvakti-v2/.lock).
@@ -50,12 +56,14 @@ while [ $# -gt 0 ]; do
     case $1 in
         --check) CHECK=1; shift ;;
         --start) START=1; shift ;;
+        --force-schema) force_reason "${2-}"; FORCE_SCHEMA=$2; shift 2 ;;
         -h|--help) sed -n '2,/^set -/{/^#/p}' "$0"; exit 0 ;;
         -*) die "unbekannte Option: $1 (siehe --help)" ;;
         *) [ -z "$SRC" ] || die "nur eine Sicherung angeben"; SRC=$1; shift ;;
     esac
 done
 [ "$CHECK" = 0 ] || [ "$START" = 0 ] || die "--check ändert nichts, --start passt nicht dazu"
+[ "$CHECK" = 0 ] || [ -z "$FORCE_SCHEMA" ] || die "--check ändert nichts, --force-schema passt nicht dazu"
 
 if [ "$(id -u)" -ne 0 ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
     die "als root ausführen (sudo)"
@@ -103,6 +111,30 @@ listed() {  # $1 = Wert, weitere Argumente = Liste; Erfolg, wenn der Wert darin 
     shift
     for item in "$@"; do [ "$item" != "$want" ] || return 0; done
     return 1
+}
+
+# Wege, wenn die Sicherung für das aktive Release zu neu oder ihre Schema-Version nicht lesbar ist
+# (wie schema_hint und schema_unreadable_hint in release-lib.sh für deploy.sh und rollback.sh)
+restore_schema_hint() {  # $1 = Exit-Code von read_schema, $2 = aktives Release, $3 = Aufruf mit --force-schema
+    if [ "$1" = 1 ]; then
+        cat >&2 <<EOF
+Ein älteres Release pflegt neuere Daten nicht richtig, z. B. löscht seine Wartung Prüfwerte in
+Spalten nicht, die es nicht kennt. Wege:
+  1. Erst ein Release aktivieren, das Schema-Version $SCHEMA_DB kennt (rollback.sh <release> oder
+     deploy.sh), dann diese Sicherung zurückspielen.
+  2. Eine Sicherung zurückspielen, die ${2##*/} kennt (siehe oben).
+  3. Notfall, trotzdem zurückspielen. ${2##*/} lässt liegen, was es nicht kennt, bis wieder ein
+     neueres Release läuft. Bald vorwärts gehen:
+       $3
+Mehr: README → Backup und Restore.
+EOF
+    else
+        cat >&2 <<EOF
+Ohne lesbare Schema-Version lässt sich nicht prüfen, ob ${2##*/} die Sicherung kennt. Erst die
+Ursache beheben (siehe oben), danach erneut. Notfall, ohne diese Prüfung:
+  $3
+EOF
+    fi
 }
 
 TS=$(date -u +%Y%m%dT%H%M%SZ)
@@ -192,6 +224,45 @@ install -m 0600 -o "$SERVICE_USER" -g "$SERVICE_GROUP" -- "$SRC" "$STAGE"
 REPORTS=$(verify_reports "$STAGE") || die "Sicherung fehlerhaft: $SRC"
 log "Sicherung geprüft: integrity_check ok, $REPORTS Meldungen, keine Prüfwerte"
 
+# Schema-Version der Sicherung gegen die des aktiven Releases (Audit d2-schema-version-rollback):
+# Ist sie neuer, pflegte das Release deren Daten nicht richtig. Eine ältere stellt es beim Start um
+# (init_db: fehlende Spalten, dann user_version), sie passt immer. Ohne aktives Release startet
+# nichts auf der DB, und deploy.sh bzw. rollback.sh prüfen vor dem Umschalten selbst.
+ACTIVE=$(link_target current)
+SCHEMA_RC=0
+SCHEMA_WARN=  # Befund bei Exit-Code 1 oder 2, den --check nur meldet
+if [ -z "$ACTIVE" ]; then
+    log "Kein aktives Release ($BASE/current), keine Schema-Prüfung (deploy.sh und rollback.sh prüfen vor dem Umschalten)"
+else
+    read_schema "$BASE/$ACTIVE" "$STAGE" Sicherung || SCHEMA_RC=$?
+fi
+case $SCHEMA_RC in
+    0) if [ -n "$ACTIVE" ]; then
+           SCHEMA_LINE="Schema-Version: Sicherung $SCHEMA_DB, ${ACTIVE##*/} kennt bis $SCHEMA_RELEASE"
+           if [ "$SCHEMA_DB" -gt 0 ] && [ "$SCHEMA_RELEASE" -gt "$SCHEMA_DB" ]; then
+               SCHEMA_LINE+=" (stellt sie beim Start um)"
+           fi
+           log "$SCHEMA_LINE"
+       fi ;;
+    1) SCHEMA_WARN="Die Sicherung hat Schema-Version $SCHEMA_DB, ${ACTIVE##*/} kennt nur bis $SCHEMA_RELEASE." ;;
+    *) SCHEMA_WARN=${SCHEMA_OUT%%$'\n'*}  # "FEHLER: Schema-Version … nicht lesbar: <Grund>"
+       SCHEMA_WARN="${SCHEMA_WARN#FEHLER: }." ;;
+esac
+if [ -n "$SCHEMA_WARN" ] && [ "$CHECK" = 1 ]; then
+    log "WARNUNG: $SCHEMA_WARN"
+elif [ -n "$SCHEMA_WARN" ]; then
+    printf '%s\n' "$SCHEMA_OUT" >&2
+    if [ -z "$FORCE_SCHEMA" ]; then
+        FORCE_CMD="sudo $LIB_DIR/restore.sh"
+        [ "$START" = 0 ] || FORCE_CMD+=" --start"
+        FORCE_CMD+=" --force-schema \"<Grund>\" $(printf '%q' "$SRC")"
+        restore_schema_hint "$SCHEMA_RC" "$ACTIVE" "$FORCE_CMD"
+        [ "$SCHEMA_RC" != 1 ] || die "Sicherung zu neu für ${ACTIVE##*/}: $SRC"
+        die "Schema-Version nicht lesbar: $SRC"
+    fi
+    journal_warn "Schema-Prüfung der Sicherung $SRC für ${ACTIVE##*/} übersteuert (--force-schema): $FORCE_SCHEMA"
+fi
+
 if [ "$CHECK" = 1 ]; then
     REL=$BASE/current
     [ -x "$REL/.venv/bin/python" ] || die "kein aktives Release unter $REL"
@@ -200,6 +271,9 @@ if [ "$CHECK" = 1 ]; then
         --env-file "$ENV_FILE" --db "$STAGE" --no-tests) \
         || die "Preflight gegen die Sicherung fehlgeschlagen: $SRC"
     log "Restore-Probe ok: ${SRC##*/}, $REPORTS Meldungen. Dienst und Datenbank unverändert."
+    if [ -n "$SCHEMA_WARN" ]; then
+        log "WARNUNG: $SCHEMA_WARN Zurückspielen nur mit --force-schema \"<Grund>\" (README → Backup und Restore)."
+    fi
     exit 0
 fi
 
@@ -250,6 +324,10 @@ if listed "$SERVICE" "${UNITS[@]}"; then
 fi
 
 log "Restore fertig: ${SRC##*/}, $AFTER Meldungen"
+if [ "$SCHEMA_RC" = 1 ]; then  # nur mit --force-schema bis hier
+    log "Die Datenbank hat jetzt Schema-Version $SCHEMA_DB, ${ACTIVE##*/} kennt bis $SCHEMA_RELEASE. Bald vorwärts:"
+    log "ein Release ausrollen, das sie kennt (README → Update und Rollback → Schema-Version)."
+fi
 STOPPED=()
 for unit in "$SERVICE" "${TIMERS[@]}"; do
     listed "$unit" "${UNITS[@]}" || STOPPED+=("$unit")

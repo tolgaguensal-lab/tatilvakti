@@ -2,6 +2,7 @@
 # Neues Release von tatilvakti v2 bauen, prüfen und aktivieren. Als root, aus einem Git-Klon:
 #
 #   sudo scripts/deploy.sh [--rev <git-rev>] [--no-tests] [--keep <n>] [--force-schema "<Grund>"]
+#                          [--no-snapshot "<Grund>"]
 #
 # 1. git archive <rev> → /opt/tatilvakti-v2/releases/<UTC-Zeit>-<commit> (nur Eingechecktes)
 # 2. Schema-Version (scripts/schema_check.py): Kennt das Release die der Datenbank nicht (älterer
@@ -13,6 +14,9 @@
 # 5. Sicherung der Datenbank mit scripts/backup.py als Dienstbenutzer (ohne Prüfwerte, konsistent)
 #    nach /var/lib/tatilvakti-v2/backups/pre-deploy-<release>.db; die neuesten 3 bleiben und je
 #    ältere Schema-Version die neueste. Fehlt Platz oder scheitert sie, endet deploy.sh hier.
+#    Notfall --no-snapshot (z. B. Hotfix bei fast voller Platte): keine Sicherung, dafür eine
+#    WARNUNG mit der neuesten nächtlichen Sicherung und ihrem Alter; der Grund steht im Journal.
+#    Nicht zusammen mit --force-schema: Dann ist die Sicherung der einzige Weg zurück.
 # 6. erst dann: Symlink current atomar umschalten, previous zeigt auf das bisherige Release
 # 7. soll der Dienst laufen (aktiv, startet gerade oder abgestürzt): reset-failed und Neustart,
 #    /healthz muss die neue Build-ID melden, sonst automatisch zurück und Neustart des alten Releases
@@ -36,11 +40,18 @@ while [ $# -gt 0 ]; do
         --no-tests) TESTS=0; shift ;;
         --keep) KEEP=${2:?--keep braucht einen Wert}; shift 2 ;;
         --force-schema) force_reason "${2-}"; FORCE_SCHEMA=$2; shift 2 ;;
+        --no-snapshot) force_reason "${2-}" --no-snapshot "Platte fast voll, Hotfix"; NO_SNAPSHOT=$2; shift 2 ;;
         -h|--help) sed -n '2,/^set -/{/^#/p}' "$0"; exit 0 ;;
         *) die "unbekannte Option: $1 (siehe --help)" ;;
     esac
 done
 { [[ $KEEP =~ ^[0-9]+$ ]] && [ "$KEEP" -ge 2 ]; } || die "--keep muss eine Zahl ab 2 sein"
+# Ein älteres Release auf neuerem Schema (--force-schema) ändert die Daten vielleicht falsch, zurück
+# auf den Stand davor führt dann nur die Sicherung vor dem Umschalten
+if [ -n "$FORCE_SCHEMA" ] && [ -n "$NO_SNAPSHOT" ]; then
+    die "--no-snapshot nicht zusammen mit --force-schema: Läuft ein älteres Release auf neuerem Schema," \
+        "ist die Sicherung vor dem Umschalten der einzige Weg zurück. Erst Platz schaffen (docs/RUNBOOK.md 2c)."
+fi
 
 # Git als root in einem Klon, der einem anderen Benutzer gehört: safe.directory nur für diesen Aufruf
 SRC=$(cd "$HERE/.." && pwd)
@@ -121,16 +132,32 @@ PREFLIGHT_BUILD=
 run_preflight "$REL" "${PREFLIGHT_ARGS[@]}" || die "Preflight fehlgeschlagen, nichts umgeschaltet."
 [ -n "$PREFLIGHT_BUILD" ] || die "Preflight lieferte keine Build-ID"
 
-pre_deploy_snapshot "$NAME" \
-    || die "Sicherung vor dem Umschalten fehlgeschlagen, nichts umgeschaltet. Platz schaffen bzw. Ursache" \
-           "beheben, dann erneut (backups/ wie in README → Backup und Restore)."
+SKIPPED=0  # Sicherung per --no-snapshot ausgelassen (nur mit DB, ohne gibt es ohnehin keine)
+if [ -n "$NO_SNAPSHOT" ]; then
+    [ ! -e "$DB" ] || SKIPPED=1
+    skip_snapshot "$NAME"
+else
+    pre_deploy_snapshot "$NAME" \
+        || die "Sicherung vor dem Umschalten fehlgeschlagen, nichts umgeschaltet. Platz schaffen bzw. Ursache" \
+               "beheben, dann erneut (backups/ wie in README → Backup und Restore). Notfall ohne diese" \
+               "Sicherung: --no-snapshot \"<Grund>\" (README → Update und Rollback)."
+fi
+MIGRATES=0  # stellt das neue Release die DB beim Start auf eine neuere Schema-Version um?
+if [ -n "$SCHEMA_DB" ] && [ "$SCHEMA_DB" -gt 0 ] && [ "$SCHEMA_RELEASE" -gt "$SCHEMA_DB" ]; then MIGRATES=1; fi
 NOTE=
 if [ -n "$SNAPSHOT" ]; then
     NOTE="Datenstand vor dem Deploy: $SNAPSHOT"
-    if [ -n "$SCHEMA_DB" ] && [ "$SCHEMA_DB" -gt 0 ] && [ "$SCHEMA_RELEASE" -gt "$SCHEMA_DB" ]; then
+    if [ "$MIGRATES" = 1 ]; then
         # Das neue Release hat die DB beim Start umgestellt; das alte kennt die neue Fassung nicht
         NOTE+=". $NAME hat die Datenbank evtl. schon auf Schema-Version $SCHEMA_RELEASE umgestellt."
         NOTE+=" Zurück auf den Stand vor dem Deploy: sudo $REL/scripts/restore.sh $SNAPSHOT"
+    fi
+elif [ "$SKIPPED" = 1 ]; then
+    # Ohne Sicherung vor dem Deploy bleibt nur die nächtliche, samt Verlust der Meldungen seither
+    NOTE=$(no_snapshot_note)
+    if [ -n "$NIGHTLY" ] && [ "$MIGRATES" = 1 ]; then
+        NOTE+=". $NAME hat die Datenbank evtl. schon auf Schema-Version $SCHEMA_RELEASE umgestellt."
+        NOTE+=" Zurück auf den Stand der nächtlichen Sicherung: sudo $REL/scripts/restore.sh $NIGHTLY"
     fi
 fi
 
@@ -167,5 +194,9 @@ if [ -n "$SNAPSHOT" ] && [ -n "$FORCE_SCHEMA" ] && [ -n "$SCHEMA_DB" ] && [ "$SC
     log "Datenstand vor dem Deploy: $SNAPSHOT (Schema-Version $SCHEMA_DB, für $NAME zu neu)"
 elif [ -n "$SNAPSHOT" ]; then
     log "Datenstand vor dem Deploy: $SNAPSHOT (README → Update und Rollback)"
+elif [ "$SKIPPED" = 1 ]; then
+    # Kein Weg 2 mit der Sicherung vor dem Deploy; stellt das Release die DB um, nennt rollback.sh
+    # beim Abbruch die Sicherungen, die das bisherige Release kennt
+    log "WARNUNG: $(no_snapshot_note)"
 fi
 forced_schema_note "$NAME" "$RESTORE"
