@@ -12,9 +12,12 @@ kann der Dienst danach nicht mehr schreiben. Das Skript bricht deshalb ab, wenn 
 Benutzer nicht Eigentümer der DB ist.
 
 Prüft der Reihe nach:
-1. Konfiguration aus der Env-Datei: TV_BASE_URL, TV_TRUST_PROXY, Impressum, keine Pfad-Variablen.
+1. Konfiguration aus der Env-Datei: TV_BASE_URL, TV_TRUST_PROXY, Impressum, Hoster und Proxy-Log-Frist
+   (Datenschutztext), keine Pfad-Variablen.
 2. create_app() gegen eine Online-KOPIE der Produktions-DB in einem temporären Verzeichnis:
-   Datenvalidierung und Schema. Echte DB und Salts-Datei bleiben unberührt.
+   Datenvalidierung und Schema. Echte DB und Salts-Datei bleiben unberührt. Vorher die
+   Schema-Version der Kopie (scripts/schema_check.py): Ist sie neuer, als dieses Release kennt,
+   gibt es eine WARNUNG. Abbrechen tun deploy.sh und rollback.sh selbst (dort mit --force-schema).
 3. Alle GET-Routen (jede Seite, jeder Grenzübergang, /healthz, /sw.js, Sitemap …) und jede URL
    der Precache-Liste aus /sw.js: kein Status ab 400. Sonst fehlt die Seite offline; bei einem
    Asset, einer Start- oder Offline-Seite installiert sich der neue Service Worker gar nicht (der
@@ -28,6 +31,7 @@ Letzte Zeile bei Erfolg: "preflight ok build=<id>". Exit-Code 1 bei jedem Fehler
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -40,6 +44,8 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 SW_CONFIG_RE = re.compile(r"self\.TV_CONFIG\s*=\s*(\{.*?\});\s*\n")
+# Wie tatilvakti.PROXY_LOG_DAYS_RE (Konfiguration wird geprüft, bevor die App geladen ist)
+PROXY_LOG_DAYS_RE = re.compile(r"[0-9]{1,4}")
 
 
 class Report:
@@ -106,6 +112,18 @@ def check_config(env: dict[str, str], rep: Report) -> None:
         rep.warn("Impressum unvollständig, vor dem Launch setzen: " + ", ".join(missing))
     else:
         rep.ok("Impressum-Angaben gesetzt")
+    # Gleiche Regel wie privacy_details() in der App: Hoster nicht leer, Proxy-Log-Frist ganze Tage
+    # (0 = kein Request-Log). Fehlt eine Angabe, sagt der Datenschutztext nur, dass sie folgt.
+    hosting = env.get("TV_HOSTING_PROVIDER", "").strip()
+    days = env.get("TV_PROXY_LOG_DAYS", "").strip()
+    privacy = [k for k, ok in (("TV_HOSTING_PROVIDER", bool(hosting)),
+                               ("TV_PROXY_LOG_DAYS", bool(PROXY_LOG_DAYS_RE.fullmatch(days)))) if not ok]
+    if privacy:
+        hint = " (ganze Tage, 0 = kein Request-Log mit IP)" if "TV_PROXY_LOG_DAYS" in privacy else ""
+        rep.warn("Datenschutztext unvollständig (Hoster, Frist des Proxy-Logs), vor dem Launch setzen: "
+                 + ", ".join(privacy) + hint)
+    else:
+        rep.ok(f"Datenschutz-Angaben gesetzt: Hoster, Proxy-Log {int(days)} Tage")
     # Die Pfade gehören zu StateDirectory/RuntimeDirectory der Units. In der Env-Datei würden sie
     # die Units überschreiben: Schreiben scheitert dann an ProtectSystem=strict, oder die
     # Tagesschlüssel landen auf der Platte statt auf tmpfs.
@@ -136,6 +154,19 @@ def copy_db(src: Path, dst: Path) -> None:
             target.close()
     finally:
         source.close()
+
+
+def check_schema(db: Path, rep: Report) -> None:
+    """Schema-Version der DB-Kopie gegen die dieses Releases (schema_check.py liegt daneben)."""
+    spec = importlib.util.spec_from_file_location("tv_schema_check", Path(__file__).with_name("schema_check.py"))
+    schema_check = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(schema_check)
+    have, known = schema_check.db_version(db), schema_check.release_version(ROOT)
+    if have > known:
+        rep.warn(f"Datenbank hat Schema-Version {have}, dieses Release kennt nur bis {known}. deploy.sh und "
+                 "rollback.sh schalten so nur mit --force-schema um (README → Update und Rollback)")
+    else:
+        rep.ok(f"Schema-Version: Datenbank {have}, Release {known}")
 
 
 def route_urls(app, cids: list[str]) -> list[str]:
@@ -173,6 +204,7 @@ def check_app(env: dict[str, str], db: Path | None, tmp: Path, rep: Report) -> s
         check_owner(db)
         copy_db(db, tmp / "tatilvakti.db")
         rep.ok(f"Kopie der Datenbank für den Test: {db}")
+        check_schema(tmp / "tatilvakti.db", rep)  # vor create_app, das die Version der Kopie anhebt
     else:
         rep.warn(f"keine bestehende Datenbank ({db}), Test mit leerer DB")
 
@@ -200,6 +232,8 @@ def check_app(env: dict[str, str], db: Path | None, tmp: Path, rep: Report) -> s
             rep.warn(f"Prüfung fällig: {data['due_items']}")
         if data.get("imprint_ok") is False:
             rep.warn("/healthz: imprint_ok=false")
+        if data.get("privacy_ok") is False:
+            rep.warn("/healthz: privacy_ok=false")
 
     borders = client.get("/api/v1/borders").get_json(silent=True) or {}
     cids = [c["id"] for c in borders.get("crossings", [])]

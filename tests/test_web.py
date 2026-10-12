@@ -394,9 +394,9 @@ def test_healthz_reports_data_freshness(client):
     assert data["due_items"] == [] and data["next_review"] > "2026-10-10"
     assert data["proxy"] == {"trust_proxy": 0, "forwarded_ignored": False}
     assert data["maintenance_at"] == "2026-10-06T10:00:00Z"
-    # Test-App ohne Impressum: sichtbar als 'attention', HTTP bleibt 200
-    assert data["imprint_ok"] is False
-    assert (data["status"], data["attention"]) == ("attention", ["imprint"])
+    # Test-App ohne Impressum und ohne Hoster/Proxy-Log-Frist: sichtbar als 'attention', HTTP bleibt 200
+    assert data["imprint_ok"] is False and data["privacy_ok"] is False
+    assert (data["status"], data["attention"]) == ("attention", ["imprint", "privacy"])
 
 
 @pytest.fixture
@@ -404,14 +404,15 @@ def operated_app(tmp_path, clock):
     from tatilvakti import create_app
     return create_app({"TESTING": True, "TV_DB_PATH": str(tmp_path / "op.db"), "TV_CLOCK": clock,
                        "TV_OPERATOR_NAME": "Erika Muster", "TV_OPERATOR_ADDRESS": "Musterweg 1;12345 Musterstadt",
-                       "TV_OPERATOR_EMAIL": "kontakt@example.org"})
+                       "TV_OPERATOR_EMAIL": "kontakt@example.org",
+                       "TV_HOSTING_PROVIDER": "Beispiel Hosting GmbH, Musterstadt", "TV_PROXY_LOG_DAYS": "7"})
 
 
 def test_healthz_is_ok_with_imprint_and_fresh_data(operated_app):
     resp = operated_app.test_client().get("/healthz")
     data = resp.get_json()
     assert resp.status_code == 200
-    assert (data["status"], data["imprint_ok"], data["attention"]) == ("ok", True, [])
+    assert (data["status"], data["imprint_ok"], data["privacy_ok"], data["attention"]) == ("ok", True, True, [])
 
 
 def test_healthz_lists_due_rules_and_prices(operated_app):
@@ -433,6 +434,25 @@ def test_healthz_lists_due_rules_and_prices(operated_app):
         {"dataset": "transit", "item": code, "field": "prices_valid_until", "date": "2026-10-05"},
     ]
     assert not any(v["review_due"] for v in data["datasets"].values())
+
+
+def test_healthz_reminds_of_bulgarian_prices_before_the_page_marks_them_outdated(operated_app, clock):
+    """Issue #2: BG hat die Preise zum 01.08.2026 geändert und kann es wieder tun. Der Prüftermin
+    (review_after) mahnt in /healthz, solange die Routenseite die Preise noch als gültig zeigt."""
+    bg = operated_app.extensions["tv"].content.transit["countries"]["BG"]
+    review = datetime.fromisoformat(bg["review_after"])
+    assert review < datetime.fromisoformat(bg["prices_valid_until"])
+    client = operated_app.test_client()
+
+    def bg_due():
+        return [d for d in client.get("/healthz").get_json()["due_items"] if d["item"] == "BG"]
+
+    clock.now = review.replace(hour=12, tzinfo=timezone.utc)  # am Prüftermin selbst noch nicht fällig
+    assert bg_due() == []
+    clock.now += timedelta(days=1)
+    assert bg_due() == [{"dataset": "transit", "item": "BG", "field": "review_after", "date": bg["review_after"]}]
+    bg_html = client.get("/de/route").get_data(as_text=True).split('id="land-BG"', 1)[1].split("</details>", 1)[0]
+    assert "is-outdated" not in bg_html and "vermutlich veraltet" not in bg_html
 
 
 def test_healthz_flags_whole_datasets_after_review_date(operated_app, clock):

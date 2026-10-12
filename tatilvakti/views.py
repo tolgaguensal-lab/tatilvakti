@@ -20,7 +20,7 @@ from werkzeug.exceptions import HTTPException, MethodNotAllowed, NotFound
 from werkzeug.routing import RequestRedirect
 
 from . import borders as B
-from . import operator_imprint, today_berlin, utcnow
+from . import operator_imprint, privacy_details, today_berlin, utcnow
 from .content import DATASETS, is_due, redirect_key
 from .db import SaltDbError, check_salt_db
 from .holidays import QUIET_MAX
@@ -437,10 +437,12 @@ def info():
         meta = content.meta(name)
         datasets.append({"name": name, "meta": meta, "due": is_due(meta.get("review_after"), today)})
     reports_24h = B.count_since(_db(), now_ts() - 86400)
-    # Fristen im Datenschutztext kommen aus dem Code, damit Text und Löschung nie auseinanderlaufen
+    # Fristen im Datenschutztext kommen aus dem Code, damit Text und Löschung nie auseinanderlaufen;
+    # Hoster und Proxy-Log-Frist aus der Konfiguration (privacy_details)
     return render_template("info.html", page="info", datasets=datasets, reports_24h=reports_24h,
                            operator=operator_imprint(current_app.config), content=content,
-                           hash_ttl_h=B.CLIENT_HASH_TTL_H, retention_days=B.RETENTION_DAYS)
+                           hash_ttl_h=B.CLIENT_HASH_TTL_H, retention_days=B.RETENTION_DAYS,
+                           privacy=privacy_details(current_app.config))
 
 
 def offline():
@@ -724,9 +726,10 @@ def healthz():
     bei Fehlern die ganze Seite vom Netz nimmt, auf /healthz zeigen.
 
     Sonst HTTP 200: status 'attention', wenn etwas zu pflegen ist (Gründe in 'attention':
-    fällige Datenprüfung, Impressum, Proxy-Einstellung, überfällige Wartung, Obergrenze für
-    Meldungen in den letzten 24 h erreicht), sonst 'ok'. Ein Uptime-Monitor prüft nur den
-    Statuscode, die Pflegehinweise sind für einen täglichen Blick.
+    fällige Datenprüfung, Impressum, Hoster und Proxy-Log-Frist im Datenschutztext ('privacy'),
+    Proxy-Einstellung, überfällige Wartung, Obergrenze für Meldungen in den letzten 24 h
+    erreicht), sonst 'ok'. Ein Uptime-Monitor prüft nur den Statuscode, die Pflegehinweise sind
+    für einen täglichen Blick.
 
     Alle Details nur für Aufrufe auf dem Server selbst (_local_call). Von außen nur status, build
     und down mit demselben Statuscode: Proxy-Einstellung, Zustand des Spam-Schutzes und Pflege-
@@ -756,13 +759,14 @@ def healthz():
     runtime["salt_db_failed"] = salt_error is not None
     due, next_review = due_items(content, today)
     imprint_ok = operator_imprint(cfg) is not None  # dieselbe Prüfung wie Info-Seite und Start-Warnung
+    privacy_ok = not privacy_details(cfg)["missing"]  # Hoster und Proxy-Log-Frist, ebenso
     forwarded_ignored = runtime["forwarded_ignored"]
     down = [reason for reason, failed in (("db", db_error is not None), ("salt_db", salt_error is not None))
             if failed]
     # Die Wartung schreibt spätestens alle 10 Min. (Timer, Seitenaufrufe, dieser Abruf); viel älter
     # heißt: Schreiben scheitert schon länger. Der Grund steht dann auch unter 'down'.
     attention = [reason for reason, active in (("due_items", bool(due)), ("imprint", not imprint_ok),
-                                                ("proxy", forwarded_ignored),
+                                                ("privacy", not privacy_ok), ("proxy", forwarded_ignored),
                                                 ("maintenance", maintenance_overdue),
                                                 ("crossing_cap", cap_recent)) if active]
     data = {
@@ -776,6 +780,7 @@ def healthz():
         "due_items": due,
         "next_review": next_review,
         "imprint_ok": imprint_ok,
+        "privacy_ok": privacy_ok,
         "proxy": {"trust_proxy": cfg["TV_TRUST_PROXY"], "forwarded_ignored": forwarded_ignored},
         "maintenance_at": iso(maintenance_at) if maintenance_at else None,
         "crossing_cap_at": iso(cap_at) if cap_at else None,
@@ -968,7 +973,10 @@ def register(app: Flask) -> None:
         return error_response(404)
 
     @app.errorhandler(500)
-    def server_error(_exc):  # pragma: no cover - Notfallpfad
+    def server_error(_exc):
+        # Unbehandelte Exceptions hat Flask vorher schon geloggt: ERROR mit Traceback, nur Pfad und
+        # Methode der Anfrage, keine IP, keine Query, keine Prüfwerte (unter systemd mit Priorität
+        # err, siehe tatilvakti.JournalFormatter). Hier nur die Fehlerseite.
         if request.path.startswith("/api/"):
             return {"error": "server_error", "degraded": True}, 500
         return error_response(500)

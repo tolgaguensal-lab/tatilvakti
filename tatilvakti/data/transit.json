@@ -192,10 +192,24 @@
         },
         {
           "label": {
+            "de": "Jahr 2026 · D1 (landesweit)",
+            "tr": "2026 yıllık · D1 (ülke geneli)"
+          },
+          "value": "61.760 Ft"
+        },
+        {
+          "label": {
             "de": "10 Tage · D2 (8–9-Sitzer, Wohnmobil, Transporter)",
             "tr": "10 gün · D2 (8–9 koltuklu araç, karavan, kamyonet)"
           },
           "value": "10.040 Ft"
+        },
+        {
+          "label": {
+            "de": "Jahr 2026 · D2 (landesweit)",
+            "tr": "2026 yıllık · D2 (ülke geneli)"
+          },
+          "value": "87.650 Ft"
         }
       ],
       "prices_valid_until": "2026-12-31",
@@ -204,7 +218,7 @@
           "de": "NÚSZ (Nemzeti Útdíjfizetési Szolgáltató) – e-matrica, Preise 2026",
           "tr": "NÚSZ (Nemzeti Útdíjfizetési Szolgáltató) – e-matrica, 2026 fiyatları"
         },
-        "url": "https://nemzetiutdij.hu"
+        "url": "https://nemzetiutdij.hu/en/e-vignette/tolls/e-vignette-rates"
       },
       "notes": [
         {
@@ -214,6 +228,17 @@
         {
           "de": "D1 gilt nur für Fahrzeuge bis 3,5 t mit höchstens 7 Sitzplätzen inklusive Fahrer. Mehr Sitzplätze, Wohnmobil oder Transporter: D2. Maßgeblich sind Fahrzeugklasse (Feld J) und Sitzplätze (Feld S.1) im Fahrzeugschein.",
           "tr": "D1 yalnızca sürücü dahil en fazla 7 koltuklu, 3,5 tona kadar araçlar için geçerlidir. Daha fazla koltuk, karavan veya kamyonet: D2. Belirleyici olan, ruhsattaki araç sınıfı (J alanı) ve koltuk sayısıdır (S.1 alanı)."
+        },
+        {
+          "de": "Die landesweite Jahresvignette gilt nicht 12 Monate, sondern vom Kauf bis zum 31. Januar des Folgejahres: Die für 2026 läuft am 31.01.2027 ab. Nicht verwechseln mit den viel günstigeren Jahresvignetten für ein einzelnes Komitat („vármegyei“): Sie gelten nur auf den Strecken, die zu diesem Komitat gehören.",
+          "tr": "Ülke geneli yıllık vinyet 12 ay değil, satın aldığın günden ertesi yılın 31 Ocak'ına kadar geçerlidir: 2026 vinyetinin süresi 31.01.2027'de doluyor. Çok daha ucuz olan, tek bir ile ait yıllık vinyetlerle (“vármegyei”) karıştırma: Bunlar yalnızca o ile ait yol kesimlerinde geçerlidir.",
+          "source": {
+            "name": {
+              "de": "NÚSZ – Verordnung 45/2020 (ITM) zur Autobahnvignette, englische Fassung, Stand 15.10.2022",
+              "tr": "NÚSZ – otoyol vinyetine ilişkin 45/2020 (ITM) sayılı yönetmelik, İngilizce metin (15.10.2022 itibarıyla)"
+            },
+            "url": "https://nemzetiutdij.hu/api/uploads/45_2020_itm_2022_10_15_eng_pdf_411976c021.pdf"
+          }
         }
       ]
     },
@@ -287,6 +312,13 @@
       "prices": [
         {
           "label": {
+            "de": "10 Tage · Pkw (Kat. A) · Elektro",
+            "tr": "10 gün · Otomobil (A kategorisi) · Elektrikli"
+          },
+          "value": "27 Lei"
+        },
+        {
+          "label": {
             "de": "10 Tage · Pkw (Kat. A) · Euro 6",
             "tr": "10 gün · Otomobil (A kategorisi) · Euro 6"
           },
@@ -323,6 +355,10 @@
         {
           "de": "Die Preise oben gelten für Pkw (Kategorie A). Ist dein Fahrzeug als Lkw, Transporter oder Bus zugelassen, gilt eine andere Kategorie – im Shop die Kategorie deines Fahrzeugs prüfen.",
           "tr": "Yukarıdaki fiyatlar otomobiller (A kategorisi) için geçerlidir. Aracın kamyon, kamyonet veya otobüs olarak tescilliyse farklı bir kategori geçerlidir – satış sitesinde aracının kategorisini kontrol et."
+        },
+        {
+          "de": "Neben der 10-Tages-Vignette gibt es Vignetten für 1 Tag, 30 Tage, 60 Tage und 12 Monate. Auch ihr Preis hängt von der Euro-Norm ab; die Tarife zeigt der offizielle Shop.",
+          "tr": "10 günlük vinyetin yanı sıra 1 günlük, 30 günlük, 60 günlük ve 12 aylık vinyet de var. Bunların fiyatı da Euro normuna göre değişir; tarifeleri resmî satış sitesinde görebilirsin."
         },
         {
           "de": "Seit 01.10.2026 gibt es die Vignette nur noch über die offiziellen Kanäle des neuen Systems TollRo: Portal etoll.ro, App „TollRo“, CNAIR-Verkaufsstellen (auch an der Grenze) und zugelassene Verkäufer.",
@@ -396,6 +432,7 @@
         }
       ],
       "prices_valid_until": "2027-01-31",
+      "review_after": "2026-12-31",
       "source": {
         "name": {
           "de": "BG TOLL (Straßenagentur) – Vignettenpreise ab 01.08.2026",
