@@ -3,18 +3,23 @@
 Kein externer Netzverkehr: Die Prüflogik läuft gegen einen http.server auf 127.0.0.1 in einem
 Thread, „anderer Host“ ist dort localhost, der Proxy-Fall ein lokaler Proxy, der CONNECT mit 403
 ablehnt. Proxys aus der Umgebung sind abgeschaltet (proxies={} bzw. leere Umgebungsvariablen).
+Strg+C prüft ein eigener Prozess mit einer Kopie des Skripts und eigenen Daten.
 """
 from __future__ import annotations
 
 import ast
 import importlib.util
 import json
+import os
 import re
+import shutil
+import signal
 import socket
 import ssl
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -54,6 +59,13 @@ class Handler(BaseHTTPRequestHandler):
         "/moved-gone": (302, "/gone"),
         "/loop": (302, "/loop"),
         "/down": (503, ""),
+        "/noloc": (301, ""),
+        "/q?id=1": (301, "/q"),
+        "/q": (200, ""),
+        "/r?id=1": (301, "/r?id=2"),
+        "/r?id=2": (200, ""),
+        "/c?uri=CELEX:1": (301, "/c?uri=CELEX%3A1"),
+        "/c?uri=CELEX%3A1": (200, ""),
     }
 
     def log_message(self, format, *args):
@@ -73,18 +85,27 @@ class Handler(BaseHTTPRequestHandler):
     def serve(self):
         site = self.server
         count = site.record(self)
+        cookie = ""
         if self.path == "/no-head":  # HEAD unbekannt, GET geht
             code, location = (405, "") if self.command == "HEAD" else (200, "")
-        elif self.path == "/slow":
+        elif self.path.startswith("/slow"):  # antwortet erst nach release (höchstens 10 s)
             site.release.wait(10)
+            code, location = 200, ""
+        elif self.path.startswith("/wait"):  # kurz beschäftigt
+            time.sleep(0.3)
             code, location = 200, ""
         elif self.path == "/flaky":  # erst zwei Fehler, dann geht es
             code, location = (503, "") if count <= 2 else (200, "")
+        elif self.path == "/cookie":  # ohne Cookie: Cookie setzen und auf sich selbst weiterleiten
+            ok = "tv=1" in (self.headers.get("Cookie") or "")
+            code, location, cookie = (200, "", "") if ok else (302, "/cookie", "tv=1; Path=/")
         else:
             code, location = self.ROUTES.get(self.path, (404, ""))
         self.send_response(code)
         if location:
             self.send_header("Location", location.format(port=site.server_address[1]))
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
         self.send_header("Content-Length", "0")
         self.end_headers()
 
@@ -140,7 +161,8 @@ def check(cs, site, path, timeout=2.0):
 def test_collects_all_source_urls_from_real_data(cs):
     files = cs.default_files()
     names = {f.name for f in files}
-    assert {"customs.json", "transit.json", "holidays.json", "crossings.json", "de.json", "tr.json"} <= names
+    assert {"customs.json", "transit.json", "holidays.json", "crossings.json", "de.json", "tr.json",
+            "info.html"} <= names
     urls = cs.collect_urls(files)
     assert len(urls) > 0
 
@@ -162,11 +184,17 @@ def test_collects_all_source_urls_from_real_data(cs):
             assert url in urls, (file.name, url)
             assert any(o.startswith(f"{file.name}:") and o.endswith(".url") for o in urls[url]), url
 
+    # feste Quellen-Links in Templates ({{ ext("https://…", …) }}), mit Zeile
+    for file in sorted(cs.TEMPLATES_DIR.glob("*.html")):
+        for number, line in enumerate(file.read_text(encoding="utf-8").splitlines(), 1):
+            for url in re.findall(r'ext\("(https?://[^"]+)"', line):
+                assert f"{file.name}:{number}" in urls.get(url, []), (file.name, number, url)
+
     for url, origins in urls.items():
         assert url.startswith(("http://", "https://")), url
         assert "www.w3.org/" not in url, url  # XML-Namespaces
         assert urlsplit(url).hostname not in ("example.com", "example.net", "example.org"), url
-        assert origins and all(re.match(r"^[a-z0-9_]+\.json:\S+$", o) for o in origins), origins
+        assert origins and all(re.match(r"^[a-z0-9_]+\.(json:\S+|html:\d+)$", o) for o in origins), origins
         assert len(origins) == len(set(origins)), url
 
 
@@ -191,6 +219,15 @@ def test_collect_paths_namespaces_examples_duplicates(cs, tmp_path):
         "https://amt.de/a_(b)": ["a.json:text"],
         "https://amt.de/punkt": ['a.json:["zwei.teile"]'],
     }
+
+
+def test_collect_from_templates_with_line(cs, tmp_path):
+    (tmp_path / "seite.html").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg>\n'
+        '{{ t("source") }}: {{ ext("https://amt.de/quelle/", "Amt") }}\n'
+        '<a href="https://wa.me/?text={{ text|urlencode }}">teilen</a>\n'
+        '{# Doku: https://amt.de/quelle/ #}\n', encoding="utf-8")
+    assert cs.collect_urls([tmp_path / "seite.html"]) == {"https://amt.de/quelle/": ["seite.html:2", "seite.html:4"]}
 
 
 # ---------------------------------------------------------------- prüfen (lokaler Server)
@@ -224,6 +261,48 @@ def test_redirect_to_other_host_fails_only_with_strict(cs, site):
     assert cs.is_failure(result, strict=True)
     text = cs.format_text([result], strict=True)
     assert f"→ http://localhost:{port}/ok (301, anderer Host, mit --strict ein Fehler)" in text
+
+
+@pytest.mark.parametrize("path, target", [("/q?id=1", "/q"), ("/r?id=1", "/r?id=2")])
+def test_redirect_changing_query_is_redirect(cs, site, path, target):
+    result = check(cs, site, path)
+    assert (result.status, result.other_host, result.final_url) == (cs.REDIRECT, False, site.url(target))
+
+
+def test_redirect_with_other_percent_encoding_is_ok(cs, site):
+    result = check(cs, site, "/c?uri=CELEX:1")
+    assert (result.status, result.final_url) == (cs.OK, site.url("/c?uri=CELEX%3A1"))
+
+
+def test_redirect_to_http_is_redirect(cs):
+    result = cs._judge("https://amt.de/a", "http://amt.de/a", 200, [(301, "http://amt.de/a")])
+    assert (result.status, result.to_http, result.other_host) == (cs.REDIRECT, True, False)
+    assert "→ http://amt.de/a (301, auf http statt https)" in cs.format_text([result], strict=True)
+    assert not cs.is_failure(result, strict=True)
+    result = cs._judge("http://amt.de/a", "https://www.amt.de/a/", 200, [(301, "https://www.amt.de/a/")])
+    assert (result.status, result.to_http) == (cs.OK, False)
+
+
+def test_redirect_without_location_is_broken(cs, site):
+    result = check(cs, site, "/noloc")
+    assert (result.status, result.detail, result.http_status) == (
+        cs.BROKEN, "HTTP 301 ohne Ziel (Location fehlt)", 301)
+    assert site.requests == [("HEAD", "/noloc")]
+
+
+def test_cookie_redirect_to_itself_is_ok_and_cookies_stay_per_url(cs, site):
+    result = check(cs, site, "/cookie")
+    assert (result.status, result.http_status) == (cs.OK, 200)
+    assert site.requests == [("HEAD", "/cookie"), ("HEAD", "/cookie")]
+    site.requests.clear()
+    check(cs, site, "/cookie")  # neuer Abruf ohne das Cookie von eben
+    assert site.requests == [("HEAD", "/cookie"), ("HEAD", "/cookie")]
+
+
+def test_ascii_encodes_idn_host_path_and_query(cs):
+    assert cs._ascii("https://bücher.example.de/ä?x=ö") == "https://xn--bcher-kva.example.de/%C3%A4?x=%C3%B6"
+    assert cs._ascii("https://amt.de:8443/straße") == "https://amt.de:8443/stra%C3%9Fe"
+    assert cs._ascii("https://amt.de/a%20b") == "https://amt.de/a%20b"
 
 
 def test_404_is_broken_after_one_get(cs, site):
@@ -260,6 +339,34 @@ def test_5xx_retried_once(cs, site):
     result = check(cs, site, "/down")
     assert (result.status, result.detail) == (cs.BROKEN, "HTTP 503")
     assert site.requests == [("HEAD", "/down"), ("GET", "/down"), ("GET", "/down")]
+
+
+def test_retry_pause_ends_on_stop(cs, site):
+    stop = threading.Event()
+    timer = threading.Timer(0.2, stop.set)
+    timer.start()
+    start = time.monotonic()
+    result = cs.check_url(site.url("/down"), timeout=2, retry_pause=30, proxies={}, stop=stop)
+    timer.cancel()
+    assert time.monotonic() - start < 5
+    assert (result.status, result.detail) == (cs.BROKEN, "HTTP 503")
+    assert site.requests == [("HEAD", "/down"), ("GET", "/down")]  # keine Wiederholung mehr
+
+
+def test_check_all_fetches_nothing_new_after_interrupt(cs, site):
+    """Abrufe, die schon auf ihren Host warten, rufen nach Strg+C nichts mehr ab."""
+    urls = {site.url(f"/wait?{n}"): [f"x.json:s{n}"] for n in range(4)}
+
+    def interrupt(done, total):
+        raise KeyboardInterrupt
+
+    start = time.monotonic()
+    with pytest.raises(KeyboardInterrupt):
+        cs.check_all(urls, workers=4, timeout=2, retry_pause=0, proxies={}, progress=interrupt)
+    assert time.monotonic() - start < 1.0  # wartet nicht auf den laufenden Abruf (alle vier: 1,2 s)
+    time.sleep(1.5)  # alles, was noch abrufen würde, wäre jetzt durch
+    # der erste Abruf und höchstens der, der beim Abbruch schon lief
+    assert len({path for _, path in site.requests}) <= 2, site.requests
 
 
 def test_redirect_loop_stops_after_max(cs, site):
@@ -350,6 +457,37 @@ def test_main_rejects_bad_options(cs, argv):
     with pytest.raises(SystemExit) as exc:
         cs.main(argv)
     assert exc.value.code == 2
+
+
+def test_ctrl_c_exits_at_once(site, tmp_path, no_env_proxy):
+    """Strg+C beendet sofort mit 130, ohne laufende Abrufe abzuwarten und ohne neue zu starten."""
+    root = tmp_path / "root"
+    (root / "scripts").mkdir(parents=True)
+    (root / "tatilvakti" / "data").mkdir(parents=True)
+    script = root / "scripts" / SCRIPT.name
+    shutil.copy(SCRIPT, script)
+    data = {"sources": {f"s{n}": {"url": site.url(f"/slow?{n}")} for n in range(3)}}
+    (root / "tatilvakti" / "data" / "x.json").write_text(json.dumps(data), encoding="utf-8")
+
+    proc = subprocess.Popen([sys.executable, "-I", str(script), "--timeout", "30"], stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, env=dict(os.environ))
+    try:
+        deadline = time.monotonic() + 20
+        while not site.requests and proc.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert site.requests, "kein Abruf angekommen"
+        proc.send_signal(signal.SIGINT)
+        start = time.monotonic()
+        _, err = proc.communicate(timeout=15)
+        elapsed = time.monotonic() - start
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+    assert proc.returncode == 130, err
+    assert "abgebrochen" in err
+    assert elapsed < 5
+    assert len(site.requests) == 1, site.requests  # die zwei anderen warteten auf den Host
 
 
 def test_script_uses_only_stdlib_and_runs_standalone():

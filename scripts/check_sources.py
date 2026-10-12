@@ -8,8 +8,9 @@ Auf Hermes: python3 /opt/tatilvakti-v2/current/scripts/check_sources.py
 Nur Standardbibliothek: läuft mit dem System-Python (ab 3.10), ohne venv.
 
 Sammelt alle http(s)-URLs aus tatilvakti/data/*.json und tatilvakti/i18n/*.json, mit
-Fundstelle als JSON-Pfad (z. B. transit.json:countries.AT.shop.url). Jede URL wird einmal
-abgerufen, auch wenn sie an mehreren Stellen steht; die Ausgabe nennt alle Fundstellen.
+Fundstelle als JSON-Pfad (z. B. transit.json:countries.AT.shop.url), und aus den Templates
+tatilvakti/templates/*.html, mit Zeile (z. B. info.html:41). Jede URL wird einmal abgerufen,
+auch wenn sie an mehreren Stellen steht; die Ausgabe nennt alle Fundstellen.
 XML-Namespaces (www.w3.org/2000/svg …), Beispiel-Domains (example.com, *.invalid …) und
 URLs mit Platzhaltern ({slug}) zählen nicht.
 
@@ -18,26 +19,34 @@ Abruf je URL:
   oder sperren es: 403) oder bricht die Verbindung ab, folgt ein GET. Vom GET wird nur
   der Kopf gelesen, der Body verworfen.
 - Weiterleitungen folgt das Skript selbst, höchstens MAX_REDIRECTS, und nennt das Ziel.
+  Cookies gelten wie im Browser, aber nur im Speicher und nur für diese eine URL (manche
+  Seiten leiten ohne Cookie auf sich selbst weiter).
 - Timeout und 5xx: eine Wiederholung nach RETRY_PAUSE_S, gleich mit GET. Mehr nicht.
 - Höflich: eigener User-Agent, wenige Abrufe gleichzeitig (--workers) und je Host nur einer.
 - Proxy-Variablen (HTTPS_PROXY, NO_PROXY) gelten wie bei urllib üblich.
 
 Bewertung:
 - OK: am Ende 2xx/3xx, ohne Weiterleitung oder nur innerhalb derselben Adresse
-  (http → https, mit oder ohne „www.“, Schrägstrich am Ende, Prozentkodierung).
-- WEITERLEITUNG: Ziel auf einem anderen Pfad oder anderen Host. Ein Hinweis, kein Fehler;
-  mit --strict sind Weiterleitungen auf andere Hosts ein Fehler.
-- KAPUTT: HTTP 4xx/5xx, DNS, TLS, Timeout, Proxy, zu viele Weiterleitungen.
+  (http → https, mit oder ohne „www.“, Schrägstrich am Ende, Prozentkodierung; Pfad und
+  Query bleiben gleich).
+- WEITERLEITUNG: Ziel mit anderem Pfad, anderer Query, auf einem anderen Host oder von https
+  auf http. Ein Hinweis, kein Fehler; mit --strict sind Weiterleitungen auf andere Hosts ein
+  Fehler.
+- KAPUTT: HTTP 4xx/5xx, DNS, TLS, Timeout, Proxy, zu viele Weiterleitungen, Weiterleitung
+  ohne Ziel.
 
 Exit-Code 0 = nichts KAPUTT (mit --strict auch keine Weiterleitung auf einen anderen Host),
-1 = sonst, 2 = Aufruf- oder Datenfehler. Geprüft wird nur die Erreichbarkeit, nicht, ob die
-Seite noch belegt, was die App sagt. Ablauf und Bewertung: docs/RUNBOOK.md, Abschnitt 5.
+1 = sonst, 2 = Aufruf- oder Datenfehler, 130 = Strg+C (beendet sofort, laufende Abrufe werden
+nicht abgewartet). Geprüft wird nur die Erreichbarkeit, nicht, ob die Seite noch belegt, was
+die App sagt. Ablauf und Bewertung: docs/RUNBOOK.md, Abschnitt 5.
 """
 from __future__ import annotations
 
 import argparse
 import http.client
+import http.cookiejar
 import json
+import os
 import re
 import socket
 import ssl
@@ -50,11 +59,12 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import quote, unquote, urljoin, urlsplit
+from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "tatilvakti" / "data"
 I18N_DIR = ROOT / "tatilvakti" / "i18n"
+TEMPLATES_DIR = ROOT / "tatilvakti" / "templates"
 
 DEFAULT_TIMEOUT_S = 15
 DEFAULT_WORKERS = 4
@@ -84,7 +94,7 @@ TUNNEL_RE = re.compile(r"Tunnel connection failed: (\d{3})\s*(.*)")
 # ---------------------------------------------------------------- URLs sammeln
 
 def default_files() -> list[Path]:
-    return sorted(DATA_DIR.glob("*.json")) + sorted(I18N_DIR.glob("*.json"))
+    return sorted(DATA_DIR.glob("*.json")) + sorted(I18N_DIR.glob("*.json")) + sorted(TEMPLATES_DIR.glob("*.html"))
 
 
 def is_ignored(url: str) -> bool:
@@ -134,11 +144,17 @@ def _walk(node, path: str, found: list[tuple[str, str]]) -> None:
 
 
 def collect_urls(files: list[Path]) -> dict[str, list[str]]:
-    """URL → Fundstellen („datei.json:pfad“), in der Reihenfolge des ersten Vorkommens."""
+    """URL → Fundstellen („datei.json:pfad“, bei Templates „datei.html:zeile“), in der Reihenfolge
+    des ersten Vorkommens."""
     urls: dict[str, list[str]] = {}
     for file in files:
         found: list[tuple[str, str]] = []
-        _walk(json.loads(file.read_text(encoding="utf-8")), "", found)
+        text = file.read_text(encoding="utf-8")
+        if file.suffix == ".json":
+            _walk(json.loads(text), "", found)
+        else:  # Template: zeilenweise, Jinja-Ausdrücke in URLs ({{ … }}) filtert is_ignored()
+            for number, line in enumerate(text.splitlines(), 1):
+                found.extend((url, str(number)) for url in find_urls(line))
         for url, path in found:
             origins = urls.setdefault(url, [])
             origin = f"{file.name}:{path}"
@@ -166,6 +182,7 @@ class Result:
     redirects: list[tuple[int, str]] = field(default_factory=list)
     other_host: bool = False
     origins: list[str] = field(default_factory=list)
+    to_http: bool = False  # Weiterleitung von https auf http
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -176,16 +193,30 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def make_opener(proxies: dict[str, str] | None = None) -> urllib.request.OpenerDirector:
-    """proxies=None: Proxy aus der Umgebung (HTTPS_PROXY, NO_PROXY); {} = ohne Proxy."""
-    handlers: list[urllib.request.BaseHandler] = [_NoRedirect()]
+    """proxies=None: Proxy aus der Umgebung (HTTPS_PROXY, NO_PROXY); {} = ohne Proxy.
+    Eigener Cookie-Speicher je Opener, also je URL, nur im Speicher."""
+    handlers: list[urllib.request.BaseHandler] = [
+        _NoRedirect(), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())]
     if proxies is not None:
         handlers.append(urllib.request.ProxyHandler(proxies))
     return urllib.request.build_opener(*handlers)
 
 
 def _ascii(url: str) -> str:
-    """http.client verlangt ASCII: Umlaute in Pfad und Query prozentkodieren (wie der Browser)."""
-    return url if url.isascii() else quote(url, safe=string.punctuation)
+    """http.client verlangt ASCII: Umlaute in Pfad und Query prozentkodieren, Umlaut-Domains
+    per IDNA (xn--…), wie der Browser."""
+    if url.isascii():
+        return url
+    parts = urlsplit(url)
+    userinfo, at, hostport = parts.netloc.rpartition("@")
+    host, colon, port = hostport.rpartition(":")
+    if not port.isdigit():
+        host, colon, port = hostport, "", ""
+    if not host.isascii():
+        host = host.encode("idna").decode("ascii")
+    netloc = quote(userinfo + at, safe=string.punctuation) + host + colon + port
+    return urlunsplit((parts.scheme, netloc, *(quote(part, safe=string.punctuation)
+                                               for part in (parts.path, parts.query, parts.fragment))))
 
 
 def _fetch(opener: urllib.request.OpenerDirector, url: str, method: str, timeout: float) -> tuple[int, str]:
@@ -254,18 +285,24 @@ def _probe(opener: urllib.request.OpenerDirector, url: str, timeout: float, head
     return _fetch(opener, url, "GET", timeout)
 
 
-def _follow(opener: urllib.request.OpenerDirector, url: str, timeout: float, head: bool) -> tuple[Result, bool]:
+def _follow(opener: urllib.request.OpenerDirector, url: str, timeout: float, head: bool,
+            stop: threading.Event | None = None) -> tuple[Result, bool]:
     """Weiterleitungen folgen und bewerten: (Ergebnis, Wiederholung sinnvoll)."""
     chain: list[tuple[int, str]] = []
     current = url
     after = ""
     for _ in range(MAX_REDIRECTS + 1):
+        if stop is not None and stop.is_set():
+            return Result(url, BROKEN, "abgebrochen", None, current, chain), False
         try:
             status, location = _probe(opener, current, timeout, head)
         except Exception as exc:  # nie abstürzen: jeder Fehler ist ein Befund zu dieser URL
             reason, retry = describe_error(exc, timeout)
             return Result(url, BROKEN, reason + after, None, current, chain), retry
-        if status in REDIRECT_CODES and location:
+        if status in REDIRECT_CODES:
+            if not location:
+                return Result(url, BROKEN, f"HTTP {status} ohne Ziel (Location fehlt){after}",
+                              status, current, chain), False
             # wie urllib: Location ist als ISO-8859-1 gelesen, Nicht-ASCII-Bytes prozentkodieren
             target = urljoin(current, quote(location, encoding="iso-8859-1", safe=string.punctuation))
             chain.append((status, target))
@@ -288,28 +325,34 @@ def _host_key(url: str) -> str:
     return host if port in (None, 80, 443) else f"{host}:{port}"
 
 
-def _path_key(url: str) -> str:
-    return unquote(urlsplit(url).path).rstrip("/")
+def _path_key(url: str) -> tuple[str, str]:
+    """Pfad ohne Schrägstrich am Ende und Query, beide ohne Prozentkodierung (CELEX%3A = CELEX:)."""
+    parts = urlsplit(url)
+    return unquote(parts.path).rstrip("/"), unquote(parts.query)
 
 
 def _judge(url: str, final: str, status: int, chain: list[tuple[int, str]]) -> Result:
     if not chain:
         return Result(url, OK, "", status, url)
     other_host = _host_key(url) != _host_key(final)
-    if other_host or _path_key(url) != _path_key(final):
-        return Result(url, REDIRECT, "", status, final, chain, other_host)
+    to_http = urlsplit(url).scheme == "https" and urlsplit(final).scheme == "http"
+    if other_host or to_http or _path_key(url) != _path_key(final):
+        return Result(url, REDIRECT, "", status, final, chain, other_host, to_http=to_http)
     return Result(url, OK, "", status, final, chain)
 
 
 def check_url(url: str, *, timeout: float = DEFAULT_TIMEOUT_S, retry_pause: float | None = None,
-              proxies: dict[str, str] | None = None) -> Result:
-    """Eine URL prüfen. Bei Timeout oder 5xx genau eine Wiederholung, gleich mit GET."""
+              proxies: dict[str, str] | None = None, stop: threading.Event | None = None) -> Result:
+    """Eine URL prüfen. Bei Timeout oder 5xx genau eine Wiederholung, gleich mit GET.
+    Ist stop gesetzt, folgt kein weiterer Schritt mehr; die Pause vor der Wiederholung endet sofort."""
     opener = make_opener(proxies)
     try:
-        result, retry = _follow(opener, url, timeout, head=True)
+        result, retry = _follow(opener, url, timeout, head=True, stop=stop)
         if retry:
-            time.sleep(RETRY_PAUSE_S if retry_pause is None else retry_pause)
-            result, _ = _follow(opener, url, timeout, head=False)
+            pause = RETRY_PAUSE_S if retry_pause is None else retry_pause
+            stopped = stop.wait(pause) if stop is not None else time.sleep(pause)
+            if not stopped:
+                result, _ = _follow(opener, url, timeout, head=False, stop=stop)
     except Exception as exc:  # Fehler beim Auswerten, z. B. eine unlesbare Weiterleitungs-URL
         return Result(url, BROKEN, f"nicht prüfbar: {type(exc).__name__}: {exc}")
     return result
@@ -331,12 +374,19 @@ def _interleave(urls: list[str]) -> list[str]:
 def check_all(urls: dict[str, list[str]], *, workers: int = DEFAULT_WORKERS,
               timeout: float = DEFAULT_TIMEOUT_S, retry_pause: float | None = None,
               proxies: dict[str, str] | None = None, progress=None) -> list[Result]:
-    """Alle URLs prüfen, je Host nacheinander. Sortiert: KAPUTT, WEITERLEITUNG, OK, je nach URL."""
-    locks = {host_of(url): threading.Lock() for url in urls}
+    """Alle URLs prüfen, je Host nacheinander. Sortiert: KAPUTT, WEITERLEITUNG, OK, je nach URL.
 
-    def task(url: str) -> Result:
+    Bei Strg+C (oder einem Fehler in progress) kehrt es sofort zurück: Was noch nicht läuft oder
+    auf seinen Host wartet, ruft nichts mehr ab; laufende Abrufe enden im Hintergrund, spätestens
+    nach ihrem Timeout."""
+    locks = {host_of(url): threading.Lock() for url in urls}
+    stop = threading.Event()
+
+    def task(url: str) -> Result | None:
         with locks[host_of(url)]:
-            result = check_url(url, timeout=timeout, retry_pause=retry_pause, proxies=proxies)
+            if stop.is_set():
+                return None
+            result = check_url(url, timeout=timeout, retry_pause=retry_pause, proxies=proxies, stop=stop)
         result.origins = list(urls[url])
         return result
 
@@ -344,12 +394,17 @@ def check_all(urls: dict[str, list[str]], *, workers: int = DEFAULT_WORKERS,
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
         futures = [pool.submit(task, url) for url in _interleave(list(urls))]
-        for future in as_completed(futures):
-            results.append(future.result())
+        for done, future in enumerate(as_completed(futures), 1):
+            result = future.result()
+            if result is not None:
+                results.append(result)
             if progress:
-                progress(len(results), len(futures))
-    finally:
-        pool.shutdown(wait=True, cancel_futures=True)  # bei Strg+C: Rest nicht mehr abrufen
+                progress(done, len(futures))
+    except BaseException:
+        stop.set()
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    pool.shutdown()
     rank = {BROKEN: 0, REDIRECT: 1, OK: 2}
     return sorted(results, key=lambda r: (rank[r.status], r.url))
 
@@ -375,7 +430,8 @@ def format_text(results: list[Result], strict: bool) -> str:
             lines.append(f"{pad}{r.detail}")
         elif r.status == REDIRECT:
             codes = " → ".join(str(code) for code, _ in r.redirects)
-            note = ", anderer Host" + (", mit --strict ein Fehler" if strict else "") if r.other_host else ""
+            note = ", auf http statt https" if r.to_http else ""
+            note += ", anderer Host" + (", mit --strict ein Fehler" if strict else "") if r.other_host else ""
             lines.append(f"{pad}→ {r.final_url} ({codes}{note})")
         lines.extend(f"{pad}aus {origin}" for origin in r.origins)
     counts = {status: sum(r.status == status for r in results) for status in LABEL}
@@ -401,7 +457,7 @@ def as_json(results: list[Result], strict: bool, exit_code: int) -> str:
         "user_agent": USER_AGENT,
         "results": [{
             "url": r.url, "status": r.status, "detail": r.detail, "http_status": r.http_status,
-            "final_url": r.final_url, "other_host": r.other_host,
+            "final_url": r.final_url, "other_host": r.other_host, "to_http": r.to_http,
             "redirects": [{"code": code, "url": target} for code, target in r.redirects],
             "origins": r.origins,
         } for r in results],
@@ -411,8 +467,10 @@ def as_json(results: list[Result], strict: bool, exit_code: int) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="check_sources.py",
-        description="Quellen-Links aus tatilvakti/data/*.json und tatilvakti/i18n/*.json prüfen.",
-        epilog="Exit-Code 0 = nichts KAPUTT, 1 = mindestens ein Fehler, 2 = Aufruf- oder Datenfehler. "
+        description="Quellen-Links aus tatilvakti/data/*.json, tatilvakti/i18n/*.json und "
+                    "tatilvakti/templates/*.html prüfen.",
+        epilog="Exit-Code 0 = nichts KAPUTT, 1 = mindestens ein Fehler, 2 = Aufruf- oder Datenfehler, "
+               "130 = Strg+C. "
                "Mehr: docs/RUNBOOK.md, Abschnitt 5.")
     parser.add_argument("--only", action="append", default=[], metavar="HOST-TEIL",
                         help="nur URLs, deren Host das enthält, z. B. zoll.de (mehrfach möglich)")
@@ -470,4 +528,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    code = main()
+    if code == 130:  # Strg+C: laufende Abrufe nicht abwarten (der Interpreter wartete sonst bis zu --timeout)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(code)
+    sys.exit(code)
