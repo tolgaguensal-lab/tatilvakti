@@ -17,6 +17,9 @@ kennt (neueste zuerst), z. B. die vor dem Deploy. Exit-Code 2 (EXIT_UNREADABLE),
 beiden Versionen nicht lesen lässt, etwa bei falschen Rechten an -wal/-shm oder einer beschädigten
 DB: Dann ist nichts über die Versionen bekannt, und die Ausgabe nennt nur den Grund.
 
+restore.sh prüft so vor dem Zurückspielen eine Kopie der Sicherung gegen das aktive Release
+(--label Sicherung: So heißt die DB dann in den Meldungen).
+
 DBs ohne user_version und Releases ohne SCHEMA_VERSION (beide von vor dieser Prüfung) ordnet es an
 den Spalten von reports ein (LEGACY_COLUMNS). Nur Standardbibliothek, läuft mit dem python3
 des Systems. Die Produktions-DB nur als deren Eigentümer öffnen, wie bei backup.py.
@@ -111,13 +114,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--db", type=Path, required=True, help="Haupt-DB (wird nur gelesen)")
     parser.add_argument("--release", type=Path, required=True, help="Release-Verzeichnis (mit tatilvakti/db.py)")
     parser.add_argument("--backups", type=Path, help="Sicherungen, die bei einem Abbruch genannt werden")
+    parser.add_argument("--label", default="Datenbank",
+                        help="So heißt die DB in den Meldungen (Standard: Datenbank; restore.sh: Sicherung)")
     args = parser.parse_args(argv)
     try:
         if args.db.exists():
             check_owner(args.db)
         have = db_version(args.db)
     except (OSError, sqlite3.Error) as exc:
-        print(f"FEHLER: Schema-Version der Datenbank {args.db} nicht lesbar: {exc}")
+        print(f"FEHLER: Schema-Version der {args.label} {args.db} nicht lesbar: {exc}")
         return EXIT_UNREADABLE
     try:
         known = release_version(args.release)
@@ -127,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"schema db={have} release={known}")
     if have <= known:
         return 0
-    print(f"FEHLER: Die Datenbank hat Schema-Version {have}, {args.release.name} kennt nur bis {known}.")
+    print(f"FEHLER: Die {args.label} hat Schema-Version {have}, {args.release.name} kennt nur bis {known}.")
     if args.backups:
         try:
             backups = suitable_backups(args.backups, known) if args.backups.is_dir() else []

@@ -50,7 +50,7 @@ sudo du -sh /var/lib/tatilvakti-v2 /var/lib/tatilvakti-v2/backups /opt/tatilvakt
 journalctl --disk-usage
 ```
 
-Platz schaffen, ohne Daten zu verlieren: geprüfte `pre-restore-<zeit>/`-Verzeichnisse unter `/var/lib/tatilvakti-v2` löschen (README → Backup und Restore), das Journal kürzen (`sudo journalctl --vacuum-time=14d`, passend zur Empfehlung in README → Logs und Monitoring). Alte Releases räumt `deploy.sh` selbst auf (`--keep`). Sicherungen unter `backups/` nur löschen, wenn eine neuere geprüft ist. `deploy.sh` bricht ab, wenn für die Sicherung vor dem Umschalten der Platz fehlt (README → Update und Rollback).
+Platz schaffen, ohne Daten zu verlieren: geprüfte `pre-restore-<zeit>/`-Verzeichnisse unter `/var/lib/tatilvakti-v2` löschen (README → Backup und Restore), das Journal kürzen (`sudo journalctl --vacuum-time=14d`, passend zur Empfehlung in README → Logs und Monitoring). Alte Releases räumt `deploy.sh` selbst auf (`--keep`). Sicherungen unter `backups/` nur löschen, wenn eine neuere geprüft ist. `deploy.sh` bricht ab, wenn für die Sicherung vor dem Umschalten der Platz fehlt (README → Update und Rollback). Muss ein Hotfix trotzdem sofort raus: `cd /opt/tatilvakti-v2/src && sudo scripts/deploy.sh --no-snapshot "<Grund>"`. Dann ist die jüngste vorhandene Sicherung der Datenstand zum Zurückspielen (die nächtliche oder die vor einem früheren Deploy), `deploy.sh` nennt sie samt Alter. Nicht zusammen mit `--force-schema` (lehnt `deploy.sh` ab).
 
 **d) Rechte**
 
@@ -114,7 +114,7 @@ sudo /opt/tatilvakti-v2/current/scripts/restore.sh --check /var/lib/tatilvakti-v
 sudo /opt/tatilvakti-v2/current/scripts/restore.sh /var/lib/tatilvakti-v2/backups/<datei>
 ```
 
-`tatilvakti-<zeit>.db` sind die nächtlichen Sicherungen, `pre-deploy-<release>.db` der Stand direkt vor dem Deploy von `<release>`. Meldungen seit der Sicherung gehen verloren. Den bisherigen Stand legt `restore.sh` nach `pre-restore-<zeit>/` und nennt bei jedem Fehler den Weg zurück (README → Backup und Restore). Hat ein Deploy die Daten beschädigt und die Schema-Version erhöht, zuerst zurückrollen, dann die Sicherung vor dem Deploy zurückspielen (README → Update und Rollback → Schema-Version).
+`tatilvakti-<zeit>.db` sind die nächtlichen Sicherungen, `pre-deploy-<release>.db` der Stand direkt vor dem Deploy von `<release>`. Meldungen seit der Sicherung gehen verloren. Den bisherigen Stand legt `restore.sh` nach `pre-restore-<zeit>/` und nennt bei jedem Fehler den Weg zurück (README → Backup und Restore). Hat ein Deploy die Daten beschädigt und die Schema-Version erhöht, zuerst zurückrollen, dann die Sicherung vor dem Deploy zurückspielen (README → Update und Rollback → Schema-Version). Ist die Sicherung neuer, als das aktive Release kennt, spielt `restore.sh` sie nicht zurück und nennt die Wege (README → Backup und Restore → Schema-Version); `--check` meldet das nur als WARNUNG. Notfall: `--force-schema "<Grund>"`.
 
 **d) Spam: Meldungen gezielt löschen**
 
