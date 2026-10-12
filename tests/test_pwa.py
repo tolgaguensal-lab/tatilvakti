@@ -290,6 +290,9 @@ def test_route_check_accepts_targets_with_query_and_fragment():
 @pytest.mark.parametrize("path, title, ios", [
     ("/de/", "Öffnet an der Grenze auch ohne Netz", "„Zum Home-Bildschirm“"),
     ("/tr/sinir/kapikule", "Sınırda internetsiz de açılır", "“Ana Ekrana Ekle”yi seç"),
+    # „•••“ vor „Teilen“ gilt nur für das iPhone; auf dem iPad sitzt „Teilen“ weiter neben dem Suchfeld
+    ("/de/grenze", "Öffnet an der Grenze auch ohne Netz", "(iPhone ab iOS 26: erst „•••“)"),
+    ("/tr/", "Sınırda internetsiz de açılır", "iOS 26 ve sonrası: önce “•••”"),
 ])
 def test_home_screen_hint_is_rendered_hidden(client, path, title, ios):
     html = client.get(path).get_data(as_text=True)
@@ -323,8 +326,10 @@ def test_no_home_screen_hint_on_error_pages(client):
 
 
 @pytest.mark.parametrize("path, words", [
-    ("/de/info", ["Offline nutzen", "7 Tagen Safari-Nutzung", "Home-Bildschirm"]),
-    ("/tr/bilgi", ["İnternetsiz kullanım", "7 Safari kullanım gününden", "Ana Ekrana Ekle"]),
+    ("/de/info", ["Offline nutzen", "7 Tagen Safari-Nutzung", "Home-Bildschirm", "iPhone ab iOS 26: unter „•••“",
+                  "„Als Web-App öffnen“ eingeschaltet lassen"]),
+    ("/tr/bilgi", ["İnternetsiz kullanım", "7 Safari kullanım gününden", "Ana Ekrana Ekle", "“•••” menüsünde",
+                   "web uygulaması seçeneğini açık bırak"]),
 ])
 def test_info_page_explains_offline_behaviour_honestly(client, path, words):
     html = client.get(path).get_data(as_text=True)
@@ -332,6 +337,8 @@ def test_info_page_explains_offline_behaviour_honestly(client, path, words):
     for word in words:
         assert word in section
     assert 'href="https://webkit.org/tracking-prevention/"' in section
+    # Schritte ab iOS 26 („•••“ → Teilen, Schalter „Als Web-App öffnen“) laut Apple-Handbuch
+    assert 'href="https://support.apple.com/guide/iphone/open-as-web-app-iphea86e5236/ios"' in section
     assert "90" in section  # Warteschlange: so lange werden Meldungen nachgeliefert
 
 

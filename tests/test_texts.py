@@ -209,6 +209,8 @@ def test_turkish_texts_use_the_informal_sen_form_throughout():
     ("evrimdış", "Fachwort; TDK schreibt ohnehin getrennt – „internetsiz“, „İnternet yok“"),
     ("çevrim içi", "Fachwort – „internetten“, „internet gelince“"),
     ("„", "deutsches Anführungszeichen – im Türkischen “…”"),
+    ("gümrük kapı", "einheitlich „sınır kapısı“ wie überall sonst"),
+    ("eskiydi ve gönderilmedi", "Meldung kam an und wurde verworfen (422), „gönderilmedi“ = nicht gesendet"),
 ])
 def test_audit_wording_is_gone_from_turkish_texts(wrong, why):
     assert [where for where, text in _turkish_texts() if wrong in text] == [], why
@@ -227,6 +229,8 @@ def test_resmi_is_always_spelled_with_circumflex():
     ("b_pattern", "Saatlere göre bekleme"),
     ("err_404_text", "Bu sayfa bulunamadı ya da artık yok."),
     ("hol_your", "Okul tatilin – {state}"),  # „{state} okul tatilin“ hatte keinen Anschluss
+    ("b_report_stale", "Bu bildirim çok eskiydi ve kabul edilmedi."),  # DE: „verworfen“
+    ("i_review_after", "bir sonraki kontrol en geç {date}"),  # DE: „bis {date}“ – eine Frist, kein Termin
     ("hol_pressure_expl", "O gün okul tatilinde olan eyaletlerde yaşayanların Almanya nüfusundaki oranı "
                           "(kısa tatiller hariç, aşağıdaki nota bak)."),
 ])
