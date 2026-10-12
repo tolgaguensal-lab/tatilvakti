@@ -15,8 +15,9 @@
 #    nach /var/lib/tatilvakti-v2/backups/pre-deploy-<release>.db; die neuesten 3 bleiben und je
 #    ältere Schema-Version die neueste. Fehlt Platz oder scheitert sie, endet deploy.sh hier.
 #    Notfall --no-snapshot (z. B. Hotfix bei fast voller Platte): keine Sicherung, dafür eine
-#    WARNUNG mit der neuesten nächtlichen Sicherung und ihrem Alter; der Grund steht im Journal.
-#    Nicht zusammen mit --force-schema: Dann ist die Sicherung der einzige Weg zurück.
+#    WARNUNG mit der jüngsten vorhandenen Sicherung (nächtlich oder vor einem früheren Deploy) und
+#    ihrem Alter; der Grund steht im Journal. Nicht zusammen mit --force-schema: Dann ist die
+#    Sicherung der einzige Weg zurück.
 # 6. erst dann: Symlink current atomar umschalten, previous zeigt auf das bisherige Release
 # 7. soll der Dienst laufen (aktiv, startet gerade oder abgestürzt): reset-failed und Neustart,
 #    /healthz muss die neue Build-ID melden, sonst automatisch zurück und Neustart des alten Releases
@@ -137,10 +138,13 @@ if [ -n "$NO_SNAPSHOT" ]; then
     [ ! -e "$DB" ] || SKIPPED=1
     skip_snapshot "$NAME"
 else
-    pre_deploy_snapshot "$NAME" \
-        || die "Sicherung vor dem Umschalten fehlgeschlagen, nichts umgeschaltet. Platz schaffen bzw. Ursache" \
-               "beheben, dann erneut (backups/ wie in README → Backup und Restore). Notfall ohne diese" \
-               "Sicherung: --no-snapshot \"<Grund>\" (README → Update und Rollback)."
+    if ! pre_deploy_snapshot "$NAME"; then
+        # --no-snapshot nur ohne --force-schema (siehe oben)
+        HINT=" Notfall ohne diese Sicherung: --no-snapshot \"<Grund>\" (README → Update und Rollback)."
+        [ -z "$FORCE_SCHEMA" ] || HINT=" Mit --force-schema geht es nicht ohne diese Sicherung (docs/RUNBOOK.md 2c)."
+        die "Sicherung vor dem Umschalten fehlgeschlagen, nichts umgeschaltet. Platz schaffen bzw. Ursache" \
+            "beheben, dann erneut (backups/ wie in README → Backup und Restore).$HINT"
+    fi
 fi
 MIGRATES=0  # stellt das neue Release die DB beim Start auf eine neuere Schema-Version um?
 if [ -n "$SCHEMA_DB" ] && [ "$SCHEMA_DB" -gt 0 ] && [ "$SCHEMA_RELEASE" -gt "$SCHEMA_DB" ]; then MIGRATES=1; fi
@@ -153,11 +157,12 @@ if [ -n "$SNAPSHOT" ]; then
         NOTE+=" Zurück auf den Stand vor dem Deploy: sudo $REL/scripts/restore.sh $SNAPSHOT"
     fi
 elif [ "$SKIPPED" = 1 ]; then
-    # Ohne Sicherung vor dem Deploy bleibt nur die nächtliche, samt Verlust der Meldungen seither
+    # Ohne Sicherung vor diesem Deploy bleibt nur eine ältere (newest_backup), samt Verlust der
+    # Meldungen seither
     NOTE=$(no_snapshot_note)
-    if [ -n "$NIGHTLY" ] && [ "$MIGRATES" = 1 ]; then
+    if [ -n "$LATEST" ] && [ "$MIGRATES" = 1 ]; then
         NOTE+=". $NAME hat die Datenbank evtl. schon auf Schema-Version $SCHEMA_RELEASE umgestellt."
-        NOTE+=" Zurück auf den Stand der nächtlichen Sicherung: sudo $REL/scripts/restore.sh $NIGHTLY"
+        NOTE+=" Zurück auf diesen Datenstand: sudo $REL/scripts/restore.sh $LATEST"
     fi
 fi
 

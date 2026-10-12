@@ -56,7 +56,7 @@ while [ $# -gt 0 ]; do
     case $1 in
         --check) CHECK=1; shift ;;
         --start) START=1; shift ;;
-        --force-schema) force_reason "${2-}"; FORCE_SCHEMA=$2; shift 2 ;;
+        --force-schema) force_reason "${2-}" --force-schema "DB beschädigt, neues Release folgt"; FORCE_SCHEMA=$2; shift 2 ;;
         -h|--help) sed -n '2,/^set -/{/^#/p}' "$0"; exit 0 ;;
         -*) die "unbekannte Option: $1 (siehe --help)" ;;
         *) [ -z "$SRC" ] || die "nur eine Sicherung angeben"; SRC=$1; shift ;;
@@ -123,9 +123,10 @@ Spalten nicht, die es nicht kennt. Wege:
   1. Erst ein Release aktivieren, das Schema-Version $SCHEMA_DB kennt (rollback.sh <release> oder
      deploy.sh), dann diese Sicherung zurückspielen.
   2. Eine Sicherung zurückspielen, die ${2##*/} kennt (siehe oben).
-  3. Notfall, trotzdem zurückspielen. ${2##*/} lässt liegen, was es nicht kennt, bis wieder ein
-     neueres Release läuft. Bald vorwärts gehen:
+  3. Notfall, trotzdem zurückspielen:
        $3
+     ${2##*/} lässt liegen, was es nicht kennt, bis wieder ein neueres Release läuft. Danach bald
+     vorwärts gehen (deploy.sh).
 Mehr: README → Backup und Restore.
 EOF
     else

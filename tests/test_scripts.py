@@ -1248,10 +1248,10 @@ def test_deploy_no_snapshot_needs_a_reason_and_not_with_force_schema(releases, a
     assert releases.calls() == [] and releases.journal() == "" and not (releases.base / ".lock").exists()
 
 
-def test_skip_snapshot_warns_and_names_the_newest_nightly_backup(releases):
+def test_skip_snapshot_warns_and_names_the_newest_backup(releases):
     """deploy.sh --no-snapshot (skip_snapshot aus release-lib.sh): keine Sicherung vor dem Umschalten,
-    der Grund steht im Journal, die WARNUNG nennt die neueste nächtliche Sicherung samt Alter bzw.
-    sagt, dass es keine gibt. Ohne DB (erstes Deploy) gibt es ohnehin nichts zu sichern."""
+    der Grund steht im Journal, die WARNUNG nennt die jüngste vorhandene Sicherung samt Art und Alter
+    bzw. sagt, dass es keine gibt. Ohne DB (erstes Deploy) gibt es ohnehin nichts zu sichern."""
     code = ('NO_SNAPSHOT="Platte fast voll, Hotfix" && skip_snapshot "$1" && echo "SNAPSHOT=$SNAPSHOT" '
             '&& no_snapshot_note')
     res = releases.lib(code, RELEASE)
@@ -1265,43 +1265,64 @@ def test_skip_snapshot_warns_and_names_the_newest_nightly_backup(releases):
     note = f"Sicherung vor dem Umschalten auf {RELEASE} übersprungen (--no-snapshot): Platte fast voll, Hotfix"
     assert f"WARNUNG: {note}" in res.stdout
     assert releases.journal() == f"-t tatilvakti-v2-release -p user.warning -- {note}\n"
-    assert f"WARNUNG: Es gibt auch keine nächtliche Sicherung in {releases.backups}" in res.stdout
-    assert res.stdout.endswith(f"SNAPSHOT=\nKeine Sicherung vor dem Deploy (--no-snapshot) und keine "
-                               f"nächtliche in {releases.backups}\n")
+    assert f"WARNUNG: Es gibt auch sonst keine Sicherung in {releases.backups}" in res.stdout
+    assert res.stdout.endswith(f"SNAPSHOT=\nKeine Sicherung vor diesem Deploy (--no-snapshot) und auch "
+                               f"sonst keine in {releases.backups}\n")
     assert not releases.backups.exists()
 
-    # Nächtliche Sicherungen: die neueste nach dem Namen, nicht die vor einem Deploy oder eine Kopie
+    # Die neueste nach der Zeit im Namen: hier die nächtliche, nicht die ältere vor einem Deploy,
+    # eine Kopie oder der Rest einer abgebrochenen Sicherung
     bk = load_script("backup")
     now = datetime.now(timezone.utc).replace(microsecond=0)
+
+    def release_at(ago: timedelta) -> str:
+        return f"{(now - ago):%Y%m%dT%H%M%SZ}-0123456789"
+
     bk.backup(releases.db, releases.backups, now - timedelta(days=1, hours=5))
-    newest = bk.backup(releases.db, releases.backups, now - timedelta(hours=5, minutes=1))[0]
-    bk.backup(releases.db, releases.backups, now, release=f"{(now - timedelta(hours=1)):%Y%m%dT%H%M%SZ}-0123456789")
-    (releases.backups / "tatilvakti-kopie.db").write_bytes(newest.read_bytes())
+    nightly = bk.backup(releases.db, releases.backups, now - timedelta(hours=5, minutes=1))[0]
+    bk.backup(releases.db, releases.backups, now, release=release_at(timedelta(days=1)))
+    (releases.backups / "tatilvakti-kopie.db").write_bytes(nightly.read_bytes())
+    (releases.backups / f"pre-deploy-{release_at(timedelta(minutes=5))}-kopie.db").write_bytes(nightly.read_bytes())
+    (releases.backups / f".pre-deploy-{release_at(timedelta(minutes=5))}.db.tmp").write_bytes(b"x")
     # Das neue Release stellt die DB um (check_schema vorher): Dann ist das bisherige ohne Sicherung
     # nur mit einer älteren oder mit --force-schema zu erreichen
     res = releases.lib('SCHEMA_DB=2 SCHEMA_RELEASE=3 && ' + code, RELEASE)
     assert res.returncode == 0, res.stdout + res.stderr
-    assert (f"WARNUNG: Jüngster Datenstand zum Zurückspielen ist damit die nächtliche Sicherung {newest} "
+    assert (f"WARNUNG: Jüngster Datenstand zum Zurückspielen ist damit die nächtliche Sicherung {nightly} "
             "(5 h alt). Meldungen seither gingen dabei verloren.") in res.stdout
     assert f"WARNUNG: {RELEASE} stellt die Datenbank beim Start auf Schema-Version 3 um" in res.stdout
-    assert res.stdout.endswith(f"Keine Sicherung vor dem Deploy (--no-snapshot), jüngster Datenstand: "
-                               f"{newest} (5 h alt)\n")
+    assert res.stdout.endswith(f"Keine Sicherung vor diesem Deploy (--no-snapshot), jüngster Datenstand: "
+                               f"{nightly} (nächtliche Sicherung, 5 h alt)\n")
+
+    # Hotfix kurz nach einem Deploy: Dessen Sicherung ist jünger als die nächtliche und damit der
+    # Stand mit den wenigsten verlorenen Meldungen
+    snapshot = bk.backup(releases.db, releases.backups, now, release=release_at(timedelta(minutes=30, seconds=10)))[0]
+    res = releases.lib(code, RELEASE)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert (f"WARNUNG: Jüngster Datenstand zum Zurückspielen ist damit die Sicherung vor einem früheren "
+            f"Deploy {snapshot} (30 Min. alt).") in res.stdout
+    assert "Schema-Version" not in res.stdout
+    assert res.stdout.endswith(f"jüngster Datenstand: {snapshot} (Sicherung vor einem früheren Deploy, "
+                               "30 Min. alt)\n")
 
 
-@pytest.mark.parametrize("ago, age", [
-    (timedelta(minutes=42, seconds=10), "42 Min. alt"),
-    (timedelta(hours=47, minutes=59), "47 h alt"),
-    (timedelta(days=3, hours=1), "3 Tage alt"),
+@pytest.mark.parametrize("name, kind, ago, age", [
+    ("tatilvakti-{}.db", "nächtliche Sicherung", timedelta(minutes=42, seconds=10), "42 Min. alt"),
+    ("tatilvakti-{}.db", "nächtliche Sicherung", timedelta(hours=47, minutes=59), "47 h alt"),
+    ("pre-deploy-{}-0123456789.db", "Sicherung vor einem früheren Deploy", timedelta(days=3, hours=1), "3 Tage alt"),
 ])
-def test_newest_nightly_backup_age(releases, tmp_path, ago, age):
+def test_newest_backup_kind_and_age(releases, tmp_path, name, kind, ago, age):
     stamp = (datetime.now(timezone.utc) - ago).strftime("%Y%m%dT%H%M%SZ")
     dest = tmp_path / "sicherungen"
     dest.mkdir()
-    (dest / f"tatilvakti-{stamp}.db").touch()
-    res = releases.lib('BACKUP_DIR=$1 && newest_nightly && echo "$NIGHTLY|$NIGHTLY_AGE"', str(dest))
-    assert res.stdout == f"{dest}/tatilvakti-{stamp}.db|{age}\n", res.stderr
-    res = releases.lib('BACKUP_DIR=$1 && newest_nightly && echo "[$NIGHTLY|$NIGHTLY_AGE]"', str(tmp_path / "fehlt"))
-    assert res.stdout == "[|]\n", res.stderr
+    (dest / name.format(stamp)).touch()
+    # Älter, mit einem Namen, der alphabetisch nach der jüngsten käme
+    (dest / "tatilvakti-20200101T000000Z.db").touch()
+    res = releases.lib('BACKUP_DIR=$1 && newest_backup && echo "$LATEST|$LATEST_KIND|$LATEST_AGE"', str(dest))
+    assert res.stdout == f"{dest}/{name.format(stamp)}|{kind}|{age}\n", res.stderr
+    res = releases.lib('BACKUP_DIR=$1 && newest_backup && echo "[$LATEST|$LATEST_KIND|$LATEST_AGE]"',
+                       str(tmp_path / "fehlt"))
+    assert res.stdout == "[||]\n", res.stderr
 
 
 def test_ci_runs_on_pull_requests_and_main():
@@ -1821,7 +1842,9 @@ def test_restore_refuses_a_backup_newer_than_the_active_release(restore):
             in res.stderr)
     assert f"  {fits}  (Schema-Version {SCHEMA_VERSION})" in res.stderr
     assert f"Erst ein Release aktivieren, das Schema-Version {SCHEMA_VERSION + 1} kennt" in res.stderr
-    assert f'sudo {SCRIPTS}/restore.sh --force-schema "<Grund>" {newer.resolve()}' in res.stderr
+    # Weg 3 nennt erst den Befehl, dann was er bedeutet (der Befehl ist nicht das "vorwärts")
+    assert (f'  3. Notfall, trotzdem zurückspielen:\n       sudo {SCRIPTS}/restore.sh --force-schema "<Grund>" '
+            f"{newer.resolve()}\n     r1 lässt liegen, was es nicht kennt") in res.stderr
     assert res.stderr.endswith(f"FEHLER: Sicherung zu neu für r1: {newer.resolve()}\nAbgebrochen, nichts geändert.\n")
     assert restore.files() == before and restore.pre_restore() == [] and restore.calls() == []
     assert restore.journal() == ""
@@ -1907,7 +1930,8 @@ def test_restore_with_an_unreadable_schema_version(restore):
                                "Abgebrochen, nichts geändert.\n")
     assert restore.files() == before and restore.calls() == [] and restore.journal() == ""
     res = restore.run("--force-schema", "--start", str(backup))
-    assert res.returncode == 1 and "--force-schema braucht eine Begründung" in res.stderr
+    assert res.returncode == 1, res.stdout + res.stderr
+    assert '--force-schema braucht eine Begründung, z. B. --force-schema "DB beschädigt' in res.stderr
     res = restore.run("--force-schema", "Release defekt, Restore eilt", str(backup))
     assert res.returncode == 0, res.stdout + res.stderr
     assert "übersteuert (--force-schema): Release defekt, Restore eilt" in restore.journal()

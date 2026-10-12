@@ -35,8 +35,9 @@ SCHEMA_RELEASE= # … und die, die das geprüfte Release kennt (beide leer, wenn
 SCHEMA_BACKUP=  # … und bei einer neueren DB die neueste Sicherung, die das Release kennt
 SCHEMA_OUT=     # … und die übrige Ausgabe von schema_check.py (Grund, passende Sicherungen)
 SNAPSHOT=       # von pre_deploy_snapshot gesetzt: Sicherung vor dem Umschalten
-NIGHTLY=        # von newest_nightly gesetzt: neueste nächtliche Sicherung (leer: keine) …
-NIGHTLY_AGE=    # … und ihr Alter, z. B. "9 h alt"
+LATEST=         # von newest_backup gesetzt: jüngste Sicherung (leer: keine) …
+LATEST_KIND=    # … ihre Art ("nächtliche Sicherung" oder "Sicherung vor einem früheren Deploy") …
+LATEST_AGE=     # … und ihr Alter, z. B. "9 h alt"
 
 log() { printf '%s  %s\n' "$(date '+%H:%M:%S')" "$*"; }
 die() { printf 'FEHLER: %s\n' "$*" >&2; exit 1; }
@@ -220,37 +221,53 @@ pre_deploy_snapshot() {  # $1 = Name des neuen Releases (<UTC-Zeit>-<Commit>)
     [ -n "$SNAPSHOT" ] || { printf 'unerwartete Ausgabe von backup.py: %s\n' "$out" >&2; return 1; }
 }
 
-# Neueste nächtliche Sicherung von backup.py (tatilvakti-<UTC-Zeit>.db; der Name sortiert nach der
-# Zeit wie bei restore.sh --check) und ihr Alter laut Namen. Setzt NIGHTLY und NIGHTLY_AGE.
-newest_nightly() {
-    local stamp secs
-    NIGHTLY=
-    NIGHTLY_AGE=
+# Jüngste Sicherung von backup.py nach der UTC-Zeit im Namen: nächtlich (tatilvakti-<UTC-Zeit>.db)
+# oder vor einem früheren Deploy (pre-deploy-<UTC-Zeit>-<Commit>.db, die Zeit ist der Beginn jenes
+# Deploys), Namen so streng wie in backup.py. Setzt LATEST, LATEST_KIND und LATEST_AGE (laut Namen).
+newest_backup() {
+    local path name num best=0 stamp secs
+    LATEST=
+    LATEST_KIND=
+    LATEST_AGE=
     [ -d "$BACKUP_DIR" ] || return 0
-    NIGHTLY=$(find "$BACKUP_DIR" -maxdepth 1 -type f -regextype posix-extended \
-        -regex '.*/tatilvakti-[0-9]{8}T[0-9]{6}Z\.db' 2>/dev/null | sort | tail -n 1) || true
-    [[ ${NIGHTLY##*/} =~ ^tatilvakti-([0-9]{8})T([0-9]{2})([0-9]{2})([0-9]{2})Z\.db$ ]] || { NIGHTLY=; return 0; }
+    while IFS= read -r -d '' path; do
+        name=${path##*/}
+        [[ $name =~ ^tatilvakti-([0-9]{8}T[0-9]{6}Z)\.db$ ]] \
+            || [[ $name =~ ^pre-deploy-([0-9]{8}T[0-9]{6}Z)-[0-9a-f]{4,40}\.db$ ]] || continue
+        num=${BASH_REMATCH[1]//[TZ]/}  # 20261012T034000Z → 20261012034000, als Zahl vergleichbar
+        if [ -z "$LATEST" ] || (( 10#$num > 10#$best )); then
+            best=$num
+            LATEST=$path
+        fi
+    done < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.db' -print0 2>/dev/null | sort -z)
+    [ -n "$LATEST" ] || return 0
+    if [[ ${LATEST##*/} == pre-deploy-* ]]; then
+        LATEST_KIND="Sicherung vor einem früheren Deploy"
+    else
+        LATEST_KIND="nächtliche Sicherung"
+    fi
     # Zeit aus dem Namen in der Form, die GNU date liest: 20261012 03:40:00
-    stamp="${BASH_REMATCH[1]} ${BASH_REMATCH[2]}:${BASH_REMATCH[3]}:${BASH_REMATCH[4]}"
+    stamp="${best:0:8} ${best:8:2}:${best:10:2}:${best:12:2}"
     if ! stamp=$(date -u -d "$stamp" +%s 2>/dev/null); then
-        NIGHTLY_AGE="Alter unbekannt"
+        LATEST_AGE="Alter unbekannt"
         return 0
     fi
     secs=$(( $(date +%s) - stamp ))
     [ "$secs" -ge 0 ] || secs=0
     if [ "$secs" -lt 3600 ]; then
-        NIGHTLY_AGE="$((secs / 60)) Min. alt"
+        LATEST_AGE="$((secs / 60)) Min. alt"
     elif [ "$secs" -lt 172800 ]; then
-        NIGHTLY_AGE="$((secs / 3600)) h alt"
+        LATEST_AGE="$((secs / 3600)) h alt"
     else
-        NIGHTLY_AGE="$((secs / 86400)) Tage alt"
+        LATEST_AGE="$((secs / 86400)) Tage alt"
     fi
 }
 
 # Notfall deploy.sh --no-snapshot "<Grund>", z. B. für einen Hotfix bei fast voller Platte: keine
 # Sicherung vor dem Umschalten. Der Grund steht danach auch im Journal (journal_warn), dazu kommt
-# die WARNUNG mit der neuesten nächtlichen Sicherung: Sie ist dann der jüngste Datenstand zum
-# Zurückspielen. Stellt das neue Release die DB beim Start um (laut check_schema), sagt es das auch.
+# die WARNUNG mit der jüngsten vorhandenen Sicherung (newest_backup): Sie ist dann der jüngste
+# Datenstand zum Zurückspielen. Stellt das neue Release die DB beim Start um (laut check_schema),
+# sagt es das auch.
 skip_snapshot() {  # $1 = Name des neuen Releases
     SNAPSHOT=
     if [ ! -e "$DB" ]; then
@@ -258,12 +275,13 @@ skip_snapshot() {  # $1 = Name des neuen Releases
         return 0
     fi
     journal_warn "Sicherung vor dem Umschalten auf $1 übersprungen (--no-snapshot): $NO_SNAPSHOT"
-    newest_nightly
-    if [ -n "$NIGHTLY" ]; then
-        log "WARNUNG: Jüngster Datenstand zum Zurückspielen ist damit die nächtliche Sicherung $NIGHTLY" \
-            "($NIGHTLY_AGE). Meldungen seither gingen dabei verloren."
+    newest_backup
+    if [ -n "$LATEST" ]; then
+        log "WARNUNG: Jüngster Datenstand zum Zurückspielen ist damit die $LATEST_KIND $LATEST" \
+            "($LATEST_AGE). Meldungen seither gingen dabei verloren."
     else
-        log "WARNUNG: Es gibt auch keine nächtliche Sicherung in $BACKUP_DIR, also keinen Datenstand zum Zurückspielen."
+        log "WARNUNG: Es gibt auch sonst keine Sicherung in $BACKUP_DIR (nächtlich oder vor einem Deploy)," \
+            "also keinen Datenstand zum Zurückspielen."
     fi
     if [ -n "$SCHEMA_DB" ] && [ "$SCHEMA_DB" -gt 0 ] && [ "$SCHEMA_RELEASE" -gt "$SCHEMA_DB" ]; then
         log "WARNUNG: $1 stellt die Datenbank beim Start auf Schema-Version $SCHEMA_RELEASE um. Zurück auf das" \
@@ -272,12 +290,13 @@ skip_snapshot() {  # $1 = Name des neuen Releases
 }
 
 # Kurzfassung nach skip_snapshot für den automatischen Rollback und das Ende von deploy.sh: Statt
-# der Sicherung vor dem Deploy gibt es höchstens die nächtliche
+# der Sicherung vor diesem Deploy gibt es höchstens eine ältere
 no_snapshot_note() {
-    if [ -n "$NIGHTLY" ]; then
-        printf 'Keine Sicherung vor dem Deploy (--no-snapshot), jüngster Datenstand: %s (%s)\n' "$NIGHTLY" "$NIGHTLY_AGE"
+    if [ -n "$LATEST" ]; then
+        printf 'Keine Sicherung vor diesem Deploy (--no-snapshot), jüngster Datenstand: %s (%s, %s)\n' \
+            "$LATEST" "$LATEST_KIND" "$LATEST_AGE"
     else
-        printf 'Keine Sicherung vor dem Deploy (--no-snapshot) und keine nächtliche in %s\n' "$BACKUP_DIR"
+        printf 'Keine Sicherung vor diesem Deploy (--no-snapshot) und auch sonst keine in %s\n' "$BACKUP_DIR"
     fi
 }
 
