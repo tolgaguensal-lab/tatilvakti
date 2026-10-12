@@ -114,7 +114,7 @@ sudo /opt/tatilvakti-v2/current/scripts/restore.sh --check /var/lib/tatilvakti-v
 sudo /opt/tatilvakti-v2/current/scripts/restore.sh /var/lib/tatilvakti-v2/backups/<datei>
 ```
 
-`tatilvakti-<zeit>.db` sind die nächtlichen Sicherungen, `pre-deploy-<release>.db` der Stand direkt vor dem Deploy von `<release>`. Meldungen seit der Sicherung gehen verloren. Den bisherigen Stand legt `restore.sh` nach `pre-restore-<zeit>/` und nennt bei jedem Fehler den Weg zurück (README → Backup und Restore). Hat ein Deploy die Daten beschädigt und die Schema-Version erhöht, zuerst zurückrollen, dann die Sicherung vor dem Deploy zurückspielen (README → Update und Rollback → Schema-Version). Ist die Sicherung neuer, als das aktive Release kennt, spielt `restore.sh` sie nicht zurück und nennt die Wege (README → Backup und Restore → Schema-Version); `--check` meldet das nur als WARNUNG. Notfall: `--force-schema "<Grund>"`.
+`tatilvakti-<zeit>.db` sind die nächtlichen Sicherungen, `pre-deploy-<release>.db` der Stand direkt vor dem Deploy von `<release>`. Meldungen seit der Sicherung gehen verloren. Den bisherigen Stand legt `restore.sh` nach `pre-restore-<zeit>/` und nennt bei jedem Fehler den Weg zurück (README → Backup und Restore). Hat ein Deploy die Daten beschädigt und die Schema-Version erhöht, zuerst zurückrollen, dann die Sicherung vor dem Deploy zurückspielen (README → Update und Rollback → Schema-Version). Ist die Sicherung neuer, als das aktive Release kennt, spielt `restore.sh` sie nicht zurück und nennt die Wege (README → Backup und Restore → Schema-Version); `--check` meldet das nur als WARNUNG (Exit-Code 3 statt 0). Notfall: `--force-schema "<Grund>"`.
 
 **d) Spam: Meldungen gezielt löschen**
 
