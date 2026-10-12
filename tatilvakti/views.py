@@ -8,6 +8,11 @@ import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote, urlencode, urlsplit
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover
+    ZoneInfo = None
+
 from flask import (Flask, Response, abort, current_app, g, jsonify, make_response, redirect,
                    render_template, request, url_for)
 from markupsafe import Markup, escape
@@ -206,6 +211,8 @@ def holidays(slug: str | None = None):
         g.alt_params = {lang: {"slug": period.slug[lang]} for lang in LANGS}
     bayrams = radar.bayrams_in(period)
     chart = _holiday_chart(radar, period, today, bayrams)
+    # Der voreingestellte Zeitraum („Nächste Ferien“) bekommt am Selektor eine Markierung
+    next_id = (radar.current_or_next_period(today) or radar.periods[-1]).id
     personal = {}
     for code in radar.states:
         ranges = period.ranges.get(code)
@@ -220,6 +227,7 @@ def holidays(slug: str | None = None):
     description = share_texts.get(land) or t("hol_lead")
     return render_template("holidays.html", page="holidays", period=period, periods=radar.periods,
                            period_page=slug is not None, land=land, chart=chart, personal=personal, today=today,
+                           next_id=next_id,
                            all16=radar.all_states_windows(period), peak=radar.peak(period),
                            share_texts=share_texts, description=description, radar_meta=tv().content.meta("holidays"),
                            radar_due=tv().content.review_due("holidays", today), quiet_max=QUIET_MAX,
@@ -375,6 +383,7 @@ def crossing(cid: str):
         flash = ("error", t(key))
     return render_template("crossing.html", page="crossing", c=c, statuses=statuses, patterns=patterns,
                            routes=routes, share_text=share_text, flash=flash, now=now,
+                           now_hour=(datetime.now(ZoneInfo(c["tz"])).hour if ZoneInfo else 0),
                            sources=content.crossings["sources"], countries=content.transit["countries"])
 
 

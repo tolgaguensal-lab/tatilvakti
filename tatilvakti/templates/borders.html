@@ -19,10 +19,13 @@
   <h2 id="map-title" class="card__title">{{ t("b_map_title") }}</h2>
   {%- set stops = [("DE", 180, 30), ("AT", 180, 92), ("SI", 88, 160), ("HR", 88, 222), ("HU", 200, 166), ("RO", 300, 280), ("RS", 170, 318), ("BG", 250, 420), ("TR", 250, 520)] %}
   <svg class="map" viewBox="0 0 386 548" role="img" aria-label="{{ t('b_map_label') }}" data-map data-dir="to_tr">
-    <path class="map__line map__line--trunk" d="M180,30 L180,92 M170,318 L250,420 L250,520"></path>
-    <path class="map__line map__line--a" d="M180,92 L200,166 L170,318"></path>
-    <path class="map__line map__line--b" d="M180,92 L88,160 L88,222 L170,318"></path>
-    <path class="map__line map__line--c" d="M200,166 L300,280 L250,420"></path>
+    <path class="map__line map__line--trunk" d="M180,30 L180,92 M170,318 Q215,368 250,420 L250,520"></path>
+    <path class="map__line map__line--a" d="M180,92 Q212,132 200,166 Q186,248 170,318"></path>
+    <path class="map__line map__line--b" d="M180,92 Q118,118 88,160 L88,222 Q86,282 170,318"></path>
+    <path class="map__line map__line--c" d="M200,166 Q272,206 300,280 Q304,362 250,420"></path>
+    <path class="map__border" d="M58,272 Q200,300 336,306"></path>
+    <g class="map__arrow map__arrow--to_tr" aria-hidden="true"><path d="M245,466 L255,466 L250,478 Z"></path></g>
+    <g class="map__arrow map__arrow--to_de" aria-hidden="true"><path d="M175,76 L185,76 L180,64 Z"></path></g>
     {%- for code, x, y in stops %}
     <g class="map__stop{% if code in ('DE', 'TR') %} map__stop--end{% endif %}">
       <circle cx="{{ x }}" cy="{{ y }}" r="{{ 7 if code in ('DE', 'TR') else 4.5 }}"></circle>

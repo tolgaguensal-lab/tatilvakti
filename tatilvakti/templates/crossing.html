@@ -51,20 +51,35 @@
   {%- set p = patterns[d] %}
   <h3 class="subhead">{{ t("b_dir_" ~ d) }}</h3>
   {%- if p.enough %}
-  <svg class="pattern" width="100%" height="110" role="img" aria-label="{{ t('b_pattern') }} – {{ t('b_dir_' ~ d) }}">
+  {#- Raster, Niveaulinien und Ortszeit-Marker: reine Darstellung, alle Werte stecken in den
+      Balken-Titles und der Legende darunter. 24 Stunden à 20 Einheiten, Grundlinie bei y=104. #}
+  <svg class="pattern" viewBox="0 0 480 128" width="100%" role="img" aria-label="{{ t('b_pattern') }} – {{ t('b_dir_' ~ d) }}">
+    {%- for b in [2, 4] %}
+    <line class="pattern__grid" x1="0" x2="480" y1="{{ 104 - (10 + b * 17) }}" y2="{{ 104 - (10 + b * 17) }}"></line>
+    <text class="pattern__lvl" x="478" y="{{ 100 - (10 + b * 17) }}" text-anchor="end">{{ bucket_label(b) }}</text>
+    {%- endfor %}
     {%- for s in p.slots %}
-    {%- set x = (s.hour / 24 * 100) | round(3) %}
     {%- if s.minutes %}
-    {%- set h = 12 + s.bucket * 14 %}
-    <rect class="pattern__bar pattern__bar--{{ s.level }}" x="{{ x + 0.4 }}%" y="{{ 90 - h }}" width="3.4%" height="{{ h }}" rx="2"><title>{{ "%02d" | format(s.hour) }}:00 – {{ bucket_label(s.bucket) }} ({{ s.count }})</title></rect>
+    {%- set h = 10 + s.bucket * 17 %}
+    <rect class="pattern__bar pattern__bar--{{ s.level }}" x="{{ s.hour * 20 + 3.5 }}" y="{{ 104 - h }}" width="13" height="{{ h }}" rx="2.5"><title>{{ "%02d" | format(s.hour) }}:00 – {{ bucket_label(s.bucket) }} ({{ s.count }})</title></rect>
     {%- else %}
-    <rect class="pattern__bar pattern__bar--none" x="{{ x + 0.4 }}%" y="86" width="3.4%" height="4" rx="1"></rect>
+    <rect class="pattern__bar pattern__bar--none" x="{{ s.hour * 20 + 3.5 }}" y="100" width="13" height="4" rx="1"></rect>
     {%- endif %}
     {%- endfor %}
+    <line class="pattern__axis" x1="0" x2="480" y1="104" y2="104"></line>
+    {%- if now_hour %}
+    <line class="pattern__now" x1="{{ now_hour * 20 + 10 }}" x2="{{ now_hour * 20 + 10 }}" y1="20" y2="110"></line>
+    <text class="pattern__nowlabel" x="{{ now_hour * 20 + 10 }}" y="14" text-anchor="middle">{{ t("b_now") }}</text>
+    {%- endif %}
     {%- for hour in [0, 6, 12, 18] %}
-    <text class="pattern__tick" x="{{ (hour / 24 * 100) + 0.4 }}%" y="106">{{ "%02d" | format(hour) }}:00</text>
+    <text class="pattern__tick" x="{{ hour * 20 + 10 }}" y="124" text-anchor="middle">{{ "%02d" | format(hour) }}:00</text>
     {%- endfor %}
   </svg>
+  <ul class="map-legend pattern-legend">
+    <li><i class="sw sw--ok"></i>{{ bucket_label(0) }}</li>
+    <li><i class="sw sw--mid"></i>{{ bucket_label(2) }}</li>
+    <li><i class="sw sw--bad"></i>{{ bucket_label(4) }}</li>
+  </ul>
   <p class="hint">{{ t("b_pattern_expl", tz=t("tz_" ~ c.tz.split("/")[1] | lower), w=p.weeks) }}</p>
   {%- else %}
   <p class="muted">{{ t("b_pattern_empty") }}</p>

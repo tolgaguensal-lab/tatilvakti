@@ -370,9 +370,12 @@ body:not(.mode-plane) .only-plane { display: none; }
 .map__line--c { stroke: var(--line-c); stroke-dasharray: 2 10; }
 .map__stop circle { fill: var(--surface); stroke: var(--ink); stroke-width: 3; }
 .map__stop--end circle { fill: var(--ink); }
-.map__stop text { font-size: 13px; fill: var(--ink-2); font-weight: 600; }
+.map__stop text { font-size: 13px; fill: var(--ink-2); font-weight: 600; paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
 .map__stop--end text { fill: var(--ink); font-weight: 800; font-size: 15px; }
 .map__schengen { font-size: 11px; fill: var(--line-c); font-weight: 700; letter-spacing: .05em; }
+.map__border { fill: none; stroke: var(--line-c); stroke-width: 2; stroke-dasharray: 7 6; opacity: .8; }
+.map__arrow path { fill: var(--ink-2); }
+.map[data-dir="to_tr"] .map__arrow--to_de, .map[data-dir="to_de"] .map__arrow--to_tr { display: none; }
 .map__node text { font-size: 14px; font-weight: 800; fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
 .map__halo { fill: var(--surface); stroke: var(--ink); stroke-width: 2; }
 .map__dot { fill: var(--none); }
@@ -421,8 +424,19 @@ body:not(.mode-plane) .only-plane { display: none; }
 .hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 
 .pattern { display: block; overflow: visible; }
+.pattern__grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 4; }
+.pattern__axis { stroke: var(--ink-2); stroke-width: 1; }
 .pattern__bar--ok { fill: var(--ok); } .pattern__bar--mid { fill: var(--mid); } .pattern__bar--bad { fill: var(--bad); } .pattern__bar--none { fill: var(--line); }
+.pattern__bar { transition: opacity .15s ease; }
+.pattern__bar:hover { opacity: .72; }
+.pattern__bar:focus-visible { opacity: .72; }
 .pattern__tick { font-size: 11px; fill: var(--ink-2); }
+.pattern__lvl { font-size: 10px; fill: var(--ink-2); }
+.pattern__now { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 3; }
+.pattern__nowlabel { font-size: 10px; font-weight: 700; fill: var(--accent); letter-spacing: .04em; }
+.pattern-legend { margin-top: 10px; }
+.chips__badge { display: inline-block; margin-inline-start: .45em; padding: .05em .5em; border-radius: 99px; background: var(--accent-a15); border: 1px solid var(--accent); color: var(--accent); font-size: .72rem; font-weight: 700; vertical-align: middle; }
+.chips__item.is-active .chips__badge { background: transparent; color: inherit; border-color: currentColor; }
 
 .waves { list-style: none; padding: 0; margin: 0 0 10px; display: grid; gap: 8px; }
 .waves__item { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 10px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); align-items: center; }
