@@ -178,3 +178,39 @@ Ergebnis hier und in MIGRATION.md, Anhang B eintragen. Fall: ______
 
 | Datum | Host | Sicherung | Zeit bis `status` `ok` über die Domain | Was fehlte |
 |---|---|---|---|---|
+
+## 5. Pflege: Quellen-Links prüfen
+
+Kein Störfall, aber regelmäßig fällig: Behörden, Mautbetreiber und Automobilclubs bauen ihre Seiten um, dann führen Quellen-Links der App ins Leere. `scripts/check_sources.py` ruft jeden http(s)-Link aus `tatilvakti/data/*.json` und `tatilvakti/i18n/*.json` einmal ab, auch wenn er an mehreren Stellen steht. Es braucht nur `python3` (ab 3.10), kein venv und kein `sudo`:
+
+```bash
+python3 /opt/tatilvakti-v2/current/scripts/check_sources.py                  # alle Links
+python3 /opt/tatilvakti-v2/current/scripts/check_sources.py --only zoll.de   # nur Hosts, die „zoll.de“ enthalten (mehrfach möglich)
+python3 /opt/tatilvakti-v2/current/scripts/check_sources.py --json > /tmp/quellen.json
+python3 /opt/tatilvakti-v2/current/scripts/check_sources.py --list           # nur auflisten, nichts abrufen
+```
+
+**Wann:** vor jeder Reisesaison (vor den Sommer-, Herbst- und Weihnachtsferien), vor jedem Prüftermin der Datensätze (`/healthz` → `next_review`, siehe 2b) und nach größeren Datenänderungen.
+
+**Ausgabe:** Probleme zuerst, je Link alle Fundstellen als JSON-Pfad (z. B. `aus transit.json:countries.HU.shop.url`), am Ende eine Zusammenfassung.
+
+| Ergebnis | Bedeutung | Maßnahme |
+|---|---|---|
+| `OK` | Seite antwortet, höchstens Weiterleitung auf dieselbe Adresse (http → https, mit oder ohne `www.`, Schrägstrich am Ende) | – |
+| `WEITERLEITUNG` | Ziel ist eine andere Seite (anderer Pfad) oder ein anderer Host, das Ziel steht in der Zeile darunter | Ziel im Browser öffnen. Belegt es noch, was die App sagt: die neue URL an allen Fundstellen eintragen. Landet es auf einer Start- oder Fehlerseite: wie `KAPUTT` |
+| `KAPUTT` | HTTP 4xx/5xx, DNS, TLS, Timeout, Proxy oder mehr als 5 Weiterleitungen, der Grund steht darunter | Erst im Browser gegenprüfen: Manche Seiten sperren Skripte oder bestimmte Netze und antworten nur dem Browser. Ist die Seite weg, auf der Website der Stelle die neue Seite suchen und die URL an allen Fundstellen ersetzen |
+
+Nach jeder Änderung an den Daten wie immer: `pytest`, committen, ausrollen (README → Datenpflege, README → Update und Rollback).
+
+**Exit-Code:** 0 = nichts `KAPUTT`, 1 = mindestens ein `KAPUTT`, 2 = Aufruf- oder Datenfehler (auch wenn `--only` auf keinen Link passt). Weiterleitungen sind nur ein Hinweis; mit `--strict` zählen Weiterleitungen auf andere Hosts als Fehler (Exit 1).
+
+**Netz:** Hermes braucht dafür ausgehendes HTTPS. `HTTPS_PROXY` und `NO_PROXY` werden beachtet. Lässt ein Proxy ein Ziel nicht zu, meldet das Skript `KAPUTT` mit „Proxy 403 Forbidden“ statt abzubrechen; antwortet kein einziger Server, sagt die Zusammenfassung, dass es eher am Netz des Rechners liegt als an den Quellen. So sieht die Ausgabe in der Entwicklungsumgebung aus, die keine externen Hosts erreicht (Netzwerk-Policy, CONNECT mit 403): jeder Link `KAPUTT (Proxy 403 …)`, kein Absturz. Ein echter Lauf mit Netz steht noch aus.
+
+**Höflich:** eigener User-Agent (`tatilvakti-quellencheck/1.0`), 4 Abrufe gleichzeitig (`--workers`, höchstens 16), je Host nur einer, erst HEAD und nur bei Bedarf GET (davon nur der Kopf), eine Wiederholung bei Timeout oder 5xx. Nicht in kurzen Abständen wiederholen. Einen Timer dafür gibt es nicht: Das wäre eine Änderung an den systemd-Units, also erst nach Freigabe.
+
+**Grenzen:** Geprüft wird nur, ob eine Seite antwortet, nicht ihr Inhalt. Ob eine Quelle noch belegt, was die App sagt (Preise, Freimengen, Termine), bleibt Handarbeit zum `review_after` des Eintrags.
+
+**Durchläufe:**
+
+| Datum | `OK` / `WEITERLEITUNG` / `KAPUTT` | Geändert |
+|---|---|---|
