@@ -259,8 +259,10 @@ fieldset { border: 0; margin: 0 0 12px; padding: 0; min-width: 0; }
 .bucket input:focus:not(:focus-visible) + span::after { outline: none; }
 .seg--wide .seg__opt, .seg--wide .seg__btn { min-width: 46%; }
 
-.inline-form { display: flex; gap: 10px; align-items: flex-end; }
-.inline-form .field { flex: 1; margin: 0; }
+/* Zeitraum, Bundesland und OK: nebeneinander, solange jedes Feld ~12rem bekommt, sonst umbrechen –
+   in einer Zeile blieben bei 320–412 px nur ein paar Buchstaben je Auswahl sichtbar */
+.inline-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.inline-form .field { flex: 1 1 12rem; margin: 0; }
 
 /* ---------- Home ---------- */
 .hero { padding: 6px 0 4px; }
@@ -373,8 +375,10 @@ body:not(.mode-plane) .only-plane { display: none; }
 .map__stop text { font-size: 13px; fill: var(--ink-2); font-weight: 600; paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
 .map__stop--end text { fill: var(--ink); font-weight: 800; font-size: 15px; }
 .map__schengen { font-size: 11px; fill: var(--line-c); font-weight: 700; letter-spacing: .05em; }
-.map__border { fill: none; stroke: var(--line-c); stroke-width: 2; stroke-dasharray: 7 6; opacity: .8; }
-.map__arrow path { fill: var(--ink-2); }
+/* EU-Außengrenze: neutral grau gestrichelt, nicht in einer Routenfarbe (Legende: .sw--border) */
+.map__border { fill: none; stroke: var(--ink-2); stroke-width: 2; stroke-dasharray: 7 5; }
+/* Richtungspfeile hell mit dunklem Rand: heben sich von der dunklen Stammlinie ab */
+.map__arrow path { fill: var(--surface); stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; }
 .map[data-dir="to_tr"] .map__arrow--to_de, .map[data-dir="to_de"] .map__arrow--to_tr { display: none; }
 .map__node text { font-size: 14px; font-weight: 800; fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
 .map__halo { fill: var(--surface); stroke: var(--ink); stroke-width: 2; }
@@ -388,6 +392,7 @@ body:not(.mode-plane) .only-plane { display: none; }
 .map-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 16px; list-style: none; padding: 0; margin: 6px 0 0; font-size: .82rem; color: var(--ink-2); }
 .sw { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
 .sw--ok { background: var(--ok); } .sw--mid { background: var(--mid); } .sw--bad { background: var(--bad); } .sw--none { background: var(--none); }
+.sw--border { width: 18px; height: 0; border-radius: 0; border-top: 2px dashed var(--ink-2); vertical-align: middle; }
 
 .crossings { list-style: none; margin: 0; padding: 0; }
 .crossing { padding: 0; overflow: hidden; }
@@ -423,18 +428,21 @@ body:not(.mode-plane) .only-plane { display: none; }
 .bucket--ok::before { background: var(--ok); } .bucket--mid::before { background: var(--mid); } .bucket--bad::before { background: var(--bad); }
 .hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 
-.pattern { display: block; overflow: visible; }
+/* Rechts 64 px frei für die Niveau-Beschriftungen (x="100%" in crossing.html, overflow sichtbar) */
+.pattern { display: block; overflow: visible; width: calc(100% - 64px); }
 .pattern__grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 4; }
 .pattern__axis { stroke: var(--ink-2); stroke-width: 1; }
 .pattern__bar--ok { fill: var(--ok); } .pattern__bar--mid { fill: var(--mid); } .pattern__bar--bad { fill: var(--bad); } .pattern__bar--none { fill: var(--line); }
 .pattern__bar { transition: opacity .15s ease; }
-.pattern__bar:hover { opacity: .72; }
-.pattern__bar:focus-visible { opacity: .72; }
+/* Nur mit Maus: Die Balken sind nicht fokussierbar, die Werte stehen in der Liste darunter */
+@media (hover: hover) { .pattern__bar:hover { opacity: .72; } }
 .pattern__tick { font-size: 11px; fill: var(--ink-2); }
 .pattern__lvl { font-size: 10px; fill: var(--ink-2); }
 .pattern__now { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 3; }
-.pattern__nowlabel { font-size: 10px; font-weight: 700; fill: var(--accent); letter-spacing: .04em; }
+.pattern__nowlabel { font-size: 10px; font-weight: 700; fill: var(--accent); letter-spacing: .04em; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
 .pattern-legend { margin-top: 10px; }
+.pattern-table { margin-bottom: 4px; }
+.pattern-table td:last-child, .pattern-table th:last-child { text-align: right; }
 .chips__badge { display: inline-block; margin-inline-start: .45em; padding: .05em .5em; border-radius: 99px; background: var(--accent-a15); border: 1px solid var(--accent); color: var(--accent); font-size: .72rem; font-weight: 700; vertical-align: middle; }
 .chips__item.is-active .chips__badge { background: transparent; color: inherit; border-color: currentColor; }
 

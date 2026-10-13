@@ -1,4 +1,5 @@
-/* Service Worker im Browser: erster Besuch und offline (a), Update bei schlechtem Netz (b). */
+/* Service Worker im Browser: erster Besuch und offline (a), Update bei schlechtem Netz (b),
+   Ferien-Auswahl offline und bei hängendem Netz (c). */
 "use strict";
 
 const L = require("./lib");
@@ -127,11 +128,62 @@ t.run(async () => {
       t.check("(b2) Offline-Seite weiter da", (await L.heading(page)).includes(OFFLINE_TITLE.de));
       await ctx.close();
     }
+
+    // ---------------------------------------------------------------- (c) Ferien-Auswahl online, offline, Netz hängt
+    // Gespeichert sind nur die Zeitraum-Pfade: Die Auswahl muss dorthin führen, nicht über ?zeitraum=
+    {
+      proxy.reset();
+      const ctx = await L.newContext(browser);
+      const page = await ctx.newPage();
+      await L.installApp(page, proxy.url, "/de/ferien");
+      const logStart = proxy.state.log.length;
+      await choosePeriod(page, "sommer-2028", "NW");
+      const asked = proxy.state.log.slice(logStart);
+      t.check("(c) online: direkt zum Zeitraum-Pfad, kein ?zeitraum=", pathOf(page) === "/de/ferien/sommer-2028?land=NW"
+        && !asked.some((line) => line.includes("zeitraum=")), JSON.stringify([pathOf(page), asked]));
+
+      await L.setOffline(ctx, proxy, true);
+      const cases = [
+        ["/de/ferien/sommer-2027", "pfingsten-2027", "BY", "/de/ferien/pfingsten-2027?land=BY", "Pfingstferien 2027"],
+        ["/tr/tatil", "sommer-2028", "NW", "/tr/tatil/yaz-2028?land=NW", "2028 yaz tatili"],
+      ];
+      for (const [from, period, land, target, title] of cases) {
+        await page.goto(proxy.url + from, { waitUntil: "load" });
+        await choosePeriod(page, period, land);
+        const h1 = await L.heading(page);
+        t.check(`(c) offline ${from} → ${period}`, pathOf(page) === target && h1.includes(title), JSON.stringify([pathOf(page), h1]));
+      }
+      await L.setOffline(ctx, proxy, false);
+
+      // Browser online, Seiten antworten nie: nach dem Zeitlimit des Service Workers die gespeicherte Seite
+      proxy.state.hang = (path) => isHtml(path);
+      await choosePeriod(page, "winter-2027", "NW");
+      const h1 = await L.heading(page);
+      t.check("(c) Netz hängt → gespeicherte Seite des Zeitraums", pathOf(page) === "/tr/tatil/kis-2027?land=NW" && h1.includes("2027 kış tatili"),
+        JSON.stringify([pathOf(page), h1]));
+      proxy.state.hang = null;
+      await ctx.close();
+    }
   } finally {
     await browser.close();
     await proxy.close();
   }
 });
+
+/* Ferien-Auswahl (holidays.html): Zeitraum und Bundesland wählen, OK, auf die nächste Seite warten */
+async function choosePeriod(page, period, land) {
+  await page.selectOption('select[name="zeitraum"]', period);
+  await page.selectOption('select[name="land"]', land);
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: "load", timeout: 15000 }),
+    page.click('.inline-form button[type="submit"]'),
+  ]);
+}
+
+function pathOf(page) {
+  const url = new URL(page.url());
+  return url.pathname + url.search;
+}
 
 /* Update-Prüfung auslösen und warten, bis der neue Worker aktiv oder verworfen ist */
 async function updateWorker(page) {

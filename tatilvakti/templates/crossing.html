@@ -51,36 +51,59 @@
   {%- set p = patterns[d] %}
   <h3 class="subhead">{{ t("b_dir_" ~ d) }}</h3>
   {%- if p.enough %}
-  {#- Raster, Niveaulinien und Ortszeit-Marker: reine Darstellung, alle Werte stecken in den
-      Balken-Titles und der Legende darunter. 24 Stunden à 20 Einheiten, Grundlinie bei y=104. #}
-  <svg class="pattern" viewBox="0 0 480 128" width="100%" role="img" aria-label="{{ t('b_pattern') }} – {{ t('b_dir_' ~ d) }}">
+  {#- Raster, Niveaulinien und Jetzt-Marker: reine Darstellung. Die Werte je Stunde stehen in der Liste
+      darunter (die Balken-Titles zeigt nur die Maus), die Farben erklärt die Legende. Ohne viewBox,
+      damit die Schrift nicht mit der Breite schrumpft oder wächst: x in Prozent der Breite (24 Stunden),
+      y fest in px, Grundlinie bei y=104. Die Niveau-Beschriftungen stehen rechts neben der Fläche,
+      app.css hält dafür Platz frei. Den Jetzt-Marker führt app.js im Browser nach (data-tz). #}
+  <svg class="pattern" width="100%" height="128" role="img" aria-label="{{ t('b_pattern') }} – {{ t('b_dir_' ~ d) }}" data-tz="{{ c.tz }}">
     {%- for b in [2, 4] %}
-    <line class="pattern__grid" x1="0" x2="480" y1="{{ 104 - (10 + b * 17) }}" y2="{{ 104 - (10 + b * 17) }}"></line>
-    <text class="pattern__lvl" x="478" y="{{ 100 - (10 + b * 17) }}" text-anchor="end">{{ bucket_label(b) }}</text>
+    {%- set gy = 104 - (10 + b * 17) %}
+    <line class="pattern__grid" x1="0" x2="100%" y1="{{ gy }}" y2="{{ gy }}"></line>
+    <text class="pattern__lvl" x="100%" dx="6" y="{{ gy + 3.5 }}">{{ bucket_label(b) }}</text>
     {%- endfor %}
     {%- for s in p.slots %}
+    {%- set x = "%.3f" | format(s.hour / 24 * 100 + 0.729) %}
     {%- if s.minutes %}
     {%- set h = 10 + s.bucket * 17 %}
-    <rect class="pattern__bar pattern__bar--{{ s.level }}" x="{{ s.hour * 20 + 3.5 }}" y="{{ 104 - h }}" width="13" height="{{ h }}" rx="2.5"><title>{{ "%02d" | format(s.hour) }}:00 – {{ bucket_label(s.bucket) }} ({{ s.count }})</title></rect>
+    <rect class="pattern__bar pattern__bar--{{ s.level }}" x="{{ x }}%" y="{{ 104 - h }}" width="2.708%" height="{{ h }}" rx="2.5"><title>{{ "%02d" | format(s.hour) }}:00 – {{ bucket_label(s.bucket) }} ({{ s.count }})</title></rect>
     {%- else %}
-    <rect class="pattern__bar pattern__bar--none" x="{{ s.hour * 20 + 3.5 }}" y="100" width="13" height="4" rx="1"></rect>
+    <rect class="pattern__bar pattern__bar--none" x="{{ x }}%" y="100" width="2.708%" height="4" rx="1"></rect>
     {%- endif %}
     {%- endfor %}
-    <line class="pattern__axis" x1="0" x2="480" y1="104" y2="104"></line>
-    {%- if now_hour %}
-    <line class="pattern__now" x1="{{ now_hour * 20 + 10 }}" x2="{{ now_hour * 20 + 10 }}" y1="20" y2="110"></line>
-    <text class="pattern__nowlabel" x="{{ now_hour * 20 + 10 }}" y="14" text-anchor="middle">{{ t("b_now") }}</text>
+    <line class="pattern__axis" x1="0" x2="100%" y1="104" y2="104"></line>
+    {%- if now_hour is not none %}
+    {#- Mitte der Stunde; die Beschriftung am Rand bündig, damit sie in der Fläche bleibt (wie app.js) #}
+    {%- set nx = "%.3f" | format((now_hour + 0.5) / 24 * 100) %}
+    <g class="pattern__nowmark" data-hour="{{ now_hour }}">
+      <line class="pattern__now" x1="{{ nx }}%" x2="{{ nx }}%" y1="16" y2="110"></line>
+      <text class="pattern__nowlabel" x="{{ nx }}%" y="12" text-anchor="{{ 'start' if now_hour <= 1 else ('end' if now_hour >= 22 else 'middle') }}">{{ t("b_pattern_now") }}</text>
+    </g>
     {%- endif %}
     {%- for hour in [0, 6, 12, 18] %}
-    <text class="pattern__tick" x="{{ hour * 20 + 10 }}" y="124" text-anchor="middle">{{ "%02d" | format(hour) }}:00</text>
+    <text class="pattern__tick" x="{{ "%.3f" | format((hour + 0.5) / 24 * 100) }}%" y="124" text-anchor="middle">{{ "%02d" | format(hour) }}:00</text>
     {%- endfor %}
   </svg>
+  {#- Farben stehen für Stufen aus je zwei Bereichen (borders.level_for_bucket), wie in der Karten-Legende #}
   <ul class="map-legend pattern-legend">
-    <li><i class="sw sw--ok"></i>{{ bucket_label(0) }}</li>
-    <li><i class="sw sw--mid"></i>{{ bucket_label(2) }}</li>
-    <li><i class="sw sw--bad"></i>{{ bucket_label(4) }}</li>
+    <li><i class="sw sw--ok"></i>{{ t("b_level_ok") }}</li>
+    <li><i class="sw sw--mid"></i>{{ t("b_level_mid") }}</li>
+    <li><i class="sw sw--bad"></i>{{ t("b_level_bad") }}</li>
   </ul>
   <p class="hint">{{ t("b_pattern_expl", tz=t("tz_" ~ c.tz.split("/")[1] | lower), w=p.weeks) }}</p>
+  {#- Alle Werte als Text: auf dem Handy gibt es keine Tooltips, und unter role="img" liest ein
+      Screenreader die Balken nicht vor #}
+  <details class="details pattern-table">
+    <summary>{{ t("b_pattern_table") }}</summary>
+    <table class="table">
+      <thead><tr><th scope="col">{{ t("b_pattern_hour") }}</th><th scope="col">{{ t("b_wait") }}</th><th scope="col">{{ t("b_pattern_reports") }}</th></tr></thead>
+      <tbody>
+        {%- for s in p.slots %}
+        <tr><th scope="row">{{ "%02d" | format(s.hour) }}:00</th><td>{{ bucket_label(s.bucket) if s.minutes else t("b_pattern_few") }}</td><td>{{ s.count }}</td></tr>
+        {%- endfor %}
+      </tbody>
+    </table>
+  </details>
   {%- else %}
   <p class="muted">{{ t("b_pattern_empty") }}</p>
   {%- endif %}

@@ -49,6 +49,33 @@
   }
   function refreshTimes() {
     $$("time[data-ts]").forEach(function (el) { el.textContent = ago(parseInt(el.getAttribute("data-ts"), 10)); });
+    refreshNowMarker();
+  }
+
+  // Jetzt-Marker im Tagesverlauf (crossing.html): Der Server setzt die Ortsstunde beim Rendern.
+  // Aus dem Offline-Speicher oder in einem lange offenen Tab wäre sie veraltet, deshalb hier
+  // nachführen – nur über Attribute, keine Inline-Styles (CSP). Ohne Zeitzonen in Intl (sehr alte
+  // Browser) bleibt der Wert vom Server.
+  function hourIn(tz) {
+    try {
+      var h = parseInt(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", hourCycle: "h23" }).format(new Date()), 10);
+      return isNaN(h) ? null : h % 24;  // % 24: ältere Chromes liefern um Mitternacht „24“
+    } catch (e) { return null; }
+  }
+  function refreshNowMarker() {
+    $$("svg.pattern[data-tz]").forEach(function (svg) {
+      var mark = $(".pattern__nowmark", svg);
+      var hour = mark ? hourIn(svg.getAttribute("data-tz")) : null;
+      if (hour === null || String(hour) === mark.getAttribute("data-hour")) return;
+      // Gleiche Rechnung wie crossing.html: Mitte der Stunde in Prozent der Breite
+      var x = ((hour + 0.5) / 24 * 100).toFixed(3) + "%";
+      mark.setAttribute("data-hour", String(hour));
+      $$(".pattern__now", mark).forEach(function (line) { line.setAttribute("x1", x); line.setAttribute("x2", x); });
+      $$(".pattern__nowlabel", mark).forEach(function (label) {
+        label.setAttribute("x", x);
+        label.setAttribute("text-anchor", hour <= 1 ? "start" : (hour >= 22 ? "end" : "middle"));
+      });
+    });
   }
   refreshTimes();
   setInterval(refreshTimes, 30000);
@@ -115,6 +142,22 @@
   });
   $$("form[data-prefs]").forEach(function (form) {
     form.addEventListener("submit", function (ev) { ev.preventDefault(); });
+  });
+  // Ferien-Auswahl: direkt auf den Pfad des Zeitraums (data-href), nicht über ?zeitraum= und 301.
+  // Nur die Pfade liegen im Speicher des Service Workers – offline und bei hängendem Netz käme
+  // sonst die Übersicht mit dem voreingestellten Zeitraum. Ohne JS bleibt es beim GET-Formular.
+  $$("form[data-period-form]").forEach(function (form) {
+    form.addEventListener("submit", function (ev) {
+      var sel = form.elements.zeitraum;
+      var opt = sel && sel.options[sel.selectedIndex];
+      var target = opt && opt.getAttribute("data-href");
+      if (!target) return;
+      ev.preventDefault();
+      var url = new URL(target, window.location.href);
+      var code = stateCode(form.elements.land ? form.elements.land.value : "");
+      if (code) url.searchParams.set("land", code);
+      window.location.assign(url.pathname + url.search);
+    });
   });
 
   // ---------------------------------------------------------- share

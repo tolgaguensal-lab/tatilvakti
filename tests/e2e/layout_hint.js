@@ -1,4 +1,4 @@
-/* Layout bei 320 px (d) und Hinweis „auf den Startbildschirm“ (iOS, Chromium, installiert, ohne JS):
+/* Layout bei 320–390 px (d, e: Ferien-Auswahl) und Hinweis „auf den Startbildschirm“ (iOS, Chromium, installiert, ohne JS):
    nur auf Start-, Grenz- und Übergangsseiten, erst nach Wahl des Bundeslandes oder einer Meldung,
    ohne Besuchszähler, auf niedrigen Bildschirmen kompakt, Fokus nie unter der Karte. */
 "use strict";
@@ -48,8 +48,8 @@ t.run(async () => {
   const browser = await chromium.launch();
   const base = L.BASE;
   try {
-    // ---------------------------------------------------------------- (d) 320 px, DE und TR, mit sichtbarem Hinweis
-    for (const width of [320, 390]) {
+    // ---------------------------------------------------------------- (d) 320–390 px, DE und TR, mit sichtbarem Hinweis
+    for (const width of [320, 360, 390]) {
       const ctx = await L.newContext(browser, {
         viewport: { width, height: 640 }, isMobile: true, hasTouch: true, userAgent: IPHONE_UA, serviceWorkers: "block",
       });
@@ -64,6 +64,23 @@ t.run(async () => {
         } else {
           t.check(`(d) ${width}px ${path}: kein Hinweis`, (await page.$$("[data-a2hs]")).length === 0);
         }
+      }
+      // (e) Ferien-Auswahl: Zeitraum, Bundesland und OK nebeneinander ließen je Auswahl nur ein paar
+      // Buchstaben sichtbar („So“, „Nordr“) – kein Überlaufen, deshalb eigene Prüfung der Breite
+      for (const path of ["/de/ferien/sommer-2027?land=NW", "/tr/tatil/yaz-2027?land=NW"]) {
+        await page.goto(base + path, { waitUntil: "load" });
+        const sels = await page.evaluate(() => Array.from(document.querySelectorAll(".inline-form select")).map((sel) => {
+          const cs = getComputedStyle(sel);
+          const canvas = document.createElement("canvas").getContext("2d");
+          canvas.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+          const text = sel.options[sel.selectedIndex].text;
+          // Text, Innenabstand, Rand und Pfeil (~20 px)
+          const need = canvas.measureText(text).width + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)
+            + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth) + 20;
+          return { text, w: Math.round(sel.getBoundingClientRect().width), need: Math.round(need) };
+        }));
+        t.check(`(e) ${width}px ${path}: Auswahl zeigt den ganzen Text`, sels.length === 2 && sels.every((s) => s.w >= s.need),
+          JSON.stringify(sels));
       }
       if (width === 320) {
         await page.goto(base + "/tr/", { waitUntil: "load" });
