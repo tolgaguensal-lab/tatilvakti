@@ -3,7 +3,7 @@ import html as htmllib
 import json
 import math
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -193,12 +193,17 @@ def test_period_selector_options_carry_their_cached_path(app, client, path, lang
 
 @pytest.mark.parametrize("when, chip, badge", [
     (datetime(2026, 10, 12, 9, 0, tzinfo=timezone.utc), "herbst-2026", ("Läuft", "Devam ediyor")),  # 8 Länder frei
+    # Sonntage zwischen den Ferienblöcken zweier Länder: offiziell hat niemand Ferien, das Badge sprang
+    # für einen Tag auf „Nächste“ (01.11.2026: Herbstferien in BE/NW bis Sa 31.10., BY ab Mo 02.11.)
+    (datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc), "herbst-2026", ("Läuft", "Devam ediyor")),
+    (datetime(2027, 2, 7, 9, 0, tzinfo=timezone.utc), "winter-2027", ("Läuft", "Devam ediyor")),
     (datetime(2026, 11, 10, 9, 0, tzinfo=timezone.utc), "weihnachten-2026", ("Nächste", "Sıradaki")),  # Lücke
     (datetime(2028, 10, 1, 9, 0, tzinfo=timezone.utc), None, None),  # alle eingetragenen Zeiträume vorbei
 ])
 def test_period_badge_says_running_or_next(app, client, clock, when, chip, badge):
-    """Die Markierung am Zeitraum-Chip: „Läuft“, solange heute ein Land Ferien hat (wie „Gerade laufen
-    die …“ auf der Startseite), „Nächste“ davor, und keine, wenn alle Zeiträume vorbei sind."""
+    """Die Markierung am Zeitraum-Chip: „Läuft“, solange heute ein Land frei hat (Ferien samt
+    angrenzender Wochenenden und Feiertage, wie „Gerade laufen die …“ auf der Startseite und
+    „läuft gerade“ je Land), „Nächste“ davor, und keine, wenn alle Zeiträume vorbei sind."""
     clock.now = when
     for i, (lang, path) in enumerate((("de", "/de/ferien"), ("tr", "/tr/tatil"))):
         html = client.get(path).get_data(as_text=True)
@@ -333,7 +338,8 @@ def _pattern_svgs(html):
 ])
 def test_pattern_now_marker_follows_the_app_clock(client, db, clock, utc, hour, anchor):
     """Jetzt-Marker: Ortsstunde zur App-Uhr (TV_CLOCK wie Status und Tagesverlauf), auch um 0 Uhr,
-    mit eigener Beschriftung („b_now“ ist der Kartentitel oben) und am Rand bündig."""
+    mit eigener Beschriftung („b_now“ ist der Kartentitel oben) und am Rand bündig. Die Linie hat
+    einen Halo, auf roten und braunen Balken war sie sonst kaum zu sehen."""
     clock.now = datetime(*utc, tzinfo=timezone.utc)
     _seed_pattern(db, clock)
     for path, label, title in (("/de/grenze/kapikule", "Jetzt", "Aktuelle Lage"), ("/tr/sinir/kapikule", "Şimdi", "Şu anki durum")):
@@ -343,10 +349,12 @@ def test_pattern_now_marker_follows_the_app_clock(client, db, clock, utc, hour, 
         assert len(svgs) == 2 and all('data-tz="Europe/Istanbul"' in svg for svg in svgs)
         x = "%.3f" % ((hour + 0.5) / 24 * 100)
         for svg in svgs:
-            mark = re.search(r'<g class="pattern__nowmark" data-hour="(\d+)">\s*<line class="pattern__now" x1="([\d.]+)%" '
-                             r'x2="([\d.]+)%"[^>]*></line>\s*<text class="pattern__nowlabel" x="([\d.]+)%" y="\d+" '
-                             r'text-anchor="(\w+)">([^<]*)</text>', svg)
-            assert mark and mark.groups() == (str(hour), x, x, x, anchor, label), path
+            # zuerst der breite Strich in Kartenfarbe (Halo), darüber die gestrichelte Linie
+            mark = re.search(r'<g class="pattern__nowmark" data-hour="(\d+)">'
+                             r'\s*<line class="pattern__now pattern__now--halo" x1="([\d.]+)%" x2="([\d.]+)%"[^>]*></line>'
+                             r'\s*<line class="pattern__now" x1="([\d.]+)%" x2="([\d.]+)%"[^>]*></line>'
+                             r'\s*<text class="pattern__nowlabel" x="([\d.]+)%" y="\d+" text-anchor="(\w+)">([^<]*)</text>', svg)
+            assert mark and mark.groups() == (str(hour), x, x, x, x, x, anchor, label), path
 
 
 def test_pattern_scales_without_shrinking_text_and_labels_by_level(client, db, clock):
@@ -472,6 +480,20 @@ def test_map_direction_arrows_are_not_hidden_under_a_crossing(app, client):
         centre = (sum(x for x, _ in corners) / 3, sum(y for _, y in corners) / 3)
         for point in corners + [centre]:
             assert all(math.dist(point, c) > r for c, r in covers), (name, point)
+
+
+def test_home_running_period_counts_free_states_on_a_weekend_between_blocks(app, client, clock):
+    """So 01.11.2026: offiziell hat kein Land Herbstferien, die freien Strecken (Wochenende vor bzw.
+    nach den Ferien) laufen aber. Die Startseite zählte 0 Länder bzw. zeigte den Zeitraum nicht."""
+    radar = app.extensions["tv"].radar
+    day = date(2026, 11, 1)
+    assert radar.states_on_holiday(day) == []
+    free = radar.states_free(day)
+    assert free and all(any(s.contains(day) for s in radar.by_id["herbst-2026"].stretches(code)) for code in free)
+    clock.now = datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc)
+    assert (f"Gerade laufen die Herbstferien 2026: heute haben {len(free)} von 16 Ländern frei."
+            in client.get("/de/").get_data(as_text=True))
+    assert (f"bugün 16 eyaletten {len(free)} tanesi tatilde." in client.get("/tr/").get_data(as_text=True))
 
 
 def test_home_shows_next_real_holiday_start_during_gap(client, clock):

@@ -1,7 +1,7 @@
 /* Tagesverlauf einer Grenzseite (crossing.html): Schrift lesbar bei jeder Breite (a), Beschriftungen
-   ohne Überdeckung (a), Jetzt-Marker folgt der Uhr des Browsers – auch für Seiten aus dem
-   Offline-Speicher (b) und in einem lange offenen Tab (c). test_e2e.py legt dafür für Kapıkule an
-   drei Vortagen Meldungen zu jeder Ortsstunde an (21–23 Uhr: über 4 Std., die höchsten Balken). */
+   ohne Überdeckung, Jetzt-Linie mit Halo (a), Jetzt-Marker folgt der Uhr des Browsers – auch für
+   Seiten aus dem Offline-Speicher (b) und in einem lange offenen Tab (c). test_e2e.py legt dafür für
+   Kapıkule an drei Vortagen Meldungen zu jeder Ortsstunde an (21–23 Uhr: über 4 Std., die höchsten Balken). */
 "use strict";
 
 const L = require("./lib");
@@ -24,13 +24,19 @@ function measure() {
                     r: card.getBoundingClientRect().right - parseFloat(cs.borderRightWidth) };
     const s = box(svg);
     const mark = svg.querySelector(".pattern__nowmark");
-    const now = box(svg.querySelector(".pattern__nowlabel"));
+    const nowLabel = svg.querySelector(".pattern__nowlabel");
+    const now = box(nowLabel);
+    // Halo unter der gestrichelten Linie: breiter, in der Farbe der Karte (wie der Halo der Beschriftung)
+    const [halo, line] = Array.from(mark.querySelectorAll("line")).map((el) => getComputedStyle(el));
     const lvls = Array.from(svg.querySelectorAll(".pattern__lvl")).map(box);
     const bars = Array.from(svg.querySelectorAll(".pattern__bar")).map(box);
     const ticks = Array.from(svg.querySelectorAll(".pattern__tick")).map(box);
     return {
       hour: mark.getAttribute("data-hour"),
       x1: svg.querySelector(".pattern__now").getAttribute("x1"),
+      x1s: Array.from(mark.querySelectorAll("line")).map((el) => el.getAttribute("x1")),
+      halo: Boolean(halo && line) && halo.stroke === getComputedStyle(nowLabel).stroke && halo.strokeDasharray === "none"
+        && parseFloat(halo.strokeWidth) >= parseFloat(line.strokeWidth) + 3 && line.strokeDasharray !== "none",
       label: svg.querySelector(".pattern__nowlabel").textContent,
       tickMin: Math.min(...ticks.map((b) => b.h)), tickMax: Math.max(...ticks.map((b) => b.h)),
       lvlMin: Math.min(...lvls.map((b) => b.h)),
@@ -62,8 +68,9 @@ t.run(async () => {
           const tag = `(a) ${width}px ${path} ${hour} Uhr`;
           t.check(`${tag}: zwei Diagramme`, charts.length === 2, String(charts.length));
           for (const c of charts) {
-            t.check(`${tag}: Marker auf der Browser-Stunde`, c.hour === String(hour) && c.x1 === xFor(hour) && c.label === label,
-              JSON.stringify([c.hour, c.x1, c.label]));
+            t.check(`${tag}: Marker auf der Browser-Stunde`, c.hour === String(hour) && c.x1 === xFor(hour) && c.label === label
+              && c.x1s.length === 2 && c.x1s.every((x) => x === xFor(hour)), JSON.stringify([c.hour, c.x1s, c.label]));
+            t.check(`${tag}: Jetzt-Linie mit Halo (auf roten Balken sichtbar)`, c.halo);
             // 11 px Schrift (Box ~13 px) bei jeder Breite: weder winzig am Handy noch riesig am Desktop
             t.check(`${tag}: Uhrzeiten lesbar`, c.tickMin >= 11 && c.tickMax <= 16, `${c.tickMin}–${c.tickMax}`);
             t.check(`${tag}: Niveau-Beschriftung lesbar`, c.lvlMin >= 10, String(c.lvlMin));
@@ -108,8 +115,9 @@ t.run(async () => {
       await page.clock.fastForward("02:00:00");
       await L.waitFor(page, () => document.querySelector(".pattern__nowmark").getAttribute("data-hour") === "13", null,
         { timeout: 5000, label: "Marker wandert mit" });
-      const x1 = await page.$eval(".pattern__nowmark .pattern__now", (el) => el.getAttribute("x1"));
-      t.check("(c) offener Tab: Marker wandert mit der Uhr", before === "11" && x1 === xFor(13), JSON.stringify([before, x1]));
+      const x1 = await page.$$eval(".pattern__nowmark .pattern__now", (els) => els.map((el) => el.getAttribute("x1")));
+      t.check("(c) offener Tab: Marker wandert mit der Uhr (Linie und Halo)", before === "11" && x1.length === 4
+        && x1.every((x) => x === xFor(13)), JSON.stringify([before, x1]));
       await ctx.close();
     }
   } finally {

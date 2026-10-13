@@ -207,6 +207,11 @@ class HolidayRadar:
     def states_on_holiday(self, day: date) -> list[str]:
         return [s for s in self.states if any(p.on_holiday(s, day) for p in self.periods)]
 
+    def states_free(self, day: date) -> list[str]:
+        """Länder, die heute frei haben: Ferien samt angrenzender Wochenenden und Feiertage (blocks)."""
+        free = {b.state for b in self.blocks if b.free.contains(day)}
+        return [s for s in self.states if s in free]
+
     def pressure(self, day: date) -> float:
         return sum(self.weight[s] for s in self.states_on_holiday(day))
 
@@ -226,9 +231,11 @@ class HolidayRadar:
         return None
 
     def running_period(self, today: date) -> Period | None:
-        """Zeitraum, in dem heute mindestens ein Land tatsächlich Ferien hat."""
+        """Zeitraum, in dem heute mindestens ein Land frei hat – wie bei „läuft gerade“ je Land
+        (next_for_state) mit angrenzenden Wochenenden und Feiertagen. Nur mit den offiziellen Blöcken
+        galt ein Sonntag zwischen den Ferien zweier Länder (z. B. 01.11.2026) als Pause."""
         for period in self.periods:
-            if any(period.on_holiday(state, today) for state in self.states):
+            if any(b.period == period.id and b.free.contains(today) for b in self.blocks):
                 return period
         return None
 

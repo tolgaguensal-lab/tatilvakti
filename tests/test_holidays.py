@@ -79,6 +79,8 @@ def test_official_holiday_days_ignore_gaps(radar):
 def test_next_start_skips_past_period_starts(radar):
     # 15.03.2027: Hamburgs Frühjahrsferien vorbei, die anderen Osterferien beginnen erst am 22.03.
     assert radar.running_period(date(2027, 3, 15)) is None
+    # Wochenende nach Hamburgs Frühjahrsferien (bis Fr 12.03.) zählt noch zum freien Zeitraum
+    assert radar.running_period(date(2027, 3, 14)).id == "ostern-2027" and radar.states_free(date(2027, 3, 14)) == ["HH"]
     period, start = radar.next_start(date(2027, 3, 15))
     assert (period.id, start) == ("ostern-2027", date(2027, 3, 22))
 

@@ -150,12 +150,13 @@ TV_E2E=1 NODE_PATH=/pfad/zu/node_modules .venv/bin/python -m pytest -m e2e   # n
 
   | Skript | prüft |
   |---|---|
-  | `service_worker.js` | erster Besuch und offline, Update bei schlechtem Netz (Proxy simuliert Netzverlust, Deploy, 503) |
+  | `service_worker.js` | erster Besuch und offline, Update bei schlechtem Netz (Proxy simuliert Netzverlust, Deploy, 503), Ferien-Auswahl online, offline und bei hängendem Netz direkt zum Zeitraum-Pfad |
   | `report_queue.js` | Meldung ohne Netz und bei hängendem Netz (Zeitlimit beim Senden und Nachliefern): Warteschlange, Nachliefern, Sende-Zustand, Hinweis bei verworfenen und teils verworfenen Meldungen |
-  | `layout_hint.js` | 320 px, Startbildschirm-Hinweis (iOS, Chromium, installiert, ohne JS) |
+  | `layout_hint.js` | 320–390 px ohne seitliches Überlaufen, Kartenbeschriftungen ganz im Bild; Ferien-Auswahl bei 320–1024 px (DE und TR) so breit wie die längste Option, Ausnahme nur „Himmelfahrt-/Pfingstferien 2027“ bis 360 px bzw. „2027 Mayıs tatili (Pfingsten)“ bis 330 px (volle Zeile, 16 px Schrift); Startbildschirm-Hinweis (iOS, Chromium, installiert, ohne JS) |
   | `kill_switch.js` | alte Worker unter `TV_LEGACY_SW_PATHS`: abgemeldet, Caches gelöscht, `tv2-*` bleibt |
   | `old_browsers.js` | Auswahl, Fokus und Diagramm ohne `:has()`, `color-mix()`, `:focus-visible`, ohne CSS-Variablen und ohne CSS |
   | `bad_params.js` | präparierte `?land=`-Links und kaputter Gerätespeicher |
+  | `pattern.js` | Tagesverlauf einer Grenzseite bei 320–1280 px: Schrift lesbar, Beschriftungen ohne Überdeckung, Jetzt-Linie mit Halo, Jetzt-Marker auf der Stunde der Browser-Uhr, auch aus dem Offline-Speicher und im lange offenen Tab |
   | `toolbar_layout.js` | Sprungziele und Fokus unter der Zoll-Toolbar; jede Seite der Precache-Liste bei 320, 360 und 390 px ohne seitliches Überlaufen |
   | `share_report.js` | Kaltstart ohne Meldungen, Auswahl und Melden, Teilen |
 

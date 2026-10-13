@@ -116,6 +116,9 @@ def test_scripts_are_found():
     assert {"service_worker.js", "report_queue.js", "layout_hint.js", "kill_switch.js",
             "old_browsers.js", "bad_params.js", "toolbar_layout.js", "share_report.js", "pattern.js"} <= set(SCRIPTS)
     assert set(SEEDS) <= set(SCRIPTS)
+    # Jedes Skript steht in der Tabelle der Browser-Tests im README
+    readme = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
+    assert [s for s in SCRIPTS if f"| `{s}` |" not in readme] == []
 
 
 @pytest.mark.parametrize("script", SCRIPTS)

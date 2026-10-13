@@ -1,4 +1,5 @@
-/* Layout bei 320–390 px (d, e: Ferien-Auswahl) und Hinweis „auf den Startbildschirm“ (iOS, Chromium, installiert, ohne JS):
+/* Layout bei 320–390 px (d, mit Kartenbeschriftungen), Ferien-Auswahl bei 320–1024 px (e) und Hinweis
+   „auf den Startbildschirm“ (iOS, Chromium, installiert, ohne JS):
    nur auf Start-, Grenz- und Übergangsseiten, erst nach Wahl des Bundeslandes oder einer Meldung,
    ohne Besuchszähler, auf niedrigen Bildschirmen kompakt, Fokus nie unter der Karte. */
 "use strict";
@@ -59,28 +60,23 @@ t.run(async () => {
         await page.goto(base + path, { waitUntil: "load" });
         const res = await page.evaluate(overflowing);
         t.check(`(d) ${width}px ${path}: kein horizontales Überlaufen`, res.n === 0, JSON.stringify(res.first));
+        if (/^\/(de\/grenze|tr\/sinir)$/.test(path)) {
+          // Karte: Das SVG schneidet ab, was außerhalb des viewBox liegt („Hırvatistan“ verlor sein H) –
+          // das sieht overflowing() nicht. Beschriftungen samt Halo (stroke 4px: 2 Einheiten je Seite)
+          const cut = await page.evaluate(() => {
+            const svg = document.querySelector("svg.map");
+            const vb = svg.viewBox.baseVal;
+            return Array.from(svg.querySelectorAll("text")).map((el) => [el.textContent, el.getBBox()])
+              .filter(([, b]) => b.x - 2 < vb.x || b.x + b.width + 2 > vb.x + vb.width || b.y - 2 < vb.y || b.y + b.height + 2 > vb.y + vb.height)
+              .map(([text, b]) => `${text} [${Math.round(b.x)},${Math.round(b.x + b.width)}]`);
+          });
+          t.check(`(d) ${width}px ${path}: Kartenbeschriftungen ganz im Bild`, cut.length === 0, JSON.stringify(cut));
+        }
         if (hintPage(path)) {
           t.check(`(d) ${width}px ${path}: Hinweis sichtbar`, await hintVisible(page));
         } else {
           t.check(`(d) ${width}px ${path}: kein Hinweis`, (await page.$$("[data-a2hs]")).length === 0);
         }
-      }
-      // (e) Ferien-Auswahl: Zeitraum, Bundesland und OK nebeneinander ließen je Auswahl nur ein paar
-      // Buchstaben sichtbar („So“, „Nordr“) – kein Überlaufen, deshalb eigene Prüfung der Breite
-      for (const path of ["/de/ferien/sommer-2027?land=NW", "/tr/tatil/yaz-2027?land=NW"]) {
-        await page.goto(base + path, { waitUntil: "load" });
-        const sels = await page.evaluate(() => Array.from(document.querySelectorAll(".inline-form select")).map((sel) => {
-          const cs = getComputedStyle(sel);
-          const canvas = document.createElement("canvas").getContext("2d");
-          canvas.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-          const text = sel.options[sel.selectedIndex].text;
-          // Text, Innenabstand, Rand und Pfeil (~20 px)
-          const need = canvas.measureText(text).width + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)
-            + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth) + 20;
-          return { text, w: Math.round(sel.getBoundingClientRect().width), need: Math.round(need) };
-        }));
-        t.check(`(e) ${width}px ${path}: Auswahl zeigt den ganzen Text`, sels.length === 2 && sels.every((s) => s.w >= s.need),
-          JSON.stringify(sels));
       }
       if (width === 320) {
         await page.goto(base + "/tr/", { waitUntil: "load" });
@@ -89,6 +85,49 @@ t.run(async () => {
         t.check("(d) Hinweis liegt über der Tabbar", box.y + box.height <= tabbar.y + 0.5, JSON.stringify([box, tabbar]));
         const close = await page.locator("[data-a2hs-close]").boundingBox();
         t.check("(d) Schließen-Fläche ≥ 44 px", close.width >= 44 && close.height >= 44, JSON.stringify(close));
+      }
+      await ctx.close();
+    }
+
+    // ---------------------------------------------------------------- (e) Ferien-Auswahl 320–1024 px, DE und TR
+    // Zeitraum, Bundesland und OK in einer Zeile ließen je Auswahl nur ein paar Buchstaben sichtbar
+    // („So“, „Nordr“), bei 460–670 px fehlte die Jahreszahl („Sommerferien 202“ für 2027 und 2028).
+    // Kein Überlaufen, deshalb eigene Prüfung: Jede Auswahl ist so breit wie ihre längste Option.
+    // Ausnahme nur, wo die Auswahl schon die ganze Zeile einnimmt und es bei 16 px Schrift (darunter
+    // zoomt iOS beim Antippen) nicht breiter geht – ausdrücklich benannt, mit der größten Fensterbreite:
+    const NARROW = { "Himmelfahrt-/Pfingstferien 2027": 360, "2027 Mayıs tatili (Pfingsten)": 330 };
+    for (const width of [320, 330, 360, 370, 390, 412, 480, 540, 600, 670, 768, 1024]) {
+      const ctx = await L.newContext(browser, { viewport: { width, height: 800 }, serviceWorkers: "block" });
+      const page = await ctx.newPage();
+      for (const path of ["/de/ferien/sommer-2027?land=NW", "/tr/tatil/yaz-2027?land=NW"]) {
+        await page.goto(base + path, { waitUntil: "load" });
+        const sels = await page.evaluate(() => {
+          const form = document.querySelector(".inline-form");
+          const fs = getComputedStyle(form);
+          const row = form.clientWidth - parseFloat(fs.paddingLeft) - parseFloat(fs.paddingRight);
+          return Array.from(form.querySelectorAll("select")).map((sel) => {
+            const cs = getComputedStyle(sel);
+            const canvas = document.createElement("canvas").getContext("2d");
+            canvas.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+            // Innenabstand, Rand und Pfeil (~20 px)
+            const extra = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)
+              + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth) + 20;
+            let text = "", need = 0;
+            for (const o of sel.options) {
+              const n = canvas.measureText(o.text).width + extra;
+              if (n > need) { need = n; text = o.text; }
+            }
+            const w = sel.getBoundingClientRect().width;
+            return { name: sel.name, text, w: Math.round(w), need: Math.round(need), fullRow: w >= row - 0.5, font: cs.fontSize };
+          });
+        });
+        t.check(`(e) ${width}px ${path}: zwei Auswahlen mit 16 px`, sels.length === 2 && sels.every((s) => s.font === "16px"),
+          JSON.stringify(sels));
+        for (const s of sels) {
+          const narrow = NARROW[s.text] !== undefined && width <= NARROW[s.text] && s.fullRow;
+          t.check(`(e) ${width}px ${path}: ${s.name} zeigt die längste Option ganz`
+            + (narrow ? " (benannte Ausnahme, volle Zeile)" : ""), s.w >= s.need || narrow, JSON.stringify(s));
+        }
       }
       await ctx.close();
     }

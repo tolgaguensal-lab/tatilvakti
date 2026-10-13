@@ -18,7 +18,9 @@
 <section class="card map-card" aria-labelledby="map-title">
   <h2 id="map-title" class="card__title">{{ t("b_map_title") }}</h2>
   {%- set stops = [("DE", 180, 30), ("AT", 180, 92), ("SI", 88, 160), ("HR", 88, 222), ("HU", 200, 166), ("RO", 300, 280), ("RS", 170, 318), ("BG", 250, 420), ("TR", 250, 520)] %}
-  <svg class="map" viewBox="0 0 386 548" role="img" aria-label="{{ t('b_map_label') }}" data-map data-dir="to_tr">
+  {#- viewBox links und rechts mit Rand: „Hırvatistan“ (text-anchor=end bei x=76) reicht bis x≈-6,
+      „Rumänien“ bis x≈385, dazu 2 Einheiten Schrift-Halo (tests/e2e/layout_hint.js prüft das) #}
+  <svg class="map" viewBox="-12 0 404 548" role="img" aria-label="{{ t('b_map_label') }}" data-map data-dir="to_tr">
     <path class="map__line map__line--trunk" d="M180,30 L180,92 M170,318 Q215,368 250,420 L250,520"></path>
     <path class="map__line map__line--a" d="M180,92 Q212,132 200,166 Q186,248 170,318"></path>
     <path class="map__line map__line--b" d="M180,92 Q118,118 88,160 L88,222 Q96,256 129,270 Q162,284 170,318"></path>

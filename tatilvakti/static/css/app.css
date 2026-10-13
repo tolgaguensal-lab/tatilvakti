@@ -259,10 +259,13 @@ fieldset { border: 0; margin: 0 0 12px; padding: 0; min-width: 0; }
 .bucket input:focus:not(:focus-visible) + span::after { outline: none; }
 .seg--wide .seg__opt, .seg--wide .seg__btn { min-width: 46%; }
 
-/* Zeitraum, Bundesland und OK: nebeneinander, solange jedes Feld ~12rem bekommt, sonst umbrechen –
-   in einer Zeile blieben bei 320–412 px nur ein paar Buchstaben je Auswahl sichtbar */
+/* Zeitraum, Bundesland und OK: nebeneinander erst, wenn jedes Feld ~20rem bekommt (längste Texte
+   „Himmelfahrt-/Pfingstferien 2027“, „Mecklenburg-Vorpommern“ bei 16 px), sonst umbrechen – mit
+   12rem blieben bei 460–670 px u. a. „Sommerferien 202“ für 2027 und 2028 stehen. Etwas weniger
+   Innenabstand, damit „Mecklenburg-Vorpommern“ auch bei 320 px ganz zu sehen ist. */
 .inline-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
-.inline-form .field { flex: 1 1 12rem; margin: 0; }
+.inline-form .field { flex: 1 1 20rem; margin: 0; }
+.inline-form select { padding: 0 8px 0 10px; }
 
 /* ---------- Home ---------- */
 .hero { padding: 6px 0 4px; }
@@ -439,6 +442,7 @@ body:not(.mode-plane) .only-plane { display: none; }
 .pattern__tick { font-size: 11px; fill: var(--ink-2); }
 .pattern__lvl { font-size: 10px; fill: var(--ink-2); }
 .pattern__now { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 3; }
+.pattern__now--halo { stroke: var(--surface); stroke-width: 6; stroke-dasharray: none; }
 .pattern__nowlabel { font-size: 10px; font-weight: 700; fill: var(--accent); letter-spacing: .04em; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
 .pattern-legend { margin-top: 10px; }
 .pattern-table { margin-bottom: 4px; }

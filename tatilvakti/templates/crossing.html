@@ -73,9 +73,12 @@
     {%- endfor %}
     <line class="pattern__axis" x1="0" x2="100%" y1="104" y2="104"></line>
     {%- if now_hour is not none %}
-    {#- Mitte der Stunde; die Beschriftung am Rand bündig, damit sie in der Fläche bleibt (wie app.js) #}
+    {#- Mitte der Stunde; die Beschriftung am Rand bündig, damit sie in der Fläche bleibt (wie app.js).
+        Unter der gestrichelten Linie ein breiter Strich in Kartenfarbe, sonst ginge sie auf roten
+        und braunen Balken unter. #}
     {%- set nx = "%.3f" | format((now_hour + 0.5) / 24 * 100) %}
     <g class="pattern__nowmark" data-hour="{{ now_hour }}">
+      <line class="pattern__now pattern__now--halo" x1="{{ nx }}%" x2="{{ nx }}%" y1="16" y2="110"></line>
       <line class="pattern__now" x1="{{ nx }}%" x2="{{ nx }}%" y1="16" y2="110"></line>
       <text class="pattern__nowlabel" x="{{ nx }}%" y="12" text-anchor="{{ 'start' if now_hour <= 1 else ('end' if now_hour >= 22 else 'middle') }}">{{ t("b_pattern_now") }}</text>
     </g>

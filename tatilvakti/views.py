@@ -168,7 +168,7 @@ def home():
             info["when"] = in_days(info["ranges"][0].start, today)
             next_by_state[code] = info
     running = radar.running_period(today)
-    running_now = len(radar.states_on_holiday(today)) if running else 0
+    running_now = len(radar.states_free(today)) if running else 0
     upcoming = radar.next_start(today)
     crossings = content.crossings["crossings"]
     main = [c for c in crossings if c["main"]]
@@ -211,8 +211,8 @@ def holidays(slug: str | None = None):
         g.alt_params = {lang: {"slug": period.slug[lang]} for lang in LANGS}
     bayrams = radar.bayrams_in(period)
     chart = _holiday_chart(radar, period, today, bayrams)
-    # Markierung am Selektor: der laufende („Läuft“, heute hat mindestens ein Land Ferien) bzw.
-    # nächste Zeitraum („Nächste“). Sind alle Zeiträume vorbei, gibt es keine Markierung.
+    # Markierung am Selektor: der laufende („Läuft“, heute hat mindestens ein Land frei, wie auf der
+    # Startseite) bzw. nächste Zeitraum („Nächste“). Sind alle Zeiträume vorbei, gibt es keine Markierung.
     upcoming = radar.current_or_next_period(today)
     running = radar.running_period(today)
     next_id = upcoming.id if upcoming else None
