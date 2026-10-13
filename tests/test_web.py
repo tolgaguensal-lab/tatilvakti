@@ -1,8 +1,10 @@
 """Seiten, API, PWA und Datenschutz-Garantien über HTTP."""
 import html as htmllib
 import json
+import math
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -174,6 +176,42 @@ def test_holiday_page_personalises_server_side(client):
     assert re.search(r'data-per-state="none" hidden>', html)
 
 
+@pytest.mark.parametrize("path, lang", [("/de/ferien/sommer-2027?land=NW", "de"), ("/tr/tatil", "tr")])
+def test_period_selector_options_carry_their_cached_path(app, client, path, lang):
+    """app.js schickt die Ferien-Auswahl direkt an den Pfad des Zeitraums (data-href): Nur die Pfade
+    liegen im Speicher des Service Workers, ?zeitraum= fände offline nur die Übersicht."""
+    html = client.get(path).get_data(as_text=True)
+    form = re.search(r'<form class="card inline-form"[^>]*>.*?</form>', html, re.S).group(0)
+    assert "data-period-form" in form and 'action="/%s/%s"' % (lang, "ferien" if lang == "de" else "tatil") in form
+    body = client.get("/sw.js").get_data(as_text=True)
+    cached = json.loads(body.split("self.TV_CONFIG = ", 1)[1].split(";\n", 1)[0])["pages"]
+    base = "/de/ferien/" if lang == "de" else "/tr/tatil/"
+    options = re.findall(r'<option value="([^"]+)" data-href="([^"]+)"', form)
+    assert options == [(p.id, base + p.slug[lang]) for p in _periods(app)]
+    assert all(target in cached for _, target in options)
+
+
+@pytest.mark.parametrize("when, chip, badge", [
+    (datetime(2026, 10, 12, 9, 0, tzinfo=timezone.utc), "herbst-2026", ("Läuft", "Devam ediyor")),  # 8 Länder frei
+    # Sonntage zwischen den Ferienblöcken zweier Länder: offiziell hat niemand Ferien, das Badge sprang
+    # für einen Tag auf „Nächste“ (01.11.2026: Herbstferien in BE/NW bis Sa 31.10., BY ab Mo 02.11.)
+    (datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc), "herbst-2026", ("Läuft", "Devam ediyor")),
+    (datetime(2027, 2, 7, 9, 0, tzinfo=timezone.utc), "winter-2027", ("Läuft", "Devam ediyor")),
+    (datetime(2026, 11, 10, 9, 0, tzinfo=timezone.utc), "weihnachten-2026", ("Nächste", "Sıradaki")),  # Lücke
+    (datetime(2028, 10, 1, 9, 0, tzinfo=timezone.utc), None, None),  # alle eingetragenen Zeiträume vorbei
+])
+def test_period_badge_says_running_or_next(app, client, clock, when, chip, badge):
+    """Die Markierung am Zeitraum-Chip: „Läuft“, solange heute ein Land frei hat (Ferien samt
+    angrenzender Wochenenden und Feiertage, wie „Gerade laufen die …“ auf der Startseite und
+    „läuft gerade“ je Land), „Nächste“ davor, und keine, wenn alle Zeiträume vorbei sind."""
+    clock.now = when
+    for i, (lang, path) in enumerate((("de", "/de/ferien"), ("tr", "/tr/tatil"))):
+        html = client.get(path).get_data(as_text=True)
+        found = re.findall(r'href="/%s/[^/"]+/([^"?]+)[^"]*"[^>]*>[^<]*<span class="chips__badge">([^<]*)</span>' % lang, html)
+        expected = [] if chip is None else [(next(p.slug[lang] for p in _periods(app) if p.id == chip), badge[i])]
+        assert found == expected, (lang, found)
+
+
 def test_report_api_updates_live_status(client):
     resp = client.post("/api/v1/borders/kapikule/reports", json={"direction": "to_tr", "bucket": 3})
     assert resp.status_code == 201
@@ -272,6 +310,190 @@ def test_report_age_is_shown_and_expires(client, clock):
     clock.advance(hours=3)
     html = client.get("/de/grenze/gradina").get_data(as_text=True)
     assert "Keine aktuellen Meldungen" in html and "vor 3 Std." in html
+
+
+def _seed_pattern(db, clock, cid="kapikule", tz="Europe/Istanbul", skip=()):
+    """Tagesverlauf für beide Richtungen: an drei Vortagen je Ortsstunde eine Meldung, Wartezeit
+    Ortsstunde % 6 (alle sechs Bereiche). Stunden in skip bleiben leer (zu wenige Meldungen)."""
+    zone = ZoneInfo(tz)
+    for day in (1, 2, 3):
+        for offset in range(24):
+            ts = clock.ts - day * 86400 - offset * 3600
+            hour = datetime.fromtimestamp(ts, zone).hour
+            if hour in skip:
+                continue
+            for direction in B.DIRECTIONS:
+                db.execute("INSERT INTO reports (crossing, direction, bucket, observed_at, created_at) VALUES (?, ?, ?, ?, ?)",
+                           (cid, direction, hour % 6, ts, ts))
+
+
+def _pattern_svgs(html):
+    return re.findall(r'<svg class="pattern"[^>]*>.*?</svg>', html, re.S)
+
+
+@pytest.mark.parametrize("utc, hour, anchor", [
+    ((2026, 10, 6, 21, 30), 0, "start"),   # 00:30 in Istanbul: Die 0 ist in Jinja „falsy“, der Marker fehlte
+    ((2026, 10, 6, 10, 0), 13, "middle"),
+    ((2026, 10, 6, 20, 59), 23, "end"),
+])
+def test_pattern_now_marker_follows_the_app_clock(client, db, clock, utc, hour, anchor):
+    """Jetzt-Marker: Ortsstunde zur App-Uhr (TV_CLOCK wie Status und Tagesverlauf), auch um 0 Uhr,
+    mit eigener Beschriftung („b_now“ ist der Kartentitel oben) und am Rand bündig. Die Linie hat
+    einen Halo, auf roten und braunen Balken war sie sonst kaum zu sehen."""
+    clock.now = datetime(*utc, tzinfo=timezone.utc)
+    _seed_pattern(db, clock)
+    for path, label, title in (("/de/grenze/kapikule", "Jetzt", "Aktuelle Lage"), ("/tr/sinir/kapikule", "Şimdi", "Şu anki durum")):
+        html = client.get(path).get_data(as_text=True)
+        assert re.search(r'<h2 id="now-title"[^>]*>.*?%s</h2>' % title, html)
+        svgs = _pattern_svgs(html)
+        assert len(svgs) == 2 and all('data-tz="Europe/Istanbul"' in svg for svg in svgs)
+        x = "%.3f" % ((hour + 0.5) / 24 * 100)
+        for svg in svgs:
+            # zuerst der breite Strich in Kartenfarbe (Halo), darüber die gestrichelte Linie
+            mark = re.search(r'<g class="pattern__nowmark" data-hour="(\d+)">'
+                             r'\s*<line class="pattern__now pattern__now--halo" x1="([\d.]+)%" x2="([\d.]+)%"[^>]*></line>'
+                             r'\s*<line class="pattern__now" x1="([\d.]+)%" x2="([\d.]+)%"[^>]*></line>'
+                             r'\s*<text class="pattern__nowlabel" x="([\d.]+)%" y="\d+" text-anchor="(\w+)">([^<]*)</text>', svg)
+            assert mark and mark.groups() == (str(hour), x, x, x, x, x, anchor, label), path
+
+
+def test_pattern_scales_without_shrinking_text_and_labels_by_level(client, db, clock):
+    """Kein viewBox: Schrift in px wie im CSS (mit viewBox schrumpfte sie am Handy auf ~6 px). Die
+    Legende benennt die Stufen, denn jede Farbe fasst zwei Bereiche zusammen (level_for_bucket)."""
+    _seed_pattern(db, clock)
+    for path, levels, single in (("/de/grenze/kapikule", ("flüssig", "Wartezeit", "Stau"), "unter 15 Min."),
+                                 ("/tr/sinir/kapikule", ("akıcı", "bekleme var", "yoğun"), "15 dk'dan az")):
+        html = client.get(path).get_data(as_text=True)
+        for svg in _pattern_svgs(html):
+            tag = svg.split(">", 1)[0]
+            assert "viewBox" not in tag and 'height="128"' in tag
+            # Niveau-Beschriftungen rechts neben der Fläche, nicht über den Balken der Abendstunden
+            assert re.findall(r'<text class="pattern__lvl" x="([^"]+)" dx="6"', svg) == ["100%", "100%"]
+            bars = re.findall(r'<rect class="pattern__bar[^"]*" x="([\d.]+)%" y="[\d.]+" width="([\d.]+)%"', svg)
+            assert len(bars) == 24 and max(float(x) + float(w) for x, w in bars) <= 100
+        legends = re.findall(r'<ul class="map-legend pattern-legend">(.*?)</ul>', html, re.S)
+        assert len(legends) == 2
+        for legend in legends:
+            assert re.findall(r'</i>([^<]+)</li>', legend) == list(levels) and single not in legend
+    css = client.get(re.search(r'href="(/static/css/app\.css\?v=[^"]+)"', html).group(1)).get_data(as_text=True)
+    assert ".pattern__bar:focus-visible" not in css  # Balken sind nicht fokussierbar: Werte stehen in der Liste
+
+
+def test_pattern_values_are_listed_as_text(client, db, clock):
+    """Tooltips gibt es nur mit der Maus, unter role="img" liest ein Screenreader die Balken nicht vor:
+    alle 24 Stunden mit Wartezeit und Anzahl der Meldungen als aufklappbare Liste."""
+    _seed_pattern(db, clock, skip=(4,))
+    for path, few, wait in (("/de/grenze/kapikule", "zu wenige Meldungen", "15–30 Min."),
+                            ("/tr/sinir/kapikule", "yeterli bildirim yok", "15–30 dk")):
+        html = client.get(path).get_data(as_text=True)
+        tables = re.findall(r'<details class="details pattern-table">(.*?)</details>', html, re.S)
+        assert len(tables) == 2
+        rows = re.findall(r'<tr><th scope="row">(\d\d):00</th><td>([^<]+)</td><td>(\d+)</td></tr>', tables[0])
+        assert [r[0] for r in rows] == ["%02d" % h for h in range(24)]
+        assert rows[4] == ("04", few, "0")
+        assert rows[13] == ("13", wait, "3")  # 13 % 6 = Bereich 1
+
+
+def _polylines(d, steps=200):
+    """SVG-Pfad der Karte (absolute M, L, Q, Z) als Liste von Punktfolgen, eine je Teilpfad."""
+    lines, pos, start = [], None, None
+    for cmd, args in re.findall(r"([MLQZ])([^MLQZ]*)", d):
+        nums = [float(n) for n in re.findall(r"-?[\d.]+", args)]
+        if cmd == "M":
+            pos = start = (nums[0], nums[1])
+            lines.append([pos])
+        elif cmd == "L":
+            pos = (nums[0], nums[1])
+            lines[-1].append(pos)
+        elif cmd == "Q":
+            (cx, cy), (x, y), (x0, y0) = (nums[0], nums[1]), (nums[2], nums[3]), pos
+            lines[-1] += [((1 - t) ** 2 * x0 + 2 * t * (1 - t) * cx + t * t * x, (1 - t) ** 2 * y0 + 2 * t * (1 - t) * cy + t * t * y)
+                          for t in (i / steps for i in range(1, steps + 1))]
+            pos = (x, y)
+        else:
+            lines[-1].append(start)
+    return lines
+
+
+def _crossings(a, b):
+    """Schnittpunkte zweier Punktfolgen; Treffer im Abstand < 6 zählen als einer (Ecke am Knoten)."""
+    hits = []
+    for la in a:
+        for (p1, p2) in zip(la, la[1:]):
+            for lb in b:
+                for (q1, q2) in zip(lb, lb[1:]):
+                    d = (p2[0] - p1[0]) * (q2[1] - q1[1]) - (p2[1] - p1[1]) * (q2[0] - q1[0])
+                    if d == 0:
+                        continue
+                    t = ((q1[0] - p1[0]) * (q2[1] - q1[1]) - (q1[1] - p1[1]) * (q2[0] - q1[0])) / d
+                    u = ((q1[0] - p1[0]) * (p2[1] - p1[1]) - (q1[1] - p1[1]) * (p2[0] - p1[0])) / d
+                    if 0 <= t <= 1 and 0 <= u <= 1:
+                        hit = (p1[0] + t * (p2[0] - p1[0]), p1[1] + t * (p2[1] - p1[1]))
+                        if all(abs(hit[0] - h[0]) + abs(hit[1] - h[1]) >= 6 for h in hits):
+                            hits.append(hit)
+    return hits
+
+
+def _distance(point, lines):
+    """Kleinster Abstand eines Punkts zu den Strecken einer Punktfolge."""
+    best = math.inf
+    for line in lines:
+        for (x1, y1), (x2, y2) in zip(line, line[1:]):
+            dx, dy = x2 - x1, y2 - y1
+            t = max(0.0, min(1.0, ((point[0] - x1) * dx + (point[1] - y1) * dy) / ((dx * dx + dy * dy) or 1)))
+            best = min(best, math.dist(point, (x1 + t * dx, y1 + t * dy)))
+    return best
+
+
+def test_map_eu_border_matches_the_routes(app, client):
+    """Die EU-Außengrenze der Karte passt zu transit.json: Serbien liegt außerhalb, Rumänien und
+    Bulgarien innerhalb. Sie kreuzt die Routen nur an den Übergängen (unter deren Kreis, r=13):
+    Route a in Röszke, Route b in Batrovci, die Stammstrecke in Gradina und Kapıkule, Route c
+    (Schengen-Route über Rumänien) gar nicht – dort ist Kapıkule die einzige Kontrolle."""
+    html = client.get("/de/grenze").get_data(as_text=True)
+    assert "EU-Außengrenze" in html and "AB dış sınırı" in client.get("/tr/sinir").get_data(as_text=True)
+    routes = {name: _polylines(d) for name, d in re.findall(r'<path class="map__line map__line--(\w+)" d="([^"]+)"', html)}
+    border = _polylines(re.search(r'<path class="map__border" d="([^"]+)"', html).group(1))
+    nodes = {c["id"]: (c["map"]["x"], c["map"]["y"]) for c in app.extensions["tv"].content.crossings["crossings"] if c.get("map")}
+    near = {}
+    for name, line in routes.items():
+        near[name] = sorted(min(nodes, key=lambda cid: math.dist(nodes[cid], hit)) for hit in _crossings(border, line)
+                            if min(math.dist(n, hit) for n in nodes.values()) < 13)
+        assert len(near[name]) == len(_crossings(border, line)), name  # kein Schnitt außerhalb eines Übergangs
+    assert near == {"trunk": ["gradina", "kapikule"], "a": ["horgos"], "b": ["batrovci"], "c": []}
+    # Jeder Übergang liegt auf seiner Route (Karte vor PR #6: genau darauf)
+    for cid, name in (("horgos", "a"), ("batrovci", "b"), ("gradina", "trunk"), ("kapikule", "trunk")):
+        assert _distance(nodes[cid], routes[name]) < 3, cid
+
+
+def test_map_direction_arrows_are_not_hidden_under_a_crossing(app, client):
+    """Die Übergänge (Kreis r=13, Rand 2) werden nach den Pfeilen gezeichnet und verdeckten den Pfeil
+    Richtung Türkei ganz. Auch Länderpunkte (r=7, Rand 3) dürfen keinen Pfeil verdecken."""
+    html = re.search(r'<svg class="map".*?</svg>', client.get("/de/grenze").get_data(as_text=True), re.S).group(0)
+    arrows = dict(re.findall(r'<g class="map__arrow map__arrow--(\w+)" aria-hidden="true"><path d="([^"]+)"', html))
+    assert set(arrows) == {"to_tr", "to_de"}
+    covers = [((c["map"]["x"], c["map"]["y"]), 14) for c in app.extensions["tv"].content.crossings["crossings"] if c.get("map")]
+    covers += [((float(x), float(y)), 8.5) for x, y in re.findall(r'<circle cx="([\d.]+)" cy="([\d.]+)" r="(?:7|4\.5)"', html)]
+    assert len(covers) == 4 + 9
+    for name, d in arrows.items():
+        corners = [tuple(map(float, xy)) for xy in re.findall(r"([\d.]+),([\d.]+)", d)]
+        centre = (sum(x for x, _ in corners) / 3, sum(y for _, y in corners) / 3)
+        for point in corners + [centre]:
+            assert all(math.dist(point, c) > r for c, r in covers), (name, point)
+
+
+def test_home_running_period_counts_free_states_on_a_weekend_between_blocks(app, client, clock):
+    """So 01.11.2026: offiziell hat kein Land Herbstferien, die freien Strecken (Wochenende vor bzw.
+    nach den Ferien) laufen aber. Die Startseite zählte 0 Länder bzw. zeigte den Zeitraum nicht."""
+    radar = app.extensions["tv"].radar
+    day = date(2026, 11, 1)
+    assert radar.states_on_holiday(day) == []
+    free = radar.states_free(day)
+    assert free and all(any(s.contains(day) for s in radar.by_id["herbst-2026"].stretches(code)) for code in free)
+    clock.now = datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc)
+    assert (f"Gerade laufen die Herbstferien 2026: heute haben {len(free)} von 16 Ländern frei."
+            in client.get("/de/").get_data(as_text=True))
+    assert (f"bugün 16 eyaletten {len(free)} tanesi tatilde." in client.get("/tr/").get_data(as_text=True))
 
 
 def test_home_shows_next_real_holiday_start_during_gap(client, clock):

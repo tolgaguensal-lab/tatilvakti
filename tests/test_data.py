@@ -1,6 +1,8 @@
 """Kuratierte Daten: vollständig, zweisprachig, mit Quellen – sonst startet die App nicht."""
 import html as htmllib
+import json
 import re
+from pathlib import Path
 
 import pytest
 
@@ -325,6 +327,25 @@ def test_strings_have_identical_keys_in_both_languages():
     tr = Translator()
     de_keys, tr_keys = set(tr.strings["de"]), set(tr.strings["tr"])
     assert de_keys == tr_keys, f"nur DE: {de_keys - tr_keys}, nur TR: {tr_keys - de_keys}"
+
+
+def test_json_files_have_no_duplicate_keys():
+    """json.load behält bei doppelten Schlüsseln still den letzten Wert, und der Vergleich der
+    Schlüssel oben sieht das nicht, wenn beide Sprachen dasselbe Duplikat haben (so überschrieb
+    ein zweites „b_now“ die Beschriftung des Jetzt-Markers mit „Aktuelle Lage“)."""
+    root = Path(__file__).resolve().parents[1] / "tatilvakti"
+    found = []
+
+    def check(pairs):
+        keys = [key for key, _ in pairs]
+        found.extend(sorted({key for key in keys if keys.count(key) > 1}))
+        return dict(pairs)
+
+    for path in sorted((root / "i18n").glob("*.json")) + sorted((root / "data").glob("*.json")):
+        before = len(found)
+        json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=check)
+        found[before:] = [f"{path.name}: {key}" for key in found[before:]]
+    assert found == []
 
 
 def test_strings_use_same_placeholders_and_are_not_empty():
