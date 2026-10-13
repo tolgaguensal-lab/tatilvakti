@@ -29,7 +29,9 @@
 #
 # --check: nur Schritt 1, dazu der Preflight des aktiven Releases gegen die Kopie (create_app,
 # /healthz, alle Seiten). Ohne Angabe die neueste nächtliche Sicherung. Für den Restore-Drill (README).
-# Eine zu neue Schema-Version meldet --check nur (WARNUNG am Ende), es bricht deshalb nicht ab.
+# Eine zu neue oder nicht lesbare Schema-Version meldet --check nur (WARNUNG am Ende) und endet dann
+# mit Exit-Code 3 statt 0: Die Probe lief durch, echt zurückspielen ginge nur mit --force-schema.
+# Exit-Code 1 heißt wie sonst Fehler.
 #
 # Die Schlüssel-DB (/run/tatilvakti-v2/salts.db) bleibt unberührt, sie wird nie gesichert.
 # deploy.sh, rollback.sh und restore.sh laufen nie gleichzeitig (Sperre /opt/tatilvakti-v2/.lock).
@@ -143,7 +145,7 @@ TS=$(date -u +%Y%m%dT%H%M%SZ)
 # räumt beim Beenden nur seine eigene Kopie weg
 STAGE=$DATA_DIR/.restore-$TS-$$.db
 OLD=$DATA_DIR/pre-restore-$TS
-PHASE=prepare  # prepare → stopped → moving → installed → started
+PHASE=prepare  # prepare → stopped → moving → installed → started (--check: prepare → checked)
 RUNNING=()     # Units, die vor dem Restore liefen; der Weg zurück startet genau diese
 UNITS=()       # Units, die das Skript nach dem Restore startet
 OLD_FILES=()
@@ -197,7 +199,9 @@ on_exit() {
     trap '' INT TERM HUP PIPE  # das Aufräumen nicht selbst unterbrechen lassen
     rm -f -- "$STAGE" "$STAGE-wal" "$STAGE-shm" "$STAGE-journal"
     [ "$rc" -ne 0 ] || return 0
-    if [ "$PHASE" = prepare ]; then
+    # --check lief durch, nur die Schema-Version sperrt ein echtes Zurückspielen (Exit-Code 3)
+    if [ "$PHASE" = checked ] && [ "$rc" = 3 ]; then return 0; fi
+    if [ "$PHASE" = prepare ] || [ "$PHASE" = checked ]; then
         echo "Abgebrochen, nichts geändert." >&2 || true
         return 0
     fi
@@ -272,10 +276,10 @@ if [ "$CHECK" = 1 ]; then
         --env-file "$ENV_FILE" --db "$STAGE" --no-tests) \
         || die "Preflight gegen die Sicherung fehlgeschlagen: $SRC"
     log "Restore-Probe ok: ${SRC##*/}, $REPORTS Meldungen. Dienst und Datenbank unverändert."
-    if [ -n "$SCHEMA_WARN" ]; then
-        log "WARNUNG: $SCHEMA_WARN Zurückspielen nur mit --force-schema \"<Grund>\" (README → Backup und Restore)."
-    fi
-    exit 0
+    [ -n "$SCHEMA_WARN" ] || exit 0
+    log "WARNUNG: $SCHEMA_WARN Zurückspielen nur mit --force-schema \"<Grund>\" (README → Backup und Restore)."
+    PHASE=checked
+    exit 3
 fi
 
 [ ! -e "$OLD" ] || die "$OLD existiert bereits"

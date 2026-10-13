@@ -1316,7 +1316,7 @@ def test_newest_backup_kind_and_age(releases, tmp_path, name, kind, ago, age):
     dest = tmp_path / "sicherungen"
     dest.mkdir()
     (dest / name.format(stamp)).touch()
-    # Älter, mit einem Namen, der alphabetisch nach der jüngsten käme
+    # Älter; neben einer Sicherung vor einem Deploy käme ihr Name alphabetisch danach
     (dest / "tatilvakti-20200101T000000Z.db").touch()
     res = releases.lib('BACKUP_DIR=$1 && newest_backup && echo "$LATEST|$LATEST_KIND|$LATEST_AGE"', str(dest))
     assert res.stdout == f"{dest}/{name.format(stamp)}|{kind}|{age}\n", res.stderr
@@ -1911,13 +1911,15 @@ def test_restore_places_backups_without_user_version(restore, clock, columns, db
 
 def test_restore_check_only_reports_a_newer_schema_version(restore):
     """Restore-Drill: --check bricht wegen der Schema-Version nicht ab (es prüft die Sicherung selbst),
-    sagt aber in der letzten Zeile, dass ein echtes Zurückspielen --force-schema bräuchte."""
+    sagt aber in der letzten Zeile, dass ein echtes Zurückspielen --force-schema bräuchte, und endet
+    mit Exit-Code 3: für eine spätere automatische Probe unterscheidbar von ok (0) und Fehler (1)."""
     backup = restore.backup()
     set_user_version(backup, SCHEMA_VERSION + 1)
     before = restore.crash()
     restore.release()
     res = restore.run("--check", str(backup))
-    assert res.returncode == 0, res.stdout + res.stderr
+    assert res.returncode == 3, res.stdout + res.stderr
+    assert "Abgebrochen" not in res.stderr and "FEHLER" not in res.stderr  # die Probe lief durch
     warning = f"Die Sicherung hat Schema-Version {SCHEMA_VERSION + 1}, r1 kennt nur bis {SCHEMA_VERSION}."
     assert f"  WARNUNG: {warning}\n" in res.stdout and "preflight ok build=" in res.stdout
     ok, last = res.stdout.splitlines()[-2:]
