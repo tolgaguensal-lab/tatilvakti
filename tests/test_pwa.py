@@ -348,8 +348,11 @@ def test_info_page_explains_offline_behaviour_honestly(client, path, words, appl
     # Schritte je iOS-Version („•••“ bzw. Menü links → Teilen, Schalter „Als Web-App öffnen“) laut Apple-Handbuch,
     # in der Sprache der Seite und versioniert: Die Seite ohne Version zeigt immer das neueste iOS
     locale, label = apple
+    template = (tatilvakti.PACKAGE_DIR / "templates" / "info.html").read_text(encoding="utf-8")
     for v in ("26", "27"):
-        assert f'href="https://support.apple.com/{locale}/guide/iphone/iphea86e5236/{v}/ios/{v}"' in section
+        url = f"https://support.apple.com/{locale}/guide/iphone/iphea86e5236/{v}/ios/{v}"
+        assert f'href="{url}"' in section
+        assert url in template  # ausgeschrieben, nicht zusammengesetzt: sonst findet eine Link-Prüfung sie nicht
         assert f"{label} (iOS {v})" in section
     assert "iphea86e5236/ios" not in section
     assert "90" in section  # Warteschlange: so lange werden Meldungen nachgeliefert
