@@ -117,7 +117,7 @@ deploy/            systemd-Units (Dienst, Wartung, Backup) und Env-Vorlage
 scripts/           deploy.sh, rollback.sh, restore.sh, release-lib.sh, healthcheck.py, preflight.py, backup.py, schema_check.py, tv-flask.sh, check_sources.py, kmk_diff.py
 scripts/og/        Vorlage und Render-Skript der Vorschaubilder
 docs/MIGRATION.md  Ablösung der Alt-App: Entscheidungen, Umschalten, Prüfliste, Rollback
-docs/RUNBOOK.md    Störung: Symptome, Prüfschritte, Maßnahmen; Wiederaufbau auf neuem Host
+docs/RUNBOOK.md    Störung: Symptome, Prüfschritte, Maßnahmen; Wiederaufbau auf neuem Host; Quellen-Links prüfen
 ```
 
 ## Setup (Entwicklung)

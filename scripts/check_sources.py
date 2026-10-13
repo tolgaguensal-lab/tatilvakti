@@ -377,8 +377,8 @@ def check_all(urls: dict[str, list[str]], *, workers: int = DEFAULT_WORKERS,
     """Alle URLs prüfen, je Host nacheinander. Sortiert: KAPUTT, WEITERLEITUNG, OK, je nach URL.
 
     Bei Strg+C (oder einem Fehler in progress) kehrt es sofort zurück: Was noch nicht läuft oder
-    auf seinen Host wartet, ruft nichts mehr ab; laufende Abrufe enden im Hintergrund, spätestens
-    nach ihrem Timeout."""
+    auf seinen Host wartet, ruft nichts mehr ab; laufende Abrufe beenden im Hintergrund nur noch
+    ihren aktuellen Schritt (keine weitere Weiterleitung, keine Wiederholung)."""
     locks = {host_of(url): threading.Lock() for url in urls}
     stop = threading.Event()
 
@@ -529,7 +529,7 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     code = main()
-    if code == 130:  # Strg+C: laufende Abrufe nicht abwarten (der Interpreter wartete sonst bis zu --timeout)
+    if code == 130:  # Strg+C: laufende Abrufe nicht abwarten (der Interpreter wartete sonst auf die Worker)
         sys.stdout.flush()
         sys.stderr.flush()
         os._exit(code)
