@@ -17,19 +17,20 @@
 
 <nav class="chips" aria-label="{{ t('hol_period') }}">
   {%- for p in periods %}
-  <a class="chips__item{% if p.id == period.id %} is-active{% endif %}" data-state-link href="{{ href('holidays', slug=p.slug[lang]) }}{% if land %}?land={{ land }}{% endif %}"{% if p.id == period.id %} aria-current="page"{% endif %}>{{ p.label[lang] }}{% if p.id == next_id %} <span class="chips__badge">{{ t("hol_next_badge") }}</span>{% endif %}</a>
+  <a class="chips__item{% if p.id == period.id %} is-active{% endif %}" data-state-link href="{{ href('holidays', slug=p.slug[lang]) }}{% if land %}?land={{ land }}{% endif %}"{% if p.id == period.id %} aria-current="page"{% endif %}>{{ p.label[lang] }}{% if p.id == next_id %} <span class="chips__badge">{{ t("hol_running_badge" if next_running else "hol_next_badge") }}</span>{% endif %}</a>
   {%- endfor %}
 </nav>
 
 {#- Normales GET-Formular (bewusst ohne data-prefs): ohne JS schickt es Zeitraum + Bundesland an
-    die Übersicht, die per 301 auf die Zeitraum-Seite weiterleitet; mit JS gilt dasselbe, das
+    die Übersicht, die per 301 auf die Zeitraum-Seite weiterleitet. Mit JS geht app.js über
+    data-href direkt auf den Zeitraum-Pfad (liegt offline im Speicher des Service Workers), das
     Bundesland wirkt zusätzlich sofort client-seitig (data-pref="state"). #}
-<form class="card inline-form" method="get" action="{{ href('holidays') }}">
+<form class="card inline-form" method="get" action="{{ href('holidays') }}" data-period-form>
   <label class="field">
     <span class="field__label">{{ t("hol_period") }}</span>
     <select name="zeitraum">
       {%- for p in periods %}
-      <option value="{{ p.id }}"{% if p.id == period.id %} selected{% endif %}>{{ p.label[lang] }}</option>
+      <option value="{{ p.id }}" data-href="{{ href('holidays', slug=p.slug[lang]) }}"{% if p.id == period.id %} selected{% endif %}>{{ p.label[lang] }}</option>
       {%- endfor %}
     </select>
   </label>

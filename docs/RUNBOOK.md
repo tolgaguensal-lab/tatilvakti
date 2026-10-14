@@ -50,7 +50,7 @@ sudo du -sh /var/lib/tatilvakti-v2 /var/lib/tatilvakti-v2/backups /opt/tatilvakt
 journalctl --disk-usage
 ```
 
-Platz schaffen, ohne Daten zu verlieren: geprüfte `pre-restore-<zeit>/`-Verzeichnisse unter `/var/lib/tatilvakti-v2` löschen (README → Backup und Restore), das Journal kürzen (`sudo journalctl --vacuum-time=14d`, passend zur Empfehlung in README → Logs und Monitoring). Alte Releases räumt `deploy.sh` selbst auf (`--keep`). Sicherungen unter `backups/` nur löschen, wenn eine neuere geprüft ist. `deploy.sh` bricht ab, wenn für die Sicherung vor dem Umschalten der Platz fehlt (README → Update und Rollback).
+Platz schaffen, ohne Daten zu verlieren: geprüfte `pre-restore-<zeit>/`-Verzeichnisse unter `/var/lib/tatilvakti-v2` löschen (README → Backup und Restore), das Journal kürzen (`sudo journalctl --vacuum-time=14d`, passend zur Empfehlung in README → Logs und Monitoring). Alte Releases räumt `deploy.sh` selbst auf (`--keep`). Sicherungen unter `backups/` nur löschen, wenn eine neuere geprüft ist. `deploy.sh` bricht ab, wenn für die Sicherung vor dem Umschalten der Platz fehlt (README → Update und Rollback). Muss ein Hotfix trotzdem sofort raus: `cd /opt/tatilvakti-v2/src && sudo scripts/deploy.sh --no-snapshot "<Grund>"`. Dann ist die jüngste vorhandene Sicherung der Datenstand zum Zurückspielen (die nächtliche oder die vor einem früheren Deploy), `deploy.sh` nennt sie samt Alter. Nicht zusammen mit `--force-schema` (lehnt `deploy.sh` ab).
 
 **d) Rechte**
 
@@ -114,7 +114,7 @@ sudo /opt/tatilvakti-v2/current/scripts/restore.sh --check /var/lib/tatilvakti-v
 sudo /opt/tatilvakti-v2/current/scripts/restore.sh /var/lib/tatilvakti-v2/backups/<datei>
 ```
 
-`tatilvakti-<zeit>.db` sind die nächtlichen Sicherungen, `pre-deploy-<release>.db` der Stand direkt vor dem Deploy von `<release>`. Meldungen seit der Sicherung gehen verloren. Den bisherigen Stand legt `restore.sh` nach `pre-restore-<zeit>/` und nennt bei jedem Fehler den Weg zurück (README → Backup und Restore). Hat ein Deploy die Daten beschädigt und die Schema-Version erhöht, zuerst zurückrollen, dann die Sicherung vor dem Deploy zurückspielen (README → Update und Rollback → Schema-Version).
+`tatilvakti-<zeit>.db` sind die nächtlichen Sicherungen, `pre-deploy-<release>.db` der Stand direkt vor dem Deploy von `<release>`. Meldungen seit der Sicherung gehen verloren. Den bisherigen Stand legt `restore.sh` nach `pre-restore-<zeit>/` und nennt bei jedem Fehler den Weg zurück (README → Backup und Restore). Hat ein Deploy die Daten beschädigt und die Schema-Version erhöht, zuerst zurückrollen, dann die Sicherung vor dem Deploy zurückspielen (README → Update und Rollback → Schema-Version). Ist die Sicherung neuer, als das aktive Release kennt, spielt `restore.sh` sie nicht zurück und nennt die Wege (README → Backup und Restore → Schema-Version); `--check` meldet das nur als WARNUNG (Exit-Code 3 statt 0). Notfall: `--force-schema "<Grund>"`.
 
 **d) Spam: Meldungen gezielt löschen**
 
@@ -178,3 +178,39 @@ Ergebnis hier und in MIGRATION.md, Anhang B eintragen. Fall: ______
 
 | Datum | Host | Sicherung | Zeit bis `status` `ok` über die Domain | Was fehlte |
 |---|---|---|---|---|
+
+## 5. Pflege: Quellen-Links prüfen
+
+Kein Störfall, aber regelmäßig fällig: Behörden, Mautbetreiber und Automobilclubs bauen ihre Seiten um, dann führen Quellen-Links der App ins Leere. `scripts/check_sources.py` ruft jeden http(s)-Link aus `tatilvakti/data/*.json`, `tatilvakti/i18n/*.json` und den Templates (`tatilvakti/templates/*.html`, etwa die WebKit-Quelle auf der Info-Seite) einmal ab, auch wenn er an mehreren Stellen steht. Es braucht nur `python3` (ab 3.10), kein venv und kein `sudo`:
+
+```bash
+python3 /opt/tatilvakti-v2/current/scripts/check_sources.py                  # alle Links
+python3 /opt/tatilvakti-v2/current/scripts/check_sources.py --only zoll.de   # nur Hosts, die „zoll.de“ enthalten (mehrfach möglich)
+python3 /opt/tatilvakti-v2/current/scripts/check_sources.py --json > /tmp/quellen.json
+python3 /opt/tatilvakti-v2/current/scripts/check_sources.py --list           # nur auflisten, nichts abrufen
+```
+
+**Wann:** vor jeder Reisesaison (vor den Sommer-, Herbst- und Weihnachtsferien), vor jedem Prüftermin der Datensätze (`/healthz` → `next_review`, siehe 2b) und nach größeren Datenänderungen.
+
+**Ausgabe:** Probleme zuerst, je Link alle Fundstellen als JSON-Pfad (z. B. `aus transit.json:countries.HU.shop.url`), bei Templates mit Zeile (`aus info.html:41`), am Ende eine Zusammenfassung.
+
+| Ergebnis | Bedeutung | Maßnahme |
+|---|---|---|
+| `OK` | Seite antwortet, höchstens Weiterleitung auf dieselbe Adresse (http → https, mit oder ohne `www.`, Schrägstrich am Ende; Pfad und Query gleich) | – |
+| `WEITERLEITUNG` | Ziel ist eine andere Seite (anderer Pfad oder andere Query, z. B. ein entfallener FAQ-Eintrag `?faqCalledDoc=…`), ein anderer Host oder dieselbe Seite über http statt https; das Ziel steht in der Zeile darunter | Ziel im Browser öffnen. Belegt es noch, was die App sagt: die neue URL an allen Fundstellen eintragen. Landet es auf einer Start- oder Fehlerseite: wie `KAPUTT` |
+| `KAPUTT` | HTTP 4xx/5xx, DNS, TLS, Timeout, Proxy, mehr als 5 Weiterleitungen oder Weiterleitung ohne Ziel, der Grund steht darunter | Erst im Browser gegenprüfen: Manche Seiten sperren Skripte oder bestimmte Netze und antworten nur dem Browser. Ist die Seite weg, auf der Website der Stelle die neue Seite suchen und die URL an allen Fundstellen ersetzen. `TLS: unable to get local issuer certificate`, im Browser aber in Ordnung: Meist schickt der Server ein Zwischenzertifikat nicht mit. Browser ergänzen es oft selbst, Python nicht (CPython-Issue 18617, „AIA chasing for missing intermediate certificates“). Die URL bleibt dann, in der Tabelle „Durchläufe“ unten vermerken |
+
+Nach jeder Änderung an den Daten wie immer: `pytest`, committen, ausrollen (README → Datenpflege, README → Update und Rollback).
+
+**Exit-Code:** 0 = nichts `KAPUTT`, 1 = mindestens ein `KAPUTT`, 2 = Aufruf- oder Datenfehler (auch wenn `--only` auf keinen Link passt), 130 = mit Strg+C abgebrochen (beendet sofort, ohne Ergebnis). Weiterleitungen sind nur ein Hinweis; mit `--strict` zählen Weiterleitungen auf andere Hosts als Fehler (Exit 1).
+
+**Netz:** Hermes braucht dafür ausgehendes HTTPS. `HTTPS_PROXY` und `NO_PROXY` werden beachtet. Lässt ein Proxy ein Ziel nicht zu, meldet das Skript `KAPUTT` mit „Proxy 403 Forbidden“ statt abzubrechen; antwortet kein einziger Server, sagt die Zusammenfassung, dass es eher am Netz des Rechners liegt als an den Quellen. So sieht die Ausgabe in der Entwicklungsumgebung aus, die keine externen Hosts erreicht (Netzwerk-Policy, CONNECT mit 403): jeder Link `KAPUTT (Proxy 403 …)`, kein Absturz.
+
+**Höflich:** eigener User-Agent (`tatilvakti-quellencheck/1.0`), 4 Abrufe gleichzeitig (`--workers`, höchstens 16), je Host nur einer, erst HEAD und nur bei Bedarf GET (davon nur der Kopf), eine Wiederholung bei Timeout oder 5xx. Cookies nimmt es wie ein Browser an, hält sie aber nur im Speicher und nur für den einen Link (manche Seiten leiten ohne Cookie auf sich selbst weiter); auf die Platte schreibt es nichts. Nicht in kurzen Abständen wiederholen. Einen Timer dafür gibt es nicht; ein regelmäßiger Lauf wäre eine eigene systemd-Unit.
+
+**Grenzen:** Geprüft wird nur, ob eine Seite antwortet, nicht ihr Inhalt. Ob eine Quelle noch belegt, was die App sagt (Preise, Freimengen, Termine), bleibt Handarbeit zum `review_after` des Eintrags.
+
+**Durchläufe:**
+
+| Datum | `OK` / `WEITERLEITUNG` / `KAPUTT` | Geändert |
+|---|---|---|

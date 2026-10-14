@@ -28,11 +28,16 @@ LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 # Standard: neben dieser Datei. deploy.sh läuft aus einem Git-Klon, den der Dienstbenutzer vielleicht
 # nicht lesen darf, und setzt HELPERS deshalb auf eine lesbare Kopie.
 HELPERS=$LIB_DIR
-FORCE_SCHEMA=   # Begründung aus --force-schema (deploy.sh, rollback.sh)
-SCHEMA_DB=      # von check_schema gesetzt: Schema-Version der DB …
+FORCE_SCHEMA=   # Begründung aus --force-schema (deploy.sh, rollback.sh, restore.sh)
+NO_SNAPSHOT=    # Begründung aus --no-snapshot (deploy.sh)
+SCHEMA_DB=      # von read_schema gesetzt: Schema-Version der DB …
 SCHEMA_RELEASE= # … und die, die das geprüfte Release kennt (beide leer, wenn nicht lesbar)
 SCHEMA_BACKUP=  # … und bei einer neueren DB die neueste Sicherung, die das Release kennt
+SCHEMA_OUT=     # … und die übrige Ausgabe von schema_check.py (Grund, passende Sicherungen)
 SNAPSHOT=       # von pre_deploy_snapshot gesetzt: Sicherung vor dem Umschalten
+LATEST=         # von newest_backup gesetzt: jüngste Sicherung (leer: keine) …
+LATEST_KIND=    # … ihre Art ("nächtliche Sicherung" oder "Sicherung vor einem früheren Deploy") …
+LATEST_AGE=     # … und ihr Alter, z. B. "9 h alt"
 
 log() { printf '%s  %s\n' "$(date '+%H:%M:%S')" "$*"; }
 die() { printf 'FEHLER: %s\n' "$*" >&2; exit 1; }
@@ -97,29 +102,50 @@ run_preflight() {  # $1 = Release-Verzeichnis, weitere Argumente gehen an prefli
     return 1
 }
 
-# --force-schema "<Grund>": Der Grund muss da sein und darf keine weitere Option sein
-force_reason() {  # $1 = Wert nach --force-schema
+# --force-schema "<Grund>" bzw. --no-snapshot "<Grund>": Der Grund muss da sein und darf keine
+# weitere Option sein
+force_reason() {  # $1 = Wert nach der Option, $2 = Option (Standard --force-schema), $3 = Beispiel
+    local opt=${2:---force-schema} example=${3:-Startseite leer, Fix folgt}
     if ! [[ ${1-} =~ [^[:space:]] ]] || [[ $1 == -* ]]; then
-        die "--force-schema braucht eine Begründung, z. B. --force-schema \"Startseite leer, Fix folgt\""
+        die "$opt braucht eine Begründung, z. B. $opt \"$example\""
     fi
 }
 
-# Schema-Version (Audit d2-schema-version-rollback): Kennt das Release die Schema-Version der DB?
+# WARNUNG in der Ausgabe und im Journal (journalctl -t tatilvakti-v2-release): für Notfall-Optionen
+# mit Begründung (--force-schema, --no-snapshot), damit der Grund später noch nachzulesen ist
+journal_warn() {  # $1 = Text
+    log "WARNUNG: $1"
+    logger -t "$APP-release" -p user.warning -- "$1" 2>/dev/null || true
+}
+
+# Schema-Version (Audit d2-schema-version-rollback): Kennt das Release die Schema-Version einer DB?
 # schema_check.py liest als Dienstbenutzer user_version der DB und SCHEMA_VERSION des Releases.
-# Setzt SCHEMA_DB, SCHEMA_RELEASE und SCHEMA_BACKUP. Endet mit 1, wenn die DB neuer ist (die Ausgabe
-# nennt dann passende Sicherungen, danach schema_hint), mit 2, wenn eine Version nicht lesbar ist
-# (danach schema_unreadable_hint). Beides nicht, wenn FORCE_SCHEMA eine Begründung enthält: Die
-# steht dann auch im Journal (journalctl -t tatilvakti-v2-release).
-check_schema() {  # $1 = Release-Verzeichnis
-    local out rc=0 versions text
-    out=$(cd / && as_service_user python3 "$HELPERS/schema_check.py" \
-        --db "$DB" --release "$1" --backups "$BACKUP_DIR" 2>&1) || rc=$?
+# Setzt SCHEMA_DB, SCHEMA_RELEASE, SCHEMA_BACKUP und SCHEMA_OUT. Endet mit 0, wenn das Release die
+# DB kennt, mit 1, wenn die DB neuer ist (SCHEMA_OUT nennt dann passende Sicherungen), mit 2, wenn
+# eine Version nicht lesbar ist (auch bei unerwarteter Ausgabe). restore.sh prüft so die Sicherung.
+read_schema() {  # $1 = Release-Verzeichnis, $2 = DB (Standard: DB), $3 = ihr Name in den Meldungen
+    local out rc=0 versions
+    out=$(cd / && as_service_user python3 "$HELPERS/schema_check.py" --db "${2:-$DB}" --release "$1" \
+        --backups "$BACKUP_DIR" --label "${3:-Datenbank}" 2>&1) || rc=$?
     versions=$(sed -n '1s/^schema db=\([0-9][0-9]*\) release=\([0-9][0-9]*\)$/\1 \2/p' <<<"$out")
     SCHEMA_DB=${versions% *}
     SCHEMA_RELEASE=${versions#* }
     # Erste Zeile der Liste "  <Pfad>  (Schema-Version <n>)" von schema_check.py
     SCHEMA_BACKUP=$(sed -n '/^  .*  (Schema-Version [0-9][0-9]*)$/{s/^  \(.*\)  (Schema-Version [0-9]*)$/\1/p;q;}' <<<"$out")
-    if [ "$rc" = 0 ] && [ -n "$versions" ]; then
+    if [ "$rc" = 0 ] && [ -z "$versions" ]; then out="unerwartete Ausgabe von schema_check.py: $out"; fi
+    SCHEMA_OUT=$(sed '/^schema db=/d' <<<"$out")
+    [ -n "$versions" ] || rc=2  # ohne beide Versionen ist nichts bekannt, auch bei einem anderen Fehler
+    return "$rc"
+}
+
+# Prüfung vor dem Umschalten (deploy.sh, rollback.sh): read_schema gegen die Haupt-DB. Endet mit 1,
+# wenn die DB neuer ist (die Ausgabe nennt dann passende Sicherungen, danach schema_hint), mit 2,
+# wenn eine Version nicht lesbar ist (danach schema_unreadable_hint). Beides nicht, wenn
+# FORCE_SCHEMA eine Begründung enthält: Die steht dann auch im Journal (journal_warn).
+check_schema() {  # $1 = Release-Verzeichnis
+    local rc=0 text
+    read_schema "$1" || rc=$?
+    if [ "$rc" = 0 ]; then
         text="Schema-Version: Datenbank $SCHEMA_DB, ${1##*/} kennt bis $SCHEMA_RELEASE"
         if [ "$SCHEMA_DB" -gt 0 ] && [ "$SCHEMA_RELEASE" -gt "$SCHEMA_DB" ]; then
             text+=" (stellt die Datenbank beim Start um)"
@@ -127,13 +153,9 @@ check_schema() {  # $1 = Release-Verzeichnis
         log "$text"
         return 0
     fi
-    [ "$rc" != 0 ] || { out="unerwartete Ausgabe von schema_check.py: $out"; rc=2; }
-    [ -n "$versions" ] || rc=2  # ohne beide Versionen ist nichts bekannt, auch bei einem anderen Fehler
-    sed '/^schema db=/d' <<<"$out" >&2
+    printf '%s\n' "$SCHEMA_OUT" >&2
     [ -n "$FORCE_SCHEMA" ] || return "$rc"
-    text="Schema-Prüfung für ${1##*/} übersteuert (--force-schema): $FORCE_SCHEMA"
-    log "WARNUNG: $text"
-    logger -t "$APP-release" -p user.warning -- "$text" 2>/dev/null || true
+    journal_warn "Schema-Prüfung für ${1##*/} übersteuert (--force-schema): $FORCE_SCHEMA"
 }
 
 # Wege nach einem Abbruch wegen der Schema-Version (deploy.sh, rollback.sh)
@@ -197,6 +219,85 @@ pre_deploy_snapshot() {  # $1 = Name des neuen Releases (<UTC-Zeit>-<Commit>)
     printf '%s\n' "$out"
     SNAPSHOT=$(sed -n 's/^ok \(.*\) reports=[0-9][0-9]* .*$/\1/p' <<<"$out")
     [ -n "$SNAPSHOT" ] || { printf 'unerwartete Ausgabe von backup.py: %s\n' "$out" >&2; return 1; }
+}
+
+# Jüngste Sicherung von backup.py nach der UTC-Zeit im Namen: nächtlich (tatilvakti-<UTC-Zeit>.db)
+# oder vor einem früheren Deploy (pre-deploy-<UTC-Zeit>-<Commit>.db, die Zeit ist der Beginn jenes
+# Deploys), Namen so streng wie in backup.py. Setzt LATEST, LATEST_KIND und LATEST_AGE (laut Namen).
+newest_backup() {
+    local path name num best=0 stamp secs
+    LATEST=
+    LATEST_KIND=
+    LATEST_AGE=
+    [ -d "$BACKUP_DIR" ] || return 0
+    while IFS= read -r -d '' path; do
+        name=${path##*/}
+        [[ $name =~ ^tatilvakti-([0-9]{8}T[0-9]{6}Z)\.db$ ]] \
+            || [[ $name =~ ^pre-deploy-([0-9]{8}T[0-9]{6}Z)-[0-9a-f]{4,40}\.db$ ]] || continue
+        num=${BASH_REMATCH[1]//[TZ]/}  # 20261012T034000Z → 20261012034000, als Zahl vergleichbar
+        if [ -z "$LATEST" ] || (( 10#$num > 10#$best )); then
+            best=$num
+            LATEST=$path
+        fi
+    done < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.db' -print0 2>/dev/null | sort -z)
+    [ -n "$LATEST" ] || return 0
+    if [[ ${LATEST##*/} == pre-deploy-* ]]; then
+        LATEST_KIND="Sicherung vor einem früheren Deploy"
+    else
+        LATEST_KIND="nächtliche Sicherung"
+    fi
+    # Zeit aus dem Namen in der Form, die GNU date liest: 20261012 03:40:00
+    stamp="${best:0:8} ${best:8:2}:${best:10:2}:${best:12:2}"
+    if ! stamp=$(date -u -d "$stamp" +%s 2>/dev/null); then
+        LATEST_AGE="Alter unbekannt"
+        return 0
+    fi
+    secs=$(( $(date +%s) - stamp ))
+    [ "$secs" -ge 0 ] || secs=0
+    if [ "$secs" -lt 3600 ]; then
+        LATEST_AGE="$((secs / 60)) Min. alt"
+    elif [ "$secs" -lt 172800 ]; then
+        LATEST_AGE="$((secs / 3600)) h alt"
+    else
+        LATEST_AGE="$((secs / 86400)) Tage alt"
+    fi
+}
+
+# Notfall deploy.sh --no-snapshot "<Grund>", z. B. für einen Hotfix bei fast voller Platte: keine
+# Sicherung vor dem Umschalten. Der Grund steht danach auch im Journal (journal_warn), dazu kommt
+# die WARNUNG mit der jüngsten vorhandenen Sicherung (newest_backup): Sie ist dann der jüngste
+# Datenstand zum Zurückspielen. Stellt das neue Release die DB beim Start um (laut check_schema),
+# sagt es das auch.
+skip_snapshot() {  # $1 = Name des neuen Releases
+    SNAPSHOT=
+    if [ ! -e "$DB" ]; then
+        log "Keine Datenbank ($DB), also keine Sicherung vor dem Umschalten"
+        return 0
+    fi
+    journal_warn "Sicherung vor dem Umschalten auf $1 übersprungen (--no-snapshot): $NO_SNAPSHOT"
+    newest_backup
+    if [ -n "$LATEST" ]; then
+        log "WARNUNG: Jüngster Datenstand zum Zurückspielen ist damit die $LATEST_KIND $LATEST" \
+            "($LATEST_AGE). Meldungen seither gingen dabei verloren."
+    else
+        log "WARNUNG: Es gibt auch sonst keine Sicherung in $BACKUP_DIR (nächtlich oder vor einem Deploy)," \
+            "also keinen Datenstand zum Zurückspielen."
+    fi
+    if [ -n "$SCHEMA_DB" ] && [ "$SCHEMA_DB" -gt 0 ] && [ "$SCHEMA_RELEASE" -gt "$SCHEMA_DB" ]; then
+        log "WARNUNG: $1 stellt die Datenbank beim Start auf Schema-Version $SCHEMA_RELEASE um. Zurück auf das" \
+            "bisherige Release geht danach nur samt einer älteren Sicherung oder mit --force-schema."
+    fi
+}
+
+# Kurzfassung nach skip_snapshot für den automatischen Rollback und das Ende von deploy.sh: Statt
+# der Sicherung vor diesem Deploy gibt es höchstens eine ältere
+no_snapshot_note() {
+    if [ -n "$LATEST" ]; then
+        printf 'Keine Sicherung vor diesem Deploy (--no-snapshot), jüngster Datenstand: %s (%s, %s)\n' \
+            "$LATEST" "$LATEST_KIND" "$LATEST_AGE"
+    else
+        printf 'Keine Sicherung vor diesem Deploy (--no-snapshot) und auch sonst keine in %s\n' "$BACKUP_DIR"
+    fi
 }
 
 # Releases von vor der Sicherung vor dem Deploy kennen pre-deploy-*.db nicht, ihre nächtliche

@@ -18,13 +18,20 @@
 <section class="card map-card" aria-labelledby="map-title">
   <h2 id="map-title" class="card__title">{{ t("b_map_title") }}</h2>
   {%- set stops = [("DE", 180, 30), ("AT", 180, 92), ("SI", 88, 160), ("HR", 88, 222), ("HU", 200, 166), ("RO", 300, 280), ("RS", 170, 318), ("BG", 250, 420), ("TR", 250, 520)] %}
-  <svg class="map" viewBox="0 0 386 548" role="img" aria-label="{{ t('b_map_label') }}" data-map data-dir="to_tr">
+  {#- viewBox links und rechts mit Rand: „Hırvatistan“ (text-anchor=end bei x=76) reicht bis x≈-6,
+      „Rumänien“ bis x≈385, dazu 2 Einheiten Schrift-Halo (tests/e2e/layout_hint.js prüft das) #}
+  <svg class="map" viewBox="-12 0 404 548" role="img" aria-label="{{ t('b_map_label') }}" data-map data-dir="to_tr">
     <path class="map__line map__line--trunk" d="M180,30 L180,92 M170,318 Q215,368 250,420 L250,520"></path>
     <path class="map__line map__line--a" d="M180,92 Q212,132 200,166 Q186,248 170,318"></path>
-    <path class="map__line map__line--b" d="M180,92 Q118,118 88,160 L88,222 Q86,282 170,318"></path>
+    <path class="map__line map__line--b" d="M180,92 Q118,118 88,160 L88,222 Q96,256 129,270 Q162,284 170,318"></path>
     <path class="map__line map__line--c" d="M200,166 Q272,206 300,280 Q304,362 250,420"></path>
-    <path class="map__border" d="M58,272 Q200,300 336,306"></path>
-    <g class="map__arrow map__arrow--to_tr" aria-hidden="true"><path d="M245,466 L255,466 L250,478 Z"></path></g>
+    {#- EU-Außengrenze (wie transit.json): Serbien liegt außerhalb, Rumänien und Bulgarien innerhalb.
+        Die Linie läuft durch die Übergänge Batrovci, Röszke, Gradina und Kapıkule und kreuzt die
+        Routen nur dort; auf Route c (über Rumänien) liegt sie erst in Kapıkule, auf der Stammstrecke.
+        Route b führt dafür durch Batrovci (tests/test_web.py prüft beides). #}
+    <path class="map__border" d="M20,300 Q100,296 129,270 Q158,244 186,236 Q244,296 210,369 Q160,392 20,404 M140,478 Q196,472 250,470 Q300,492 366,494"></path>
+    {#- Pfeil Richtung Türkei zwischen Kapıkule (Halo bis y=483) und dem Türkei-Punkt (ab y≈512) #}
+    <g class="map__arrow map__arrow--to_tr" aria-hidden="true"><path d="M245,490 L255,490 L250,502 Z"></path></g>
     <g class="map__arrow map__arrow--to_de" aria-hidden="true"><path d="M175,76 L185,76 L180,64 Z"></path></g>
     {%- for code, x, y in stops %}
     <g class="map__stop{% if code in ('DE', 'TR') %} map__stop--end{% endif %}">
@@ -47,6 +54,7 @@
     <li><i class="sw sw--mid"></i>{{ t("b_level_mid") }}</li>
     <li><i class="sw sw--bad"></i>{{ t("b_level_bad") }}</li>
     <li><i class="sw sw--none"></i>{{ t("b_level_none") }}</li>
+    <li><i class="sw sw--border"></i>{{ t("b_map_eu_border") }}</li>
   </ul>
 </section>
 

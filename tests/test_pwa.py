@@ -1,4 +1,5 @@
 """PWA und Ablösung der Alt-App: Service-Worker-Konfiguration, Kill-Switch, alte URLs, Startbildschirm-Hinweis."""
+import html as htmllib
 import json
 import re
 
@@ -290,13 +291,19 @@ def test_route_check_accepts_targets_with_query_and_fragment():
 @pytest.mark.parametrize("path, title, ios", [
     ("/de/", "Öffnet an der Grenze auch ohne Netz", "„Zum Home-Bildschirm“"),
     ("/tr/sinir/kapikule", "Sınırda internetsiz de açılır", "“Ana Ekrana Ekle”yi seç"),
+    # Auf dem iPhone steckt „Teilen“ je nach iOS in einem anderen Menü neben der Adresse (iOS 26 „•••“,
+    # iOS 27 links davon); der Hinweis bleibt deshalb versionsneutral und kurz
+    ("/de/grenze", "Öffnet an der Grenze auch ohne Netz", "(iPhone: evtl. im Menü neben der Adresse)"),
+    ("/tr/", "Sınırda internetsiz de açılır", "(iPhone'da adres çubuğunun yanındaki menüde olabilir)"),
 ])
 def test_home_screen_hint_is_rendered_hidden(client, path, title, ios):
     html = client.get(path).get_data(as_text=True)
     hint = re.search(r'<aside class="a2hs" data-a2hs hidden[^>]*>(.*?)</aside>', html, re.S)
     assert hint, "Hinweis fehlt oder ist ohne JS sichtbar"
-    body = hint.group(1)
+    body = htmllib.unescape(hint.group(1))
     assert title in body and ios in body
+    # „ab iOS 26: erst •••“ stimmte mit iOS 27 nicht mehr – Versionen nennt nur die Info-Seite
+    assert "iOS" not in body
     assert re.search(r"data-a2hs-install hidden", body) and re.search(r"data-a2hs-ios hidden", body)
     assert 'href="#i-ios-share"' in body and 'href="#i-close"' in body
     assert 'id="i-ios-share"' in html and 'id="i-add-square"' in html and 'id="i-close"' in html
@@ -322,16 +329,32 @@ def test_no_home_screen_hint_on_error_pages(client):
     assert "data-a2hs" not in client.get("/gibts-nicht").get_data(as_text=True)
 
 
-@pytest.mark.parametrize("path, words", [
-    ("/de/info", ["Offline nutzen", "7 Tagen Safari-Nutzung", "Home-Bildschirm"]),
-    ("/tr/bilgi", ["İnternetsiz kullanım", "7 Safari kullanım gününden", "Ana Ekrana Ekle"]),
+@pytest.mark.parametrize("path, words, apple", [
+    ("/de/info", ["Offline nutzen", "7 Tagen Safari-Nutzung", "Home-Bildschirm", "bei iOS 26 im Menü „•••“",
+                  "bei iOS 27 im Menü links neben der Adresse", "„Als Web-App öffnen“ eingeschaltet lassen"],
+     ("de-de", "Apple: iPhone-Benutzerhandbuch")),
+    ("/tr/bilgi", ["İnternetsiz kullanım", "7 Safari kullanım gününden", "Ana Ekrana Ekle",
+                   "iOS 26'da “•••” menüsünde", "iOS 27'de adres çubuğunun solundaki menüde",
+                   "web uygulaması seçeneğini açık bırak"],
+     ("tr-tr", "Apple: iPhone Kullanma Kılavuzu")),
 ])
-def test_info_page_explains_offline_behaviour_honestly(client, path, words):
+def test_info_page_explains_offline_behaviour_honestly(client, path, words, apple):
     html = client.get(path).get_data(as_text=True)
     section = re.search(r'<section class="card prose" id="offline".*?</section>', html, re.S).group(0)
+    section = htmllib.unescape(section)
     for word in words:
         assert word in section
     assert 'href="https://webkit.org/tracking-prevention/"' in section
+    # Schritte je iOS-Version („•••“ bzw. Menü links → Teilen, Schalter „Als Web-App öffnen“) laut Apple-Handbuch,
+    # in der Sprache der Seite und versioniert: Die Seite ohne Version zeigt immer das neueste iOS
+    locale, label = apple
+    template = (tatilvakti.PACKAGE_DIR / "templates" / "info.html").read_text(encoding="utf-8")
+    for v in ("26", "27"):
+        url = f"https://support.apple.com/{locale}/guide/iphone/iphea86e5236/{v}/ios/{v}"
+        assert f'href="{url}"' in section
+        assert url in template  # ausgeschrieben, nicht zusammengesetzt: sonst findet eine Link-Prüfung sie nicht
+        assert f"{label} (iOS {v})" in section
+    assert "iphea86e5236/ios" not in section
     assert "90" in section  # Warteschlange: so lange werden Meldungen nachgeliefert
 
 

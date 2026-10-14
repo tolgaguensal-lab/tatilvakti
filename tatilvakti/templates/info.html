@@ -38,7 +38,16 @@
   <h2 id="offline-title" class="card__title">{{ icon("offline") }}{{ t("i_offline") }}</h2>
   <p>{{ t("i_offline_p1") }}</p>
   <p>{{ t("i_offline_p2") }}</p>
-  <p class="hint">{{ t("source") }}: {{ ext("https://webkit.org/tracking-prevention/", "WebKit: Tracking Prevention") }}</p>
+  {#- Apple-Handbuch je Sprache und versioniert: Die Seite ohne Version zeigt immer das neueste iOS,
+      mit iOS 27 wanderte „Teilen“ aus „•••“ ins Menü links neben der Adresse. Adressen ausgeschrieben,
+      damit eine Link-Prüfung sie im Template findet #}
+  {%- set apple_guide = {
+    "de": [("26", "https://support.apple.com/de-de/guide/iphone/iphea86e5236/26/ios/26"),
+           ("27", "https://support.apple.com/de-de/guide/iphone/iphea86e5236/27/ios/27")],
+    "tr": [("26", "https://support.apple.com/tr-tr/guide/iphone/iphea86e5236/26/ios/26"),
+           ("27", "https://support.apple.com/tr-tr/guide/iphone/iphea86e5236/27/ios/27")]}[lang] %}
+  <p class="hint">{{ t("sources") }}: {{ ext("https://webkit.org/tracking-prevention/", "WebKit: Tracking Prevention") }}
+    {%- for v, url in apple_guide %} · {{ ext(url, t("i_offline_src_apple", v="iOS " ~ v)) }}{% endfor %}</p>
 </section>
 
 <section class="card prose" id="datenschutz" aria-labelledby="privacy-title">

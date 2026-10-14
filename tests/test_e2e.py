@@ -6,7 +6,8 @@ muss für Node auffindbar sein (NODE_PATH oder PLAYWRIGHT_MODULE), zum Beispiel:
 
     TV_E2E=1 NODE_PATH=/opt/node-tools/node_modules .venv/bin/python -m pytest -m e2e
 
-Jedes Skript in tests/e2e/ (außer lib.js) bekommt eine eigene App mit leerer Temp-DB und fester Uhr.
+Jedes Skript in tests/e2e/ (außer lib.js) bekommt eine eigene App mit leerer Temp-DB und fester Uhr;
+pattern.js zusätzlich Meldungen der Vortage für den Tagesverlauf von Kapıkule (SEEDS).
 Chromium rendert mit fester Systemschrift DejaVu Sans (tests/e2e/fonts.conf, Paket fonts-dejavu-core),
 damit die Layout-Prüfungen auf jedem Rechner und in der CI gleich messen. Ein eigenes FONTCONFIG_FILE
 im Aufruf geht vor, z. B. um mit einer anderen Schrift zu prüfen.
@@ -17,11 +18,13 @@ import subprocess
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from werkzeug.serving import WSGIRequestHandler, make_server
 
 from tatilvakti import create_app
+from tatilvakti.db import connect
 
 E2E_DIR = Path(__file__).parent / "e2e"
 SCRIPTS = sorted(p.name for p in E2E_DIR.glob("*.js") if p.name != "lib.js")
@@ -45,10 +48,33 @@ class QuietHandler(WSGIRequestHandler):
         pass
 
 
+def seed_pattern(db_path: str) -> None:
+    """Tagesverlauf für Kapıkule, beide Richtungen: an drei Vortagen je Ortsstunde eine Meldung,
+    Wartezeit Ortsstunde % 6, ab 21 Uhr „über 4 Std.“ (höchste Balken neben den Beschriftungen)."""
+    now, zone = int(NOW.timestamp()), ZoneInfo("Europe/Istanbul")
+    conn = connect(db_path)
+    try:
+        for day in (1, 2, 3):
+            for offset in range(24):
+                ts = now - day * 86400 - offset * 3600
+                hour = datetime.fromtimestamp(ts, zone).hour
+                for direction in ("to_tr", "to_de"):
+                    conn.execute("INSERT INTO reports (crossing, direction, bucket, observed_at, created_at) VALUES (?, ?, ?, ?, ?)",
+                                 ("kapikule", direction, 5 if hour >= 21 else hour % 6, ts, ts))
+    finally:
+        conn.close()
+
+
+SEEDS = {"pattern.js": seed_pattern}
+
+
 @pytest.fixture
-def live_app(tmp_path):
+def live_app(tmp_path, request):
     app = create_app({"TESTING": True, "TV_DB_PATH": str(tmp_path / "e2e.db"), "TV_CLOCK": lambda: NOW,
                       "TV_LEGACY_SW_PATHS": LEGACY_SW_PATHS})
+    seed = SEEDS.get(request.node.callspec.params.get("script")) if hasattr(request.node, "callspec") else None
+    if seed:
+        seed(app.config["TV_DB_PATH"])
     server = make_server("127.0.0.1", 0, app, threaded=True, request_handler=QuietHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -88,7 +114,11 @@ def font_env():
 
 def test_scripts_are_found():
     assert {"service_worker.js", "report_queue.js", "layout_hint.js", "kill_switch.js",
-            "old_browsers.js", "bad_params.js", "toolbar_layout.js", "share_report.js"} <= set(SCRIPTS)
+            "old_browsers.js", "bad_params.js", "toolbar_layout.js", "share_report.js", "pattern.js"} <= set(SCRIPTS)
+    assert set(SEEDS) <= set(SCRIPTS)
+    # Jedes Skript steht in der Tabelle der Browser-Tests im README
+    readme = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
+    assert [s for s in SCRIPTS if f"| `{s}` |" not in readme] == []
 
 
 @pytest.mark.parametrize("script", SCRIPTS)

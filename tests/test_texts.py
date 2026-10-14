@@ -209,6 +209,9 @@ def test_turkish_texts_use_the_informal_sen_form_throughout():
     ("evrimdış", "Fachwort; TDK schreibt ohnehin getrennt – „internetsiz“, „İnternet yok“"),
     ("çevrim içi", "Fachwort – „internetten“, „internet gelince“"),
     ("„", "deutsches Anführungszeichen – im Türkischen “…”"),
+    ("gümrük kapı", "einheitlich „sınır kapısı“ wie überall sonst"),
+    ("eskiydi ve gönderilmedi", "Meldung kam an und wurde verworfen (422), „gönderilmedi“ = nicht gesendet"),
+    ("ortalama bekleme", "der Tagesverlauf zeigt den Median (borders.median_high), „ortalama“ = Mittelwert"),
 ])
 def test_audit_wording_is_gone_from_turkish_texts(wrong, why):
     assert [where for where, text in _turkish_texts() if wrong in text] == [], why
@@ -227,12 +230,22 @@ def test_resmi_is_always_spelled_with_circumflex():
     ("b_pattern", "Saatlere göre bekleme"),
     ("err_404_text", "Bu sayfa bulunamadı ya da artık yok."),
     ("hol_your", "Okul tatilin – {state}"),  # „{state} okul tatilin“ hatte keinen Anschluss
+    ("b_report_stale", "Bu bildirim çok eskiydi ve kabul edilmedi."),  # DE: „verworfen“
+    ("i_review_after", "bir sonraki kontrol en geç {date}"),  # DE: „bis {date}“ – eine Frist, kein Termin
+    ("b_pattern_expl", "Saate göre bildirilen tipik bekleme ({tz}), son {w} hafta. Gri saatler: yeterli bildirim yok."),
     ("hol_pressure_expl", "O gün okul tatilinde olan eyaletlerde yaşayanların Almanya nüfusundaki oranı "
                           "(kısa tatiller hariç, aşağıdaki nota bak)."),
 ])
 def test_audit_replacements_are_in_place(key, expected):
     tr = json.loads((ROOT / "i18n" / "tr.json").read_text(encoding="utf-8"))
     assert tr[key] == expected
+
+
+def test_pattern_explanation_says_typical_not_average():
+    """Der Tagesverlauf zeigt je Stunde den oberen Median der Stufen (borders.py, median_high), keinen
+    Mittelwert: „Typische“ wie die Überschrift „Typischer Tagesverlauf“, nicht „Mittlere“."""
+    de = json.loads((ROOT / "i18n" / "de.json").read_text(encoding="utf-8"))
+    assert de["b_pattern_expl"].startswith("Typische gemeldete Wartezeit je Uhrzeit")
 
 
 def test_audit_replacements_in_the_data():

@@ -1,19 +1,22 @@
-# CI: prüft jeden Push (alle Branches) und jeden Pull Request. Was läuft, die Pflicht-Checks für
-# main und wie man alles lokal nachstellt: README → Setup → CI (GitHub Actions). Die CI sieht nur
-# den Code, keine Nutzerdaten, und braucht keine Secrets.
+# CI: prüft jeden Pull Request und jeden Push auf main, dazu manuelle Läufe für einen beliebigen
+# Branch (workflow_dispatch). Ein Push auf einen anderen Branch allein startet nichts, sonst liefe
+# derselbe Stand mit offenem Pull Request doppelt. Was läuft, die Pflicht-Checks für main und wie
+# man alles lokal nachstellt: README → Setup → CI (GitHub Actions). Die CI sieht nur den Code,
+# keine Nutzerdaten, und braucht keine Secrets.
 name: ci
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-# Ein neuer Push bricht den laufenden Lauf desselben Branches bzw. Pull Requests ab. Auf main hat
-# jeder Commit eine eigene Gruppe und wird zu Ende geprüft: deploy.sh rollt main aus, jeder Stand
-# dort soll ein Ergebnis haben.
+# Ein neuer Push auf einen Pull Request bricht dessen laufenden Lauf ab, ein neuer manueller Lauf
+# den laufenden manuellen Lauf desselben Branches. Auf main hat jeder Commit eine eigene Gruppe und
+# wird zu Ende geprüft: deploy.sh rollt main aus, jeder Stand dort soll ein Ergebnis haben.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: true
